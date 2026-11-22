@@ -1,0 +1,48 @@
+{
+  "name": "inugram",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
+  "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "generate-icons": "tsx scripts/generate-icons.ts",
+    "generate-icon-packs": "tsx scripts/generate-icon-packs.ts",
+    "preview-icons": "tsx scripts/preview-icons.ts",
+    "generate-tl": "tsx scripts/generate-tl.ts",
+    "export": "tsx scripts/export.ts",
+    "rebase": "tsx scripts/rebase.ts",
+    "find-patches": "tsx scripts/find-patches.ts",
+    "lint-patches": "tsx scripts/lint-patches.ts",
+    "push-theme": "tsx scripts/push-theme.ts",
+    "gradle": "tsx scripts/gradle.ts",
+    "build-debug": "tsx scripts/generate-grants.ts && tsx scripts/gradle.ts TMessagesProj_App:assembleDebug",
+    "build-debug-pluginless": "tsx scripts/gradle.ts --pluginless TMessagesProj_App:assembleDebug",
+    "run-debug": "tsx scripts/gradle.ts TMessagesProj_App:installDebug && adb shell am start desu.inugram.beta/org.telegram.ui.LaunchActivity",
+    "run-debug-pluginless": "tsx scripts/gradle.ts --pluginless TMessagesProj_App:installDebug && adb shell am start desu.inugram.beta/org.telegram.ui.LaunchActivity",
+    "check-plugin-syntax": "for f in src/test/plugins/*.js $(find src/native/src -name '*.js'); do node --check \"$f\" || exit 1; done",
+    "typecheck-plugins": "pnpm run check-plugin-syntax && tsx scripts/generate-tl.ts && tsx scripts/generate-grants.ts && tsc -p sdk/types/tsconfig.self.json --noEmit && tsc -p src/test/plugins --noEmit",
+    "prepare": "husky",
+    "generate-grants": "tsx scripts/generate-grants.ts",
+    "build-sdk": "pnpm --filter @inugram/cli run build",
+    "typecheck-sdk": "tsc -p sdk/cli --noEmit && tsc -p sdk/cli/src/templates/default --noEmit",
+    "test-sdk": "pnpm --filter @inugram/cli run test"
+  },
+  "dependencies": {
+    "@antfu/eslint-config": "^8.1.0",
+    "@fuman/utils": "^0.0.19",
+    "@iconify-json/tabler": "^1.2.33",
+    "@mtcute/node": "^0.32.3",
+    "eslint": "^10.2.0",
+    "tinyglobby": "^0.2.16",
+    "zx": "^8.8.4"
+  },
+  "devDependencies": {
+    "@inugram/plugin-types": "workspace:*",
+    "@types/node": "^24.6.1",
+    "@types/proper-lockfile": "^4.1.4",
+    "husky": "^9.1.7",
+    "proper-lockfile": "^4.1.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
