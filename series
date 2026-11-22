@@ -447,3 +447,4 @@ bugfix/bottom-bar-ripple-origin.patch
 bugfix/twidget-security-bump.patch
 bugfix/share-alert-keyboard.patch
 feature/m3-seed-theme.patch
+feature/m3-avatar-shapes.patch

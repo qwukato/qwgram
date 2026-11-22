@@ -187,6 +187,7 @@ object InuConfig {
     // SeedScheme.CONTRAST_* (standard, medium, high)
     @JvmField
     val M3_SEED_CONTRAST = IntItem("m3_seed_contrast", 0)
+    val AVATAR_SHAPE = StringItem("avatar_shape", "circle")
 
     // the Material 3 theme was switched on once at first launch; never again after the user changes it
     @JvmField

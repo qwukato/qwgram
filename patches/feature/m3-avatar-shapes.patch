@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qwgram <ci@qwgram>
+Subject: draw user/chat avatars in the selected Material 3 Expressive shape
+
+---
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/ImageReceiver.java b/TMessagesProj/src/main/java/org/telegram/messenger/ImageReceiver.java
+index 0f61482..d6638b2 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/ImageReceiver.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/ImageReceiver.java
+@@ -323,6 +323,8 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
+     private boolean forceNotMedia;
+     private boolean forceCrossfade;
+     private boolean useRoundRadius = true;
++    // qwgram: set for user/chat avatars so they can take the selected Material 3 shape
++    public boolean qwAvatarShape;
+     private final int[] roundRadius = new int[4];
+     private int[] emptyRoundRadius;
+     private boolean isRoundRect = true;
+@@ -425,6 +427,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
+     }
+ 
+     public void setForUserOrChat(TLObject object, Drawable avatarDrawable, Object parentObject, boolean animationEnabled, int vectorType, boolean big) {
++        qwAvatarShape = true;
+         if (parentObject == null) {
+             parentObject = object;
+         }
+@@ -1410,7 +1413,9 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
+                         roundPaint.setAlpha(alpha);
+                         roundRect.set(drawRegion);
+ 
+-                        if (isRoundRect && useRoundRadius) {
++                        if (qwAvatarShape && backgroundThreadDrawHolder == null && desu.inugram.helpers.theme.AvatarShapes.drawShaped(canvas, roundRect, roundRadius[0], roundPaint)) {
++                            // qwgram: avatar drawn as a Material 3 shape
++                        } else if (isRoundRect && useRoundRadius) {
+                             try {
+                                 if (canvas != null) {
+                                     if (roundRadius[0] == 0) {
+@@ -1520,7 +1525,9 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
+ 
+                         roundPaint.setAlpha(alpha);
+ 
+-                        if (isRoundRect && useRoundRadius) {
++                        if (qwAvatarShape && backgroundThreadDrawHolder == null && desu.inugram.helpers.theme.AvatarShapes.drawShaped(canvas, roundRect, roundRadius[0], roundPaint)) {
++                            // qwgram: avatar drawn as a Material 3 shape
++                        } else if (isRoundRect && useRoundRadius) {
+                             try {
+                                 if (canvas != null) {
+                                     if (roundRadius[0] == 0) {
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/AvatarDrawable.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/AvatarDrawable.java
+index 8443859..d9ca5e8 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/AvatarDrawable.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/AvatarDrawable.java
+@@ -650,7 +650,7 @@ public class AvatarDrawable extends Drawable {
+             if (roundRadius > 0) {
+                 AndroidUtilities.rectTmp.set(0, 0, size, size);
+                 canvas.drawRoundRect(AndroidUtilities.rectTmp, roundRadius, roundRadius, backgroundPaint);
+-            } else {
++            } else if (rotate45Background || !desu.inugram.helpers.theme.AvatarShapes.drawBackground(canvas, size, backgroundPaint)) {
+                 canvas.drawCircle(size / 2.0f, size / 2.0f, size / 2.0f, backgroundPaint);
+             }
+             if (rotate45Background) {

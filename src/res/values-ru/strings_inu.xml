@@ -1096,4 +1096,6 @@
     <string name="QwColorInfo">Из этого цвета строится вся цветовая схема Material 3: чаты, пузыри, кнопки и фоны. Работает на любой версии Android.</string>
     <string name="QwBasedOnInugram">Основано на Inugram</string>
     <string name="QwUnofficialNotice">qwgram — неофициальный клиент Telegram. Использует Telegram API и не связан с Telegram FZ-LLC. Исходный код: GPL v2+.</string>
+    <string name="QwAvatarShape">Форма аватарок</string>
+    <string name="QwAvatarShapeInfo">Формы Material 3 Expressive. Аватарки плавно перетекают из одной формы в другую; у форумов и медиа своя форма.</string>
 </resources>

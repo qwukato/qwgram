@@ -32,6 +32,7 @@ class AppearanceSettingsActivity : SettingsPageActivity() {
 
     private var animationSpeedSlider: SliderCell? = null
     private var seedSwatches: SeedSwatchesCell? = null
+    private var shapeCell: AvatarShapeCell? = null
 
     private val material3Group = ExpandableBoolGroup(
         LocaleController.getString(R.string.InuMaterial3),
@@ -218,6 +219,14 @@ class AppearanceSettingsActivity : SettingsPageActivity() {
             items.add(UItem.asButton(BUTTON_M3_CONTRAST, LocaleController.getString(R.string.QwContrast), contrastLabel(InuConfig.M3_SEED_CONTRAST.value)))
         }
         items.add(UItem.asShadow(LocaleController.getString(R.string.QwColorInfo)))
+
+        items.add(UItem.asHeader(LocaleController.getString(R.string.QwAvatarShape)))
+        val shapes = shapeCell ?: AvatarShapeCell(context) { key ->
+            InuConfig.AVATAR_SHAPE.value = key
+            softRebuild()
+        }.also { shapeCell = it }
+        items.add(UItem.asCustom(shapes))
+        items.add(UItem.asShadow(LocaleController.getString(R.string.QwAvatarShapeInfo)))
     }
 
     private fun setSeed(seed: Int) {

@@ -23,7 +23,7 @@ object SeedScheme {
     const val CONTRAST_HIGH = 2
 
     /** Default seed: the skill's baseline blue. */
-    const val DEFAULT_SEED = 0xFF3D6CB5.toInt()
+    const val DEFAULT_SEED = 0xFF6750A4.toInt()
 
     /** Accent presets shown in settings (same set as the qwgram web client). */
     @JvmField
