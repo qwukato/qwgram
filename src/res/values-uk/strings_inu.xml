@@ -573,7 +573,7 @@
     <string name="InuShowFilteredMessages">Показати приховані повідомлення</string>
     <string name="InuHideFilteredMessages">Сховати приховані повідомлення</string>
     <string name="InuAppIconStock">Стандартний</string>
-    <string name="InuAppIconLicenseInugram">Тимчасовий значок, можете запропонувати кращий</string>
+    <string name="InuAppIconLicenseInugram">The qwgram icon</string>
     <string name="InuAppIconLicenseTelegram">Іконка від **Telegram**. Усі права захищено.</string>
     <string name="InuJumpToBeginning">Перейти на самий початок</string>
     <string name="InuAbout">Про додаток</string>

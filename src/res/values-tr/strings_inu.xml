@@ -596,7 +596,7 @@
     <string name="InuShowFilteredMessages">Gizli mesajları göster</string>
     <string name="InuHideFilteredMessages">Gizli mesajları gizle</string>
     <string name="InuAppIconStock">Varsayılan</string>
-    <string name="InuAppIconLicenseInugram">Yer tutucu simge, daha iyisini katkıda bulunmaktan çekinmeyin</string>
+    <string name="InuAppIconLicenseInugram">The qwgram icon</string>
     <string name="InuAppIconLicenseTelegram">Simge **Telegram** tarafından yapılmıştır. Tüm hakları saklıdır.</string>
     <string name="InuJumpToBeginning">En başa git</string>
 

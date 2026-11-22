@@ -482,7 +482,7 @@
     <string name="InuShowFilteredMessages">显示隐藏的消息</string>
     <string name="InuHideFilteredMessages">隐藏已隐藏的消息</string>
     <string name="InuAppIconStock">原版</string>
-    <string name="InuAppIconLicenseInugram">占位图标，欢迎提供更好的</string>
+    <string name="InuAppIconLicenseInugram">The qwgram icon</string>
     <string name="InuAppIconLicenseTelegram">图标版权归 **Telegram** 所有。保留所有权利。</string>
     <string name="InuJumpToBeginning">跳到开头</string>
 
@@ -587,7 +587,7 @@
     <string name="InuSendWithoutPack">不带贴纸包发送</string>
     <string name="InuPasscode">密码锁</string>
     <string name="InuPasscodeNeeded">请先设置 Telegram 密码锁。</string>
-    <string name="InuPasscodeShowInSettings">在 inugram 设置中显示</string>
+    <string name="InuPasscodeShowInSettings">在 qwgram 设置中显示</string>
     <string name="InuPasscodeShowInSettingsInfo">关闭时，本页**只能**通过下方链接打开。请立即保存 —— 一旦生成将不再更改。</string>
     <string name="InuPasscodeAccountsInfo">每个账号可以有自己的密码。在锁屏输入它会解锁应用并切换到该账号。</string>
     <string name="InuPasscodeStateNone">未设置</string>
@@ -626,7 +626,7 @@
     <string name="InuMenuBottomRowFull">快捷操作栏已满 (最多 4 个)</string>
     <string name="InuPrivacySecurity">隐私与安全</string>
     <string name="InuPerAccountPasscode">每个账号独立密码</string>
-    <string name="InuHideInugramSettings">隐藏 inugram 设置</string>
+    <string name="InuHideInugramSettings">隐藏 qwgram 设置</string>
     <string name="InuParanoiaDisableNotifications">禁用通知</string>
     <string name="InuParanoiaHideOtherAccounts">隐藏其他账号</string>
     <string name="InuParanoiaDisguise">伪装成 Telegram</string>

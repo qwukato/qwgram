@@ -483,7 +483,7 @@
     <string name="InuShowFilteredMessages">非表示のメッセージを表示</string>
     <string name="InuHideFilteredMessages">非表示のメッセージを隠す</string>
     <string name="InuAppIconStock">標準</string>
-    <string name="InuAppIconLicenseInugram">仮アイコンです。より良いものを提供していただけたら嬉しいです</string>
+    <string name="InuAppIconLicenseInugram">The qwgram icon</string>
     <string name="InuAppIconLicenseTelegram">**Telegram** によるアイコン。All rights reserved.</string>
     <string name="InuJumpToBeginning">最初へ移動</string>
 
@@ -588,7 +588,7 @@
     <string name="InuSendWithoutPack">パックなしで送信</string>
     <string name="InuPasscode">パスコード</string>
     <string name="InuPasscodeNeeded">先に Telegram のパスコードを設定してください。</string>
-    <string name="InuPasscodeShowInSettings">inugram の設定に表示</string>
+    <string name="InuPasscodeShowInSettings">qwgram の設定に表示</string>
     <string name="InuPasscodeShowInSettingsInfo">オフの場合、このページは下のリンクからしか開けません。今すぐ保存してください — 一度生成されると変更されません。</string>
     <string name="InuPasscodeAccountsInfo">各アカウントに独自のパスコードを設定できます。ロック画面で入力するとアプリのロックが解除され、そのアカウントに切り替わります。</string>
     <string name="InuPasscodeStateNone">未設定</string>
@@ -627,7 +627,7 @@
     <string name="InuMenuBottomRowFull">クイックアクション行は満杯です（最大 4 件）</string>
     <string name="InuPrivacySecurity">プライバシーとセキュリティ</string>
     <string name="InuPerAccountPasscode">アカウントごとのパスコード</string>
-    <string name="InuHideInugramSettings">inugram の設定を非表示</string>
+    <string name="InuHideInugramSettings">qwgram の設定を非表示</string>
     <string name="InuParanoiaDisableNotifications">通知を無効化</string>
     <string name="InuParanoiaHideOtherAccounts">他のアカウントを非表示</string>
     <string name="InuParanoiaDisguise">Telegram に偽装</string>

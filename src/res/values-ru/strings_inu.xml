@@ -485,7 +485,7 @@
     <string name="InuShowFilteredMessages">Показать скрытые сообщения</string>
     <string name="InuHideFilteredMessages">Спрятать скрытые сообщения</string>
     <string name="InuAppIconStock">Стандартная</string>
-    <string name="InuAppIconLicenseInugram">Временная иконка, не стесняйтесь предложить лучше</string>
+    <string name="InuAppIconLicenseInugram">qwgram — официальная иконка</string>
     <string name="InuAppIconLicenseTelegram">Иконка от **Telegram**. Все права защищены.</string>
     <string name="InuJumpToBeginning">Перейти в начало</string>
 
@@ -600,7 +600,7 @@
 
     <string name="InuPasscode">Код-пароль</string>
     <string name="InuPasscodeNeeded">Сначала настройте код-пароль Telegram.</string>
-    <string name="InuPasscodeShowInSettings">Показывать в настройках inugram</string>
+    <string name="InuPasscodeShowInSettings">Показывать в настройках qwgram</string>
     <string name="InuPasscodeShowInSettingsInfo">Когда выключено, эту страницу можно открыть **только** по ссылке ниже. Сохраните её сейчас — после создания она не меняется.</string>
     <string name="InuPasscodeAccountsInfo">У каждого аккаунта может быть свой код-пароль. Ввод его на экране блокировки разблокирует приложение и переключит на этот аккаунт.</string>
     <string name="InuPasscodeStateNone">Не настроен</string>
@@ -639,7 +639,7 @@
     <string name="InuMessageMenuReset">Сбросить по умолчанию</string>
     <string name="InuPrivacySecurity">Конфиденциальность и безопасность</string>
     <string name="InuPerAccountPasscode">Код-пароль для каждого аккаунта</string>
-    <string name="InuHideInugramSettings">Скрыть настройки inugram</string>
+    <string name="InuHideInugramSettings">Скрыть настройки qwgram</string>
     <string name="InuParanoiaDisableNotifications">Отключить уведомления</string>
     <string name="InuParanoiaHideOtherAccounts">Скрыть другие аккаунты</string>
     <string name="InuParanoiaDisguise">Маскировка под Telegram</string>

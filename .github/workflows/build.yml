@@ -40,8 +40,8 @@ jobs:
 
       - name: configure git identity
         run: |
-          git config --global user.email ci@zhirgram
-          git config --global user.name 'zhirgram ci'
+          git config --global user.email ci@qwgram
+          git config --global user.name 'qwgram ci'
 
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -127,7 +127,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: zhirgram-apk
+          name: qwgram-apk
           path: worktree-pluginless/TMessagesProj_App/build/outputs/apk/release/app.apk
           if-no-files-found: error
           retention-days: 14

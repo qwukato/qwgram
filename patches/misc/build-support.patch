@@ -362,7 +362,7 @@ index 0000000..0000000 100644
 +        "mobilesdk_app_id": "1:1058545853294:android:fd3a66d8c6bde26b45177f",
          "android_client_info": {
 -          "package_name": "org.telegram.messenger"
-+          "package_name": "com.qwenz.zhirgram"
++          "package_name": "app.qwgram"
          }
        },
 -      "oauth_client": [
@@ -396,7 +396,7 @@ index 0000000..0000000 100644
 +        "mobilesdk_app_id": "1:1058545853294:android:d6b70c9beedf100745177f",
          "android_client_info": {
 -          "package_name": "org.telegram.messenger.beta"
-+          "package_name": "com.qwenz.zhirgram.beta"
++          "package_name": "app.qwgram.beta"
          }
        },
 -      "oauth_client": [
@@ -729,7 +729,7 @@ index 0000000..0000000 100644
      buildToolsVersion '36.0.0'
  
 -    defaultConfig.applicationId = APP_PACKAGE
-+    defaultConfig.applicationId = "com.qwenz.zhirgram"
++    defaultConfig.applicationId = "app.qwgram"
  
  
      lintOptions {
@@ -1031,7 +1031,7 @@ index 0000000..0000000 100644
 +        "mobilesdk_app_id": "1:1058545853294:android:fd3a66d8c6bde26b45177f",
          "android_client_info": {
 -          "package_name": "org.telegram.messenger"
-+          "package_name": "com.qwenz.zhirgram"
++          "package_name": "app.qwgram"
          }
        },
 -      "oauth_client": [
@@ -1065,7 +1065,7 @@ index 0000000..0000000 100644
 +        "mobilesdk_app_id": "1:1058545853294:android:d6b70c9beedf100745177f",
          "android_client_info": {
 -          "package_name": "org.telegram.messenger.beta"
-+          "package_name": "com.qwenz.zhirgram.beta"
++          "package_name": "app.qwgram.beta"
          }
        },
 -      "oauth_client": [

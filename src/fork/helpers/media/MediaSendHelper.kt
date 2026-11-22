@@ -42,7 +42,7 @@ object MediaSendHelper {
                 params[AnimatedFileInfo.PARAM_NUM_SUPPORTED_VIDEO_CODEC] = 1
             }
         } catch (e: Exception) {
-            Log.d("Inugram", "Unable to check video conversion support", e)
+            Log.d("qwgram", "Unable to check video conversion support", e)
         } finally {
             extractor.release()
         }

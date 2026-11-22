@@ -595,7 +595,7 @@
     <string name="InuShowFilteredMessages">Show hidden messages</string>
     <string name="InuHideFilteredMessages">Hide hidden messages</string>
     <string name="InuAppIconStock">Stock</string>
-    <string name="InuAppIconLicenseInugram">Placeholder icon, feel free to contribute a better one</string>
+    <string name="InuAppIconLicenseInugram">The qwgram icon</string>
     <string name="InuAppIconLicenseTelegram">Icon by **Telegram**. All rights reserved.</string>
     <string name="InuJumpToBeginning">Jump to the beginning</string>
 
@@ -702,7 +702,7 @@
     <string name="InuSendWithoutPack">Send without pack</string>
     <string name="InuPasscode">Passcode</string>
     <string name="InuPasscodeNeeded">Set up a Telegram passcode first.</string>
-    <string name="InuPasscodeShowInSettings">Show in inugram settings</string>
+    <string name="InuPasscodeShowInSettings">Show in qwgram settings</string>
     <string name="InuPasscodeShowInSettingsInfo">When off, this page can **only** be opened via the link below. Save it now — it doesn\'t change once generated.</string>
     <string name="InuPasscodeAccountsInfo">Each account can have its own passcode. Entering it on the lock screen unlocks the app and switches to that account.</string>
     <string name="InuPasscodeStateNone">Not configured</string>

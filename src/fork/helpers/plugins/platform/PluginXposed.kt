@@ -63,7 +63,7 @@ object PluginXposed : SessionResource {
     @Synchronized
     private fun ensureReady(): Boolean = ready ?: runCatching {
         if (Native.nativeHasLoadedLsposed()) {
-            unavailableReason = "xposed: Inugram is in LSPosed scope; remove it from every module's scope before using inu.xposed"
+            unavailableReason = "xposed: qwgram is in LSPosed scope; remove it from every module's scope before using inu.xposed"
             false
         } else {
             System.loadLibrary("lsplant")
