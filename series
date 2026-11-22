@@ -448,3 +448,4 @@ bugfix/twidget-security-bump.patch
 bugfix/share-alert-keyboard.patch
 feature/m3-seed-theme.patch
 feature/m3-avatar-shapes.patch
+feature/m3-expressive-folders.patch

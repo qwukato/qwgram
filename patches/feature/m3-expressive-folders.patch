@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qwgram <ci@qwgram>
+Subject: Material 3 Expressive folder bar (connected button group)
+
+---
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/FilterTabsView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/FilterTabsView.java
+index dadc639..757cd2e 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/FilterTabsView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/FilterTabsView.java
+@@ -316,6 +316,9 @@ public class FilterTabsView extends FrameLayout {
+                 );
+                 canvas.rotate(1.4f * s, getMeasuredWidth() / 2f, getMeasuredHeight() / 2f);
+             }
++            if (desu.inugram.helpers.dialogs.QwFolderStyle.enabled()) {
++                desu.inugram.helpers.dialogs.QwFolderStyle.drawSegment(canvas, this, currentPosition, tabs.size(), Theme.getColor(tabLineColorKey, resourcesProvider));
++            }
+             int key;
+             int animateToKey;
+             int otherKey;
+@@ -1544,6 +1547,14 @@ public class FilterTabsView extends FrameLayout {
+ 
+             if (desu.inugram.helpers.theme.NonIslandHelper.foldersBar()) {
+                 desu.inugram.helpers.theme.NonIslandHelper.setMd3TabIndicatorBounds(selectorDrawable, indicatorX, indicatorWidth, height, 0f, inu_indicatorAtTop);
++            } else if (desu.inugram.helpers.dialogs.QwFolderStyle.enabled()) {
++                // qwgram: tonal pill over the selected segment of the connected button group
++                final int half = desu.inugram.helpers.dialogs.QwFolderStyle.halfHeight();
++                final int y = height / 2 - half;
++                final float pad = dp(FolderHelper.getTabPadding()) / 2f;
++                selectorDrawable.setCornerRadius(half);
++                selectorDrawable.setBounds((int) (indicatorX - pad - add + dp(1)), y, (int) (indicatorX + indicatorWidth + pad + add - dp(1)), y + half * 2);
++                selectorDrawable.setAlpha((int) (64 * listView.getAlpha()));
+             } else {
+                 final int y = height / 2 - dp(14);
+                 selectorDrawable.setBounds((int) (indicatorX - dp(FolderHelper.getTabInternalPadding()) - add), y, (int) (indicatorX + indicatorWidth + dp(FolderHelper.getTabInternalPadding()) + add), y + dp(28));

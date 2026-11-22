@@ -43,6 +43,7 @@ class AppearanceSettingsActivity : SettingsPageActivity() {
             ExpandableBoolGroup.Option(R.string.InuMaterial3Sections, InuConfig.M3_SECTIONS_STYLE, TOGGLE_M3_SECTIONS_STYLE),
             ExpandableBoolGroup.Option(R.string.InuMaterial3Avatars, InuConfig.MATERIAL3_AVATARS, TOGGLE_MATERIAL3_AVATARS),
             ExpandableBoolGroup.Option(R.string.InuMaterial3BottomTabs, InuConfig.M3_BOTTOM_TABS, TOGGLE_M3_BOTTOM_TABS),
+            ExpandableBoolGroup.Option(R.string.QwExpressiveFolders, InuConfig.EXPRESSIVE_FOLDERS, TOGGLE_EXPRESSIVE_FOLDERS),
             ExpandableBoolGroup.Option(R.string.InuMaterialProfileActions, InuConfig.MATERIAL_PROFILE_ACTIONS, TOGGLE_MATERIAL_PROFILE_ACTIONS),
             ExpandableBoolGroup.Option(R.string.InuMaterial3NavigationAnimation, InuConfig.M3_NAVIGATION_ANIMATION, TOGGLE_M3_NAVIGATION_ANIMATION),
         ),
@@ -424,6 +425,7 @@ class AppearanceSettingsActivity : SettingsPageActivity() {
         private val TOGGLE_M3_SECTIONS_STYLE = InuUtils.generateId()
         private val TOGGLE_MATERIAL3_AVATARS = InuUtils.generateId()
         private val TOGGLE_M3_BOTTOM_TABS = InuUtils.generateId()
+        private val TOGGLE_EXPRESSIVE_FOLDERS = InuUtils.generateId()
         private val TOGGLE_MATERIAL_PROFILE_ACTIONS = InuUtils.generateId()
         private val TOGGLE_M3_NAVIGATION_ANIMATION = InuUtils.generateId()
         private val BUTTON_ICON_REPLACEMENT = InuUtils.generateId()
@@ -452,6 +454,7 @@ class AppearanceSettingsActivity : SettingsPageActivity() {
         }
 
         private val SOFT_REBUILD_CONFIGS = setOf(
+            InuConfig.EXPRESSIVE_FOLDERS,
             InuConfig.MATERIAL3_SWITCHES,
             InuConfig.MATERIAL3_FABS,
             InuConfig.M3_SECTIONS_STYLE,

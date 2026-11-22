@@ -1071,4 +1071,5 @@
     <string name="QwUnofficialNotice">qwgram is an unofficial Telegram client. It uses the Telegram API and is not affiliated with Telegram FZ-LLC. Source code: GPL v2+.</string>
     <string name="QwAvatarShape">Avatar shape</string>
     <string name="QwAvatarShapeInfo">Expressive Material 3 shapes. The avatar morphs between them; forum and media images keep their own shape.</string>
+    <string name="QwExpressiveFolders">Expressive folder bar</string>
 </resources>
