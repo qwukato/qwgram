@@ -1,0 +1,133 @@
+name: Build qwgram
+
+# Сборка варианта "pluginless" (без движка плагинов на Rust): он проще и быстрее.
+# Основа: патчсет Inugram (MIT) поверх DrKLO/Telegram. Версии actions закреплены хешами, как у автора.
+# НЕ ПРОВЕРЕНО ЗАПУСКОМ в этом репозитории. Полная сборка Telegram занимает 30-90 минут.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/export-files.yml'
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: true
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: configure git identity
+        run: |
+          git config --global user.email ci@zhirgram
+          git config --global user.name 'zhirgram ci'
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: set up ccache
+        uses: hendrikmuhs/ccache-action@e42e6681d2906409c5dde4a315af6214eaa890ee # v1.2
+        with:
+          append-timestamp: true
+          key: ${{ runner.os }}-ndk-27.2-release-pluginless
+          restore-keys: |
+            ${{ runner.os }}-ndk-27.2-release-pluginless
+            ${{ runner.os }}-
+          max-size: 5G
+
+      # клонирует DrKLO/Telegram на закреплённом коммите и накладывает патчи из series
+      - name: set up worktree
+        run: pnpm run setup -- --ci --pluginless
+
+      # В патчах api_id=0 и api_hash пустой. Подставляем ТВОИ значения из Secrets.
+      # Нельзя собирать с чужими: ключ принадлежит их владельцу.
+      - name: api_id и api_hash из секретов
+        env:
+          TG_APP_ID: ${{ secrets.TG_APP_ID }}
+          TG_APP_HASH: ${{ secrets.TG_APP_HASH }}
+        run: |
+          [[ "$TG_APP_ID" =~ ^[0-9]+$ ]] || { echo "::error::Секрет TG_APP_ID не задан или не число"; exit 1; }
+          [[ -n "$TG_APP_HASH" ]] || { echo "::error::Секрет TG_APP_HASH не задан"; exit 1; }
+          F=worktree-pluginless/TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java
+          sed -i -E "s/(public static int APP_ID = )[0-9]+;/\1${TG_APP_ID};/; s/(public static String APP_HASH = )\"[^\"]*\";/\1\"${TG_APP_HASH}\";/" "$F"
+          grep -nE "APP_ID =|APP_HASH =" "$F" | sed -E 's/"[0-9a-fA-F]{32}"/"***"/'
+
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          gradle-home-cache-cleanup: true
+          cache-read-only: false
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: >-
+            platforms;android-36
+            build-tools;36.0.0
+            cmake;3.31.6
+            ndk;27.2.12479018
+
+      - name: tune gradle
+        run: |
+          echo 'org.gradle.caching=true' >> ~/.gradle/gradle.properties
+          echo 'org.gradle.parallel=true' >> ~/.gradle/gradle.properties
+          echo 'org.gradle.jvmargs=-Xmx8192m -Dfile.encoding=UTF-8 -XX:+UseParallelGC' >> ~/.gradle/gradle.properties
+
+      # wallet-engine тоже на Rust, gradle собирает его сам, нужен только target
+      - name: install wallet engine rust target
+        working-directory: worktree-pluginless/TMessagesProj/jni/gram-wallet
+        run: rustup target add aarch64-linux-android
+
+      - name: reset ccache stats
+        run: ccache -z
+
+      - name: build (подпись debug-ключом)
+        working-directory: worktree-pluginless
+        env:
+          COMMIT_ID: ${{ github.sha }}
+          INU_BUILD: '1'
+          INU_BUILD_TYPE: release
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: time_macros,file_macro,include_file_mtime,include_file_ctime,locale,system_headers
+          CCACHE_BASEDIR: ${{ github.workspace }}/worktree-pluginless
+        run: ./gradlew --no-daemon :TMessagesProj_App:assembleRelease
+
+      - name: show ccache stats
+        if: always()
+        run: ccache -s
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zhirgram-apk
+          path: worktree-pluginless/TMessagesProj_App/build/outputs/apk/release/app.apk
+          if-no-files-found: error
+          retention-days: 14
