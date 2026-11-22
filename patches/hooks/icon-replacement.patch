@@ -1,0 +1,200 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Damir Modyarov <damir@otomir23.me>
+Date: Tue, 28 Apr 2026 15:27:42 +0300
+Subject: add custom resource loader for icon replacement
+
+---
+ .../telegram/ui/ActionBar/BackDrawable.java    |  6 ++++++
+ .../ChatActivityEnterViewAnimatedIconView.java |  6 ++++++
+ .../ui/Components/ProfileActionsView.java      | 11 +++++++++--
+ .../ui/Components/RLottieDrawable.java         | 18 +++++++++++++++---
+ .../java/org/telegram/ui/LaunchActivity.java   | 16 ++++++++++++++++
+ 5 files changed, 52 insertions(+), 5 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/BackDrawable.java b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/BackDrawable.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/BackDrawable.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/BackDrawable.java
+@@ -39,6 +39,7 @@ public class BackDrawable extends Drawable {
+     private float animationTime = 300.0f;
+     private boolean rotated = true;
+     private int arrowRotation;
++    private final desu.inugram.helpers.icons.BackIcon inu_packIcon;
+ 
+     public float getRotation() {
+         return finalRotation;
+@@ -51,6 +52,7 @@ public class BackDrawable extends Drawable {
+         prevPaint.setStrokeWidth(AndroidUtilities.dp(2));
+         prevPaint.setColor(Color.RED);
+         alwaysClose = close;
++        inu_packIcon = desu.inugram.helpers.icons.BackIcon.create(close);
+     }
+ 
+     public void setColor(int value) {
+@@ -120,6 +122,10 @@ public class BackDrawable extends Drawable {
+         }
+ 
+         paint.setColor(ColorUtils.blendARGB(color, rotatedColor, currentRotation));
++        if (inu_packIcon != null) {
++            inu_packIcon.draw(canvas, getIntrinsicWidth(), currentRotation, arrowRotation, paint.getColor(), paint.getColorFilter());
++            return;
++        }
+ 
+         canvas.save();
+         canvas.translate(getIntrinsicWidth() / 2f, getIntrinsicHeight() / 2f);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterViewAnimatedIconView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterViewAnimatedIconView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterViewAnimatedIconView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatActivityEnterViewAnimatedIconView.java
+@@ -56,6 +56,12 @@ public class ChatActivityEnterViewAnimatedIconView extends RLottieImageView {
+         this.sizeDp = sizeDp;
+     }
+ 
++    @Override
++    public void setAnimation(RLottieDrawable lottieDrawable) {
++        super.setAnimation(lottieDrawable);
++        setScaleType(lottieDrawable.inu_isStaticIcon() ? ScaleType.CENTER : ScaleType.FIT_CENTER);
++    }
++
+     public void setState(State state, boolean animate) {
+         if (animate && state == currentState) {
+             return;
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ProfileActionsView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ProfileActionsView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ProfileActionsView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ProfileActionsView.java
+@@ -524,7 +524,7 @@ public class ProfileActionsView extends View {
+                         hit.isLoading = true;
+                         invalidate();
+                     }
+-                    if (hit.supportsAnimate != 0) {
++                    if (hit.supportsAnimate != 0 && (hit.inu_button == null || desu.inugram.helpers.icons.IconPackHelper.shouldPlayLottie(hit.supportsAnimate, hit.inu_button.filledIcon, hit.inu_button.outlineIcon))) {
+                         hit.updateDrawable(true, hit.supportsAnimate);
+                     }
+                     hit.startTime = System.currentTimeMillis();
+@@ -638,7 +638,11 @@ public class ProfileActionsView extends View {
+     }
+ 
+     private void updateNotification(Action notificationAction, boolean animated) {
+-        if (animated) {
++        if (animated && desu.inugram.helpers.icons.IconPackHelper.shouldPlayLottie(
++            isNotificationsEnabled ? R.raw.profile_unmuting : R.raw.profile_muting,
++            ActionButton.NOTIFICATION_MUTE.filledIcon, ActionButton.NOTIFICATION_MUTE.outlineIcon,
++            ActionButton.NOTIFICATION_UNMUTE.filledIcon, ActionButton.NOTIFICATION_UNMUTE.outlineIcon
++        )) {
+             if (isNotificationsEnabled) {
+                 notificationAction.setText(getString(ActionButton.NOTIFICATION_MUTE.title));
+                 notificationAction.updateDrawable(
+@@ -1149,7 +1153,10 @@ public class ProfileActionsView extends View {
+             return bounce.getScale(0.04f);
+         }
+ 
++        public ActionButton inu_button;
++
+         public void update(ActionButton button) {
++            inu_button = button;
+             updateDrawable(0, button.filledIcon, button.outlineIcon);
+             setText(getString(button.title));
+         }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
+@@ -140,6 +140,7 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+     private Runnable onAnimationEndListener;
+ 
+     private NativePtrArgs args;
++    private desu.inugram.helpers.icons.StaticLottie inu_staticLottie;
+ 
+     private final Runnable uiRunnableNoFrame = this::uiRunnableNoFrameImpl;
+ 
+@@ -385,6 +386,8 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+             } catch (Exception e) {
+                 FileLog.e(e);
+             }
++        } else if (inu_staticLottie != null) {
++            inu_staticLottie.render(bitmap, currentFrame);
+         } else {
+             result = ptrToUse.getFrame(currentFrame, bitmap, needClearBitmap);
+         }
+@@ -643,7 +646,8 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+         args = new NativePtrArgs();
+         args.colorReplacement = colorReplacement == null ? null : colorReplacement.clone();
+ 
+-        final long found = ResLottieMeta.find(rawRes);
++        final String inu_packJson = desu.inugram.helpers.icons.IconPackHelper.getLottieJson(rawRes);
++        final long found = inu_packJson != null ? ResLottieMeta.NOT_FOUND : ResLottieMeta.find(rawRes);
+         if (found != ResLottieMeta.NOT_FOUND) {
+             pendingNativeInit = true;
+             args.resId = rawRes;
+@@ -654,11 +658,11 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+         } else {
+             isSingleChannel = false;
+ 
+-            if (BuildConfig.DEBUG_PRIVATE_VERSION) {
++            if (inu_packJson == null && BuildConfig.DEBUG_PRIVATE_VERSION) {
+                 throw new IllegalArgumentException("rawRes not found");
+             }
+ 
+-            String jsonString = readRes(rawRes);
++            String jsonString = inu_packJson != null ? inu_packJson : readRes(rawRes);
+             if (TextUtils.isEmpty(jsonString)) {
+                 args = null;
+                 return;
+@@ -667,6 +671,10 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+             nativePtr = RLottieNative.createFromRawJson(jsonString, metaData, args.colorReplacement, layerColors);
+         }
+ 
++        if (inu_packJson == null) {
++            inu_staticLottie = desu.inugram.helpers.icons.StaticLottie.create(rawRes, metaData[0]);
++        }
++
+         if (isSingleChannel) {
+             setColorFilter(new PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN));
+         }
+@@ -676,6 +684,10 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+         }
+     }
+ 
++    public boolean inu_isStaticIcon() {
++        return inu_staticLottie != null && !inu_staticLottie.getFill();
++    }
++
+     public final void multiplySpeed(float multiplier) {
+         speedMultiply *= multiplier;
+     }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java
+@@ -29,7 +29,9 @@ import android.content.BroadcastReceiver;
+ import android.content.Intent;
+ import android.content.IntentFilter;
+ import android.content.SharedPreferences;
++import android.content.res.AssetManager;
+ import android.content.res.Configuration;
++import android.content.res.Resources;
+ import android.database.Cursor;
+ import android.animation.ObjectAnimator;
+ import android.graphics.drawable.Drawable;
+@@ -401,6 +403,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
+     private FrameMetricsOverlayView frameMetricsOverlayView;
+     // private RefreshRateController refreshRateController;
+ 
++    private desu.inugram.helpers.icons.IconsResources customResources;
++
++    @Override
++    public Resources getResources() {
++        Resources baseResources = super.getResources();
++        if (desu.inugram.InuConfig.ICON_PACKS.getValue().isEmpty()) {
++            return baseResources;
++        }
++        if (customResources == null || !customResources.wrapsResources(baseResources)) {
++            customResources = new desu.inugram.helpers.icons.IconsResources(baseResources);
++        }
++        return customResources;
++    }
++
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
+         isActive = true;

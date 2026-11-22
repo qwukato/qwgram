@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Wed, 15 Apr 2026 01:39:38 +0300
+Subject: fixed a few visual glitches with the media player inside the shared media view
+
+---
+ .../telegram/ui/Components/SharedMediaLayout.java   | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+@@ -3527,10 +3527,17 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+                             );
+                             final int paddingTopNew = page.listView.getPaddingTop();
+                             final int scroll = paddingTopOld - paddingTopNew;
+-                            AndroidUtilities.doOnLayout(page.listView, () -> page.listView.scrollBy(0, scroll));
++                            AndroidUtilities.doOnLayout(page.listView, () -> { if (page.listView.computeVerticalScrollOffset() > 0) page.listView.scrollBy(0, scroll); });
++                            if (page.progressView != null) {
++                                updateProgressViewLayout(page);
++                            }
+                         }
+                     }
+                 }
++                if (savedMessagesContainer != null && savedMessagesContainer.getParent() instanceof MediaPage) {
++                    ((FrameLayout.LayoutParams) savedMessagesContainer.getLayoutParams()).topMargin = pagesTabsTop + dp(48 + 8) + topLayoutPadding;
++                    savedMessagesContainer.requestLayout();
++                }
+                 // SharedMediaLayout.this.setPadding(0, , 0, 0);
+             });
+             fragmentContextView = new FragmentContextView(context, parent, this, false, resourcesProvider) {
+@@ -7201,7 +7208,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+                 if (savedMessagesContainer.getParent() != mediaPages[a]) {
+                     AndroidUtilities.removeFromParent(savedMessagesContainer);
+                     mediaPages[a].addView(savedMessagesContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.FILL, 0, 48 + 8, 0, 0));
+-                    setTopMargin(savedMessagesContainer, pagesTabsTop + dp(48 + 8));
++                    setTopMargin(savedMessagesContainer, pagesTabsTop + dp(48 + 8) + topLayoutPadding);
+                 }
+             } else if (mediaPages[a].selectedType == TAB_BOT_PREVIEWS) {
+                 if (currentAdapter != null) {
+@@ -12045,7 +12052,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+     private void updateProgressViewLayout(MediaPage page) {
+         final boolean photos = page.selectedType == TAB_PHOTOVIDEO || isAnyStoryPageType(page.selectedType);
+         final FrameLayout.LayoutParams lp = LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.FILL, photos ? 0 : 12, 48 + (photos ? 8 : 12), photos ? 0 : 12, photos ? 0 : 12);
+-        lp.topMargin += getStoriesTabsPadding(page.selectedType);
++        lp.topMargin += getStoriesTabsPadding(page.selectedType) + topLayoutPadding;
+         final ViewGroup.LayoutParams oldLp = page.progressView.getLayoutParams();
+         if (oldLp instanceof FrameLayout.LayoutParams) {
+             final FrameLayout.LayoutParams o = (FrameLayout.LayoutParams) oldLp;

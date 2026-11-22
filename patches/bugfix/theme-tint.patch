@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Sat, 30 May 2026 18:26:42 +0400
+Subject: fix hardcoded usage of white color instead of theme colors
+
+---
+ .../org/telegram/ui/Cells/PhotoAttachPhotoCell.java  |  3 ++-
+ .../org/telegram/ui/Cells/ProfileSearchCell.java     |  2 +-
+ .../org/telegram/ui/Cells/SharedPhotoVideoCell.java  |  3 ++-
+ .../org/telegram/ui/Cells/SharedPhotoVideoCell2.java |  8 ++++++--
+ .../ui/Components/Premium/LimitPreviewView.java      | 12 +++++++++++-
+ .../org/telegram/ui/Components/RLottieDrawable.java  |  4 ++++
+ .../java/org/telegram/ui/ManageLinksActivity.java    |  2 ++
+ .../main/java/org/telegram/ui/SettingsActivity.java  |  1 +
+ 8 files changed, 29 insertions(+), 6 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Cells/PhotoAttachPhotoCell.java b/TMessagesProj/src/main/java/org/telegram/ui/Cells/PhotoAttachPhotoCell.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Cells/PhotoAttachPhotoCell.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Cells/PhotoAttachPhotoCell.java
+@@ -263,10 +263,11 @@ public class PhotoAttachPhotoCell extends FrameLayout {
+ 
+         videoPlayImageView = new ImageView(context);
+         videoPlayImageView.setImageResource(R.drawable.play_mini_video);
++        videoPlayImageView.setColorFilter(getThemedColor(Theme.key_chat_mediaTimeText));
+         videoInfoContainer.addView(videoPlayImageView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.CENTER_VERTICAL));
+ 
+         videoTextView = new TextView(context);
+-        videoTextView.setTextColor(0xffffffff);
++        videoTextView.setTextColor(getThemedColor(Theme.key_chat_mediaTimeText));
+         videoTextView.setTypeface(AndroidUtilities.bold());
+         videoTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+         videoTextView.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Cells/ProfileSearchCell.java b/TMessagesProj/src/main/java/org/telegram/ui/Cells/ProfileSearchCell.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Cells/ProfileSearchCell.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Cells/ProfileSearchCell.java
+@@ -1121,7 +1121,7 @@ public class ProfileSearchCell extends BaseCell implements NotificationCenter.No
+             final float s = openButtonBounce.getScale(.06f);
+             canvas.scale(s, s, openButtonRect.centerX(), openButtonRect.centerY());
+             canvas.drawRoundRect(openButtonRect, openButtonRect.height() / 2.0f, openButtonRect.height() / 2.0f, openButtonBackgroundPaint);
+-            openButtonText.draw(canvas, x + dp(14), getHeight() / 2.0f, 0xFFFFFFFF, 1.0f);
++            openButtonText.draw(canvas, x + dp(14), getHeight() / 2.0f, Theme.getColor(Theme.key_featuredStickers_buttonText), 1.0f);
+             canvas.restore();
+         }
+     }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell.java b/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell.java
+@@ -115,10 +115,11 @@ public class SharedPhotoVideoCell extends FrameLayout implements Theme.Colorable
+ 
+             ImageView imageView1 = new ImageView(context);
+             imageView1.setImageResource(R.drawable.play_mini_video);
++            imageView1.setColorFilter(Theme.getColor(Theme.key_chat_mediaTimeText), android.graphics.PorterDuff.Mode.SRC_IN);
+             videoInfoContainer.addView(imageView1, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.CENTER_VERTICAL));
+ 
+             videoTextView = new TextView(context);
+-            videoTextView.setTextColor(0xffffffff);
++            videoTextView.setTextColor(Theme.getColor(Theme.key_chat_mediaTimeText));
+             videoTextView.setTypeface(AndroidUtilities.bold());
+             videoTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+             videoTextView.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell2.java b/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell2.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell2.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Cells/SharedPhotoVideoCell2.java
+@@ -181,7 +181,7 @@ public class SharedPhotoVideoCell2 extends FrameLayout {
+ 
+         viewsText.setCallback(this);
+         viewsText.setTextSize(dp(12));
+-        viewsText.setTextColor(Color.WHITE);
++        viewsText.setTextColor(sharedResources.inu_mediaTimeTextColor);
+         viewsText.setTypeface(AndroidUtilities.bold());
+         viewsText.setOverrideFullWidth(AndroidUtilities.displaySize.x);
+ 
+@@ -1234,14 +1234,18 @@ public class SharedPhotoVideoCell2 extends FrameLayout {
+         Paint highlightPaint = new Paint();
+         SparseArray<String> imageFilters = new SparseArray<>();
+         private final HashMap<Integer, Bitmap> privacyBitmaps = new HashMap<>();
++        public int inu_mediaTimeTextColor;
+ 
+         public SharedResources(Context context, Theme.ResourcesProvider resourcesProvider) {
++            inu_mediaTimeTextColor = Theme.getColor(Theme.key_chat_mediaTimeText, resourcesProvider);
+             textPaint.setTextSize(dp(12));
+-            textPaint.setColor(Color.WHITE);
++            textPaint.setColor(inu_mediaTimeTextColor);
+             textPaint.setTypeface(AndroidUtilities.bold());
+             playDrawable = ContextCompat.getDrawable(context, R.drawable.play_mini_video).mutate();
++            playDrawable.setColorFilter(new PorterDuffColorFilter(inu_mediaTimeTextColor, PorterDuff.Mode.SRC_IN));
+             playDrawable.setBounds(0, 0, playDrawable.getIntrinsicWidth(), playDrawable.getIntrinsicHeight());
+             viewDrawable = ContextCompat.getDrawable(context, R.drawable.filled_views).mutate();
++            viewDrawable.setColorFilter(new PorterDuffColorFilter(inu_mediaTimeTextColor, PorterDuff.Mode.SRC_IN));
+             viewDrawable.setBounds(0, 0, (int) (viewDrawable.getIntrinsicWidth() * .7f), (int) (viewDrawable.getIntrinsicHeight() * .7f));
+             backgroundPaint.setColor(Theme.getColor(Theme.key_sharedMedia_photoPlaceholder, resourcesProvider));
+         }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/Premium/LimitPreviewView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/Premium/LimitPreviewView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/Premium/LimitPreviewView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/Premium/LimitPreviewView.java
+@@ -96,6 +96,13 @@ public class LimitPreviewView extends LinearLayout implements Theme.Colorable {
+     private boolean isRatingStyle;
+ 
+     Theme.ResourcesProvider resourcesProvider;
++
++    private int inu_filledTextColor() {
++        if (isRatingStyle && !isRatingNegative) {
++            return Theme.getColor(Theme.key_featuredStickers_buttonText, resourcesProvider);
++        }
++        return Color.WHITE;
++    }
+     private boolean animate;
+     private boolean animateArrowFadeIn, animateArrowFadeOut, animateBackgroundFade;
+     private boolean animateIncrease;
+@@ -291,6 +298,7 @@ public class LimitPreviewView extends LinearLayout implements Theme.Colorable {
+                             width1 = width;
+                             if (!animateArrowFadeIn && !animateArrowFadeOut) {
+                                 setPremiumCountColor(true);
++                                premiumCount.setTextColor(inu_filledTextColor());
+                                 setDefaultTextColor(true);
+                             }
+                         }
+@@ -677,6 +685,7 @@ public class LimitPreviewView extends LinearLayout implements Theme.Colorable {
+         isBoostsStyle = true;
+         isSimpleStyle = true;
+         isRatingStyle = true;
++        limitIcon.textPaint.setColor(inu_filledTextColor());
+     }
+ 
+     public void setStarRating(TL_stars.Tl_starsRating rating) {
+@@ -710,6 +719,7 @@ public class LimitPreviewView extends LinearLayout implements Theme.Colorable {
+         isBoostsStyle = true;
+         isSimpleStyle = true;
+         isRatingStyle = true;
++        limitIcon.textPaint.setColor(inu_filledTextColor());
+     }
+ 
+     private Runnable animateStarRatingRunnable;
+@@ -991,7 +1001,7 @@ public class LimitPreviewView extends LinearLayout implements Theme.Colorable {
+ 
+     private void setDefaultTextColor(boolean white) {
+         defaultTextThemed = !white;
+-        defaultText.setTextColor(white ? Color.WHITE : Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, resourcesProvider));
++        defaultText.setTextColor(white ? inu_filledTextColor() : Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, resourcesProvider));
+     }
+ 
+     private void updateDefaultTextColor() {
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/RLottieDrawable.java
+@@ -904,6 +904,10 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
+     }
+ 
+     public final void setLayerColor(String layerName, int color) {
++        if (isSingleChannel) {
++            setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN));
++            return;
++        }
+         newColorUpdates.put(layerName, color);
+         requestRedrawColors();
+     }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ManageLinksActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/ManageLinksActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ManageLinksActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ManageLinksActivity.java
+@@ -1294,6 +1294,8 @@ public class ManageLinksActivity extends BaseFragment implements NotificationCen
+                 linkIconRevoked.setBounds(cX - dp(12), cY - dp(12), cX + dp(12), cY + dp(12));
+                 linkIconRevoked.draw(canvas);
+             } else {
++                int inu_iconTint = drawState == LINK_STATE_BLUE ? Theme.getColor(Theme.key_featuredStickers_buttonText) : Color.WHITE;
++                linkIcon.setColorFilter(new PorterDuffColorFilter(inu_iconTint, PorterDuff.Mode.MULTIPLY));
+                 linkIcon.setBounds(cX - dp(12), cY - dp(12), cX + dp(12), cY + dp(12));
+                 linkIcon.draw(canvas);
+             }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java
+@@ -441,6 +441,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
+         cameraImageView = new ImageView(context);
+         cameraImageView.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+         cameraImageView.setImageResource(R.drawable.filled_premium_camera);
++        cameraImageView.setColorFilter(getThemedColor(Theme.key_featuredStickers_buttonText), android.graphics.PorterDuff.Mode.SRC_IN);
+         cameraBackground.addView(cameraImageView, LayoutHelper.createFrame(22, 22, Gravity.CENTER));
+         cameraButton.addView(cameraBackground, LayoutHelper.createFrame(30, 30));
+         // over the avatar, so it scales and hides with it; its touches go to the place of the avatar in the list

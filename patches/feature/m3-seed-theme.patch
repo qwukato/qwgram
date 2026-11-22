@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qwgram
+Subject: m3 seed theme: Material 3 themes on every Android version
+
+Monet themes were registered and parsed only on Android 12+, because their colors came
+from the system wallpaper palette. MonetHelper can now generate the palette from any seed
+color (SeedScheme), so the themes are available everywhere.
+---
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/Theme.java b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/Theme.java
+index b531ba7..494eda9 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/Theme.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/Theme.java
+@@ -4129,7 +4129,7 @@ public class Theme {
+         themes.add(themeInfo);
+         themesDict.put("Night", themeInfo);
+ 
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++        if (MonetHelper.isAvailable()) {
+             themeInfo = new ThemeInfo();
+             themeInfo.name = "Monet Light";
+             themeInfo.assetName = "monet_light.attheme";
+@@ -7766,9 +7766,9 @@ public class Theme {
+                                     } catch (Exception ignore) {
+                                         value = Utilities.parseInt(param);
+                                     }
+-                                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && (param.startsWith("a") || param.startsWith("n") || param.startsWith("m"))) {
++                                } else if (MonetHelper.isAvailable() && (param.startsWith("a") || param.startsWith("n") || param.startsWith("m"))) {
+                                     value = MonetHelper.getColor(param, key);
+-                                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && param.endsWith("h")) {
++                                } else if (MonetHelper.isAvailable() && param.endsWith("h")) {
+                                     value = MonetHelper.harmonize(Utilities.parseInt(param.substring(0, param.length() - 1)));
+                                 } else {
+                                     value = Utilities.parseInt(param);

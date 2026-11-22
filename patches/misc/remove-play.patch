@@ -1,0 +1,1358 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Tue, 21 Apr 2026 08:54:19 +0300
+Subject: remove play services stuff only available for official apps
+
+---
+ TMessagesProj/build.gradle                    |   4 -
+ .../telegram/messenger/CaptchaController.java |  95 ----
+ ...FirebasePhoneNumberVerificationHelper.java | 372 ------------
+ .../messenger/MessagesController.java         |  12 -
+ .../telegram/tgnet/ConnectionsManager.java    |  43 +-
+ .../java/org/telegram/ui/LoginActivity.java   | 528 +-----------------
+ 6 files changed, 14 insertions(+), 1040 deletions(-)
+ delete mode 100644 TMessagesProj/src/main/java/org/telegram/messenger/CaptchaController.java
+ delete mode 100644 TMessagesProj/src/main/java/org/telegram/messenger/FirebasePhoneNumberVerificationHelper.java
+
+diff --git a/TMessagesProj/build.gradle b/TMessagesProj/build.gradle
+index 0000000..0000000 100644
+--- a/TMessagesProj/build.gradle
++++ b/TMessagesProj/build.gradle
+@@ -77,8 +77,6 @@ dependencies {
+     implementation 'com.android.billingclient:billing:8.0.0'
+     implementation 'com.google.code.gson:gson:2.11.0'
+     implementation 'com.google.guava:guava:31.1-android'
+-    implementation 'com.google.android.play:integrity:1.3.0'
+-    implementation 'com.google.android.gms:play-services-safetynet:18.0.1'
+ 
+     implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
+     implementation 'com.google.android.gms:play-services-mlkit-image-labeling:16.0.8'
+@@ -90,7 +88,6 @@ dependencies {
+     // 34.19.0 is the last BoM for minSdk 23: BoM 35.x requires minSdk 24 (33.16.0 was the last for Android 5).
+     api platform('com.google.firebase:firebase-bom:34.19.0')
+     implementation 'com.google.firebase:firebase-messaging'
+-    implementation "com.google.firebase:firebase-pnv"
+     implementation 'com.google.firebase:firebase-appindexing:20.0.0'
+ 
+     implementation "io.noties.markwon:core:4.6.2"
+@@ -120,7 +117,6 @@ dependencies {
+ 
+ //    implementation 'com.google.mlkit:translate:17.0.3'
+ 
+-    implementation 'com.google.android.recaptcha:recaptcha:18.7.1'
+ }
+ 
+ def inuSourceDir = file('src/inu/kotlin')
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/CaptchaController.java b/TMessagesProj/src/main/java/org/telegram/messenger/CaptchaController.java
+deleted file mode 100644
+index 0000000..0000000
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/CaptchaController.java
++++ /dev/null
+@@ -1,95 +0,0 @@
+-package org.telegram.messenger;
+-
+-import android.app.Activity;
+-
+-import com.google.android.recaptcha.Recaptcha;
+-import com.google.android.recaptcha.RecaptchaAction;
+-
+-import org.telegram.tgnet.ConnectionsManager;
+-
+-public class CaptchaController {
+-
+-    private static class Request {
+-        private final int currentAccount;
+-        private final int requestToken;
+-        private final int generation;
+-        private boolean completed;
+-
+-        private Request(int currentAccount, int requestToken, int generation) {
+-            this.currentAccount = currentAccount;
+-            this.requestToken = requestToken;
+-            this.generation = generation;
+-        }
+-
+-        private void done(String token) {
+-            if (completed) {
+-                return;
+-            }
+-            completed = true;
+-            ConnectionsManager.native_receivedCaptchaResult(currentAccount, requestToken, generation, token);
+-        }
+-    }
+-
+-    public static void request(int currentAccount, int requestToken, int generation, String action, String key_id) {
+-        final Request finalRequest = new Request(currentAccount, requestToken, generation);
+-
+-        final Activity activity = AndroidUtilities.getActivity();
+-        if (activity == null) {
+-            FileLog.e("CaptchaController: no activity found");
+-            finalRequest.done("RECAPTCHA_FAILED_NO_ACTIVITY");
+-            return;
+-        }
+-
+-        Recaptcha.getTasksClient(activity.getApplication(), key_id)
+-            .addOnSuccessListener(client -> {
+-                client.executeTask(getAction(action))
+-                    .addOnSuccessListener(token -> {
+-                        if (BuildVars.LOGS_ENABLED) {
+-                            final String tokenPreview = token == null
+-                                ? "null"
+-                                : token.substring(0, Math.min(24, token.length())) + "...";
+-
+-                            FileLog.d("CaptchaController: got token for account=" + currentAccount
+-                                + ", request=" + requestToken
+-                                + ", generation=" + generation
+-                                + ", token=" + tokenPreview
+-                                + ", length=" + (token == null ? 0 : token.length()));
+-                        }
+-
+-                        if (token == null) {
+-                            finalRequest.done("RECAPTCHA_FAILED_TOKEN_NULL");
+-                        } else {
+-                            finalRequest.done(token);
+-                        }
+-                    })
+-                    .addOnFailureListener(e -> {
+-                        FileLog.e("CaptchaController: executeTask failure", e);
+-                        finalRequest.done("RECAPTCHA_FAILED_TASK_EXCEPTION_" + formatException(e));
+-                    });
+-            })
+-            .addOnFailureListener(e -> {
+-                FileLog.e("CaptchaController: getTasksClient failure", e);
+-                finalRequest.done("RECAPTCHA_FAILED_GETCLIENT_EXCEPTION_" + formatException(e));
+-            });
+-    }
+-
+-    private static RecaptchaAction getAction(String action) {
+-        switch (action) {
+-            case "login":
+-            case "LOGIN":
+-                return RecaptchaAction.LOGIN;
+-            case "signup":
+-            case "SIGNUP":
+-                return RecaptchaAction.SIGNUP;
+-            default:
+-                return RecaptchaAction.custom(action);
+-        }
+-    }
+-
+-    private static String formatException(Exception e) {
+-        if (e == null) return "NULL";
+-        if (e.getMessage() == null) return "MSG_NULL";
+-        return e.getMessage().replaceAll(" ", "_").toUpperCase();
+-    }
+-
+-}
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/FirebasePhoneNumberVerificationHelper.java b/TMessagesProj/src/main/java/org/telegram/messenger/FirebasePhoneNumberVerificationHelper.java
+deleted file mode 100644
+index 0000000..0000000
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/FirebasePhoneNumberVerificationHelper.java
++++ /dev/null
+@@ -1,372 +0,0 @@
+-package org.telegram.messenger;
+-
+-import android.Manifest;
+-import android.content.Context;
+-import android.content.pm.PackageManager;
+-import android.os.Build;
+-import android.os.CancellationSignal;
+-import android.telephony.SubscriptionInfo;
+-import android.telephony.SubscriptionManager;
+-import android.telephony.TelephonyManager;
+-import android.text.TextUtils;
+-
+-import androidx.annotation.NonNull;
+-import androidx.annotation.Nullable;
+-import androidx.annotation.OptIn;
+-import androidx.annotation.RequiresApi;
+-import androidx.credentials.Credential;
+-import androidx.credentials.CredentialManager;
+-import androidx.credentials.CredentialManagerCallback;
+-import androidx.credentials.ExperimentalDigitalCredentialApi;
+-import androidx.credentials.GetCredentialRequest;
+-import androidx.credentials.GetCredentialResponse;
+-import androidx.credentials.GetDigitalCredentialOption;
+-import androidx.credentials.exceptions.GetCredentialCancellationException;
+-import androidx.credentials.exceptions.GetCredentialException;
+-import androidx.credentials.exceptions.GetCredentialInterruptedException;
+-import androidx.credentials.exceptions.NoCredentialException;
+-
+-import com.google.android.gms.tasks.CancellationToken;
+-import com.google.android.gms.tasks.Task;
+-import com.google.android.gms.tasks.TaskCompletionSource;
+-import com.google.firebase.pnv.FirebasePhoneNumberVerification;
+-import com.google.firebase.pnv.VerificationSupportResult;
+-
+-import org.json.JSONArray;
+-import org.json.JSONObject;
+-import org.telegram.tgnet.ConnectionsManager;
+-import org.telegram.tgnet.TLRPC;
+-import org.telegram.ui.web.BotWebViewContainer;
+-
+-import java.util.ArrayList;
+-import java.util.Collections;
+-import java.util.List;
+-import java.util.concurrent.CancellationException;
+-
+-public class FirebasePhoneNumberVerificationHelper {
+-    private static FirebasePhoneNumberVerification instance;
+-
+-    private static FirebasePhoneNumberVerification getFpnvInstance() {
+-        if (instance == null) {
+-            instance = FirebasePhoneNumberVerification.getInstance();
+-        }
+-        return instance;
+-    }
+-
+-    private FirebasePhoneNumberVerificationHelper() {
+-
+-    }
+-
+-    // What the client can tell about the SIM that Firebase picked, for the consent dialog.
+-    // Fields are null when Android does not expose them (no permission, unknown slot mapping).
+-    public static class SimInfo {
+-        public int slot;
+-        public String carrierName;
+-        public String phoneNumber;
+-    }
+-
+-    public static SimInfo getSimInfo(Context context, VerificationSupportResult result) {
+-        final SimInfo info = new SimInfo();
+-        info.slot = result.getSimSlot();
+-        // Firebase's carrier id is the same carrier name Android reports (e.g. "o2 - de"),
+-        // so it only fills the Carrier row when the system gives nothing.
+-        info.carrierName = emptyToNull(result.getCarrierId());
+-        try {
+-            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+-            if (tm == null) {
+-                return info;
+-            }
+-            final int subId = getSubscriptionId(context, info.slot);
+-            if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+-                tm = tm.createForSubscriptionId(subId);
+-            } else if (tm.getPhoneCount() > 1) {
+-                // The default TelephonyManager may describe the other SIM.
+-                return info;
+-            }
+-
+-            String carrierName = tm.getSimOperatorName();
+-            if (TextUtils.isEmpty(carrierName) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+-                final CharSequence idName = tm.getSimCarrierIdName();
+-                carrierName = idName == null ? null : idName.toString();
+-            }
+-            if (!TextUtils.isEmpty(carrierName)) {
+-                info.carrierName = carrierName;
+-            }
+-
+-            info.phoneNumber = emptyToNull(readPhoneNumber(context, tm, subId));
+-        } catch (Exception e) {
+-            FileLog.e(e);
+-        }
+-        return info;
+-    }
+-
+-    private static int getSubscriptionId(Context context, int slot) {
+-        try {
+-            if (Build.VERSION.SDK_INT >= 34) {
+-                return SubscriptionManager.getSubscriptionId(slot);
+-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+-                return getSubscriptionIdQ(context, slot);
+-            } else if (hasPermission(context, Manifest.permission.READ_PHONE_STATE)) {
+-                final SubscriptionManager sm = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+-                final SubscriptionInfo subscriptionInfo = sm == null ? null : sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
+-                if (subscriptionInfo != null) {
+-                    return subscriptionInfo.getSubscriptionId();
+-                }
+-            }
+-        } catch (Exception e) {
+-            FileLog.e(e);
+-        }
+-        return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+-    }
+-
+-    @RequiresApi(Build.VERSION_CODES.Q)
+-    private static int getSubscriptionIdQ(Context context, int slot) {
+-        final SubscriptionManager sm = context.getSystemService(SubscriptionManager.class);
+-        final int[] ids = sm == null ? null : sm.getSubscriptionIds(slot);
+-        return ids != null && ids.length > 0 ? ids[0] : SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+-    }
+-
+-    // Only reads the number when the permission is already granted; never asks for it.
+-    private static String readPhoneNumber(Context context, TelephonyManager tm, int subId) {
+-        final boolean allowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+-            ? hasPermission(context, Manifest.permission.READ_PHONE_NUMBERS)
+-            : hasPermission(context, Manifest.permission.READ_PHONE_STATE);
+-        if (!allowed) {
+-            return null;
+-        }
+-        try {
+-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+-                final SubscriptionManager sm = context.getSystemService(SubscriptionManager.class);
+-                final String number = sm == null ? null : sm.getPhoneNumber(subId);
+-                if (!TextUtils.isEmpty(number)) {
+-                    return number;
+-                }
+-            }
+-            return tm.getLine1Number();
+-        } catch (SecurityException e) {
+-            return null;
+-        }
+-    }
+-
+-    private static boolean hasPermission(Context context, String permission) {
+-        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+-    }
+-
+-    private static String emptyToNull(String value) {
+-        return TextUtils.isEmpty(value) ? null : value;
+-    }
+-
+-    public static void getVerificationSupportInfo(Utilities.Callback<List<VerificationSupportResult>> callback) {
+-        if (!BuildVars.SUPPORTS_FPNV) {
+-            callback.run(Collections.emptyList());
+-            return;
+-        }
+-
+-        getFpnvInstance().getVerificationSupportInfo()
+-            .addOnSuccessListener(AndroidUtilities::runOnUIThread, results -> {
+-                final ArrayList<VerificationSupportResult> supportedResults = new ArrayList<>();
+-                for (VerificationSupportResult result : results) {
+-                    if (result.isSupported()) {
+-                        supportedResults.add(result);
+-                    }
+-                }
+-                callback.run(supportedResults);
+-            })
+-            .addOnFailureListener(AndroidUtilities::runOnUIThread, error -> {
+-                FileLog.e(error);
+-                callback.run(Collections.emptyList());
+-            });
+-    }
+-
+-    @OptIn(markerClass = ExperimentalDigitalCredentialApi.class)
+-    public static Task<TLRPC.auth_Authorization> loginViaFirebasePhoneNumberVerification(
+-        Context context,
+-        int currentAccount,
+-        CancellationToken cancellationToken,
+-        @Nullable Runnable onVerifying
+-    ) {
+-        final TaskCompletionSource<TLRPC.auth_Authorization> taskSource = new TaskCompletionSource<>(cancellationToken);
+-        final CredentialManager credentialManager = CredentialManager.create(context);
+-        final Runnable[] cancel = new Runnable[1];
+-
+-        cancellationToken.onCanceledRequested(() -> {
+-            if (cancel[0] != null) {
+-                cancel[0].run();
+-            }
+-        });
+-
+-        final TLRPC.TL_auth_initFirebasePnvLogin req =
+-                new TLRPC.TL_auth_initFirebasePnvLogin();
+-        req.api_id = BuildVars.APP_ID;
+-        req.api_hash = BuildVars.APP_HASH;
+-        req.except_ids = UserConfig.getLoggedInAccountIds();
+-
+-        final int requestId = ConnectionsManager.getInstance(currentAccount).sendRequestTyped(
+-            req,
+-            AndroidUtilities::runOnUIThread,
+-            (res, err) -> {
+-                if (cancellationToken.isCancellationRequested()) {
+-                    return;
+-                }
+-
+-                if (res == null || err != null) {
+-                    taskSource.trySetException(new ConnectionsManager.RequestException(err));
+-                    return;
+-                }
+-
+-                final String requestJson = wrapFirebasePnvPayload(
+-                    res.nonce,
+-                    res.digital_credential_payload
+-                );
+-
+-                if (requestJson == null) {
+-                    taskSource.trySetException(
+-                        new Exception("Failed to create Firebase PNV payload")
+-                    );
+-                    return;
+-                }
+-
+-                final GetDigitalCredentialOption option =
+-                    new GetDigitalCredentialOption(requestJson);
+-
+-                final GetCredentialRequest credentialRequest =
+-                    new GetCredentialRequest.Builder()
+-                        .addCredentialOption(option)
+-                        .build();
+-
+-                final CancellationSignal cancellationSignal = new CancellationSignal();
+-
+-                cancel[0] = cancellationSignal::cancel;
+-
+-                if (cancellationToken.isCancellationRequested()) {
+-                    cancellationSignal.cancel();
+-                    return;
+-                }
+-
+-                credentialManager.getCredentialAsync(
+-                    context,
+-                    credentialRequest,
+-                    cancellationSignal,
+-                    AndroidUtilities::runOnUIThread,
+-                    new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+-                        @Override
+-                        public void onResult(GetCredentialResponse response) {
+-                            if (cancellationToken.isCancellationRequested()) {
+-                                return;
+-                            }
+-
+-                            final String googleToken;
+-                            try {
+-                                final Credential credential = response.getCredential();
+-                                final String responseJson = credential.getData().getString(
+-                                        "androidx.credentials.BUNDLE_KEY_REQUEST_JSON"
+-                                );
+-
+-                                final JSONObject responseObject =
+-                                    new JSONObject(responseJson);
+-
+-                                googleToken = responseObject
+-                                    .getJSONObject("data")
+-                                    .getJSONObject("vp_token")
+-                                    .getJSONArray("firebase")
+-                                    .getString(0);
+-                            } catch (Exception e) {
+-                                taskSource.trySetException(e);
+-                                return;
+-                            }
+-
+-                            if (onVerifying != null) {
+-                                onVerifying.run();
+-                            }
+-
+-                            final TLRPC.TL_auth_finishFirebasePnvLogin finishRequest =
+-                                new TLRPC.TL_auth_finishFirebasePnvLogin();
+-                            finishRequest.google_token = googleToken;
+-
+-                            final int finishRequestId =
+-                                ConnectionsManager.getInstance(currentAccount)
+-                                    .sendRequestTyped(
+-                                        finishRequest,
+-                                        AndroidUtilities::runOnUIThread,
+-                                        (authorization, finishError) -> {
+-                                            if (cancellationToken.isCancellationRequested()) {
+-                                                return;
+-                                            }
+-
+-                                            if (authorization == null || finishError != null) {
+-                                                taskSource.trySetException(
+-                                                    new ConnectionsManager.RequestException(finishError)
+-                                                );
+-                                                return;
+-                                            }
+-
+-                                            taskSource.trySetResult(authorization);
+-                                        },
+-                                        ConnectionsManager.RequestFlagWithoutLogin
+-                                    );
+-
+-                            cancel[0] = () ->
+-                                ConnectionsManager.getInstance(currentAccount)
+-                                    .cancelRequest(finishRequestId, true);
+-
+-                            if (cancellationToken.isCancellationRequested()) {
+-                                cancel[0].run();
+-                            }
+-                        }
+-
+-                        @Override
+-                        public void onError(@NonNull GetCredentialException error) {
+-                            if (cancellationToken.isCancellationRequested()) {
+-                                return;
+-                            }
+-
+-                            if (error instanceof NoCredentialException) {
+-                                taskSource.trySetException(new Exception("EMPTY"));
+-                            } else if (error instanceof GetCredentialCancellationException ||
+-                                    error instanceof GetCredentialInterruptedException) {
+-                                taskSource.trySetException(new CancellationException());
+-                            } else {
+-                                taskSource.trySetException(error);
+-                            }
+-                        }
+-                    }
+-                );
+-            },
+-            ConnectionsManager.RequestFlagWithoutLogin
+-        );
+-
+-        cancel[0] = () ->
+-            ConnectionsManager.getInstance(currentAccount)
+-                .cancelRequest(requestId, true);
+-
+-        if (cancellationToken.isCancellationRequested()) {
+-            cancel[0].run();
+-        }
+-
+-        return taskSource.getTask();
+-    }
+-
+-    @Nullable
+-    private static String wrapFirebasePnvPayload(String nonce, String firebasePayload) {
+-        try {
+-            return BotWebViewContainer.obj(
+-                "requests",
+-                new JSONArray().put(
+-                    BotWebViewContainer.obj(
+-                        "protocol", "openid4vp-v1-unsigned",
+-                        "data", BotWebViewContainer.obj(
+-                            "response_type", "vp_token",
+-                            "response_mode", "dc_api",
+-                            "nonce", nonce,
+-                            "dcql_query", BotWebViewContainer.obj(
+-                                "credentials", new JSONArray().put(new JSONObject(firebasePayload))
+-                            )
+-                        )
+-                    )
+-                )
+-            ).toString();
+-        } catch (Exception e) {
+-            return null;
+-        }
+-    }
+-}
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+@@ -1824,7 +1824,6 @@ public class MessagesController extends BaseController implements NotificationCe
+             }
+         }
+         scheduleTranscriptionUpdate();
+-        BuildVars.GOOGLE_AUTH_CLIENT_ID = mainPreferences.getString("googleAuthClientId", BuildVars.GOOGLE_AUTH_CLIENT_ID);
+         if (mainPreferences.contains("dcDomainName2")) {
+             dcDomainName = mainPreferences.getString("dcDomainName2", "apv3.stel.com");
+         } else {
+@@ -2789,17 +2788,6 @@ public class MessagesController extends BaseController implements NotificationCe
+                     }
+                     break;
+                 }
+-                case "login_google_oauth_client_id": {
+-                    if (value.value instanceof TLRPC.TL_jsonString) {
+-                        String str = ((TLRPC.TL_jsonString) value.value).value;
+-                        if (!Objects.equals(BuildVars.GOOGLE_AUTH_CLIENT_ID, str)) {
+-                            BuildVars.GOOGLE_AUTH_CLIENT_ID = str;
+-                            editor.putString("googleAuthClientId", BuildVars.GOOGLE_AUTH_CLIENT_ID);
+-                            changed = true;
+-                        }
+-                    }
+-                    break;
+-                }
+                 case "premium_playmarket_direct_currency_list": {
+                     if (value.value instanceof TLRPC.TL_jsonArray) {
+                         TLRPC.TL_jsonArray arr = (TLRPC.TL_jsonArray) value.value;
+diff --git a/TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java b/TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
++++ b/TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+@@ -18,11 +18,6 @@ import androidx.annotation.Nullable;
+ import androidx.annotation.OptIn;
+ import androidx.media3.common.util.UnstableApi;
+ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+-import com.google.android.gms.tasks.Task;
+-import com.google.android.play.core.integrity.IntegrityManager;
+-import com.google.android.play.core.integrity.IntegrityManagerFactory;
+-import com.google.android.play.core.integrity.IntegrityTokenRequest;
+-import com.google.android.play.core.integrity.IntegrityTokenResponse;
+ 
+ import org.json.JSONArray;
+ import org.json.JSONObject;
+@@ -31,7 +26,6 @@ import org.telegram.messenger.AndroidUtilities;
+ import org.telegram.messenger.ApplicationLoader;
+ import org.telegram.messenger.BaseController;
+ import org.telegram.messenger.BuildVars;
+-import org.telegram.messenger.CaptchaController;
+ import org.telegram.messenger.EmuDetector;
+ import org.telegram.messenger.FileLoadOperation;
+ import org.telegram.messenger.FileLoader;
+@@ -1545,45 +1539,14 @@ public class ConnectionsManager extends BaseController {
+     @Keep
+     public static void onIntegrityCheckClassic(final int currentAccount, final int requestToken, final String project, final String nonce) {
+         AndroidUtilities.runOnUIThread(() -> {
+-            long start = System.currentTimeMillis();
+-            FileLog.d("account"+currentAccount+": server requests integrity classic check with project = "+project+" nonce = " + nonce);
+-            IntegrityManager integrityManager = IntegrityManagerFactory.create(ApplicationLoader.applicationContext);
+-            final long project_id;
+-            try {
+-                project_id = Long.parseLong(project);
+-            } catch (Exception e) {
+-                FileLog.d("account"+currentAccount+": integrity check failes to parse project id");
+-                native_receivedIntegrityCheckClassic(currentAccount, requestToken, nonce, "PLAYINTEGRITY_FAILED_EXCEPTION_NOPROJECT");
+-                return;
+-            }
+-            Task<IntegrityTokenResponse> integrityTokenResponse = integrityManager.requestIntegrityToken(IntegrityTokenRequest.builder().setNonce(nonce).setCloudProjectNumber(project_id).build());
+-            integrityTokenResponse
+-                .addOnSuccessListener(r -> {
+-                    final String token = r.token();
+-
+-                    if (token == null) {
+-                        FileLog.e("account"+currentAccount+": integrity check gave null token in " + (System.currentTimeMillis() - start) + "ms");
+-                        native_receivedIntegrityCheckClassic(currentAccount, requestToken, nonce, "PLAYINTEGRITY_FAILED_EXCEPTION_NULL");
+-                        return;
+-                    }
+-
+-                    FileLog.d("account"+currentAccount+": integrity check successfully gave token: " + token + " in " + (System.currentTimeMillis() - start) + "ms");
+-                    try {
+-                        native_receivedIntegrityCheckClassic(currentAccount, requestToken, nonce, token);
+-                    } catch (Exception e) {
+-                        FileLog.e("receivedIntegrityCheckClassic failed", e);
+-                    }
+-                })
+-                .addOnFailureListener(e -> {
+-                    FileLog.e("account"+currentAccount+": integrity check failed to give a token in " + (System.currentTimeMillis() - start) + "ms", e);
+-                    native_receivedIntegrityCheckClassic(currentAccount, requestToken, nonce, "PLAYINTEGRITY_FAILED_EXCEPTION_" + LoginActivity.errorString(e));
+-                });
++            FileLog.d("account" + currentAccount + ": integrity classic check disabled");
++            native_receivedIntegrityCheckClassic(currentAccount, requestToken, nonce, "PLAYINTEGRITY_DISABLED");
+         });
+     }
+ 
+     @Keep
+     public static void onCaptchaCheck(final int currentAccount, final int requestToken, final int generation, final String action, final String key_id) {
+-        AndroidUtilities.runOnUIThread(() -> CaptchaController.request(currentAccount, requestToken, generation, action, key_id));
++        native_receivedCaptchaResult(currentAccount, requestToken, generation, "RECAPTCHA_FAILED_TOKEN_NULL");
+     }
+ 
+     public static native byte[] nativeTestGenerateClientHello(String domain);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java
+@@ -104,21 +104,7 @@ import com.android.billingclient.api.BillingFlowParams;
+ import com.android.billingclient.api.ProductDetails;
+ import com.android.billingclient.api.Purchase;
+ import com.android.billingclient.api.QueryProductDetailsParams;
+-import com.google.android.gms.auth.api.signin.GoogleSignIn;
+-import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+-import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+-import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+-import com.google.android.gms.common.api.ApiException;
+-import com.google.android.gms.safetynet.SafetyNet;
+-import com.google.android.gms.tasks.CancellationTokenSource;
+-import com.google.android.gms.tasks.Task;
+-import com.google.android.play.core.integrity.IntegrityManager;
+-import com.google.android.play.core.integrity.IntegrityManagerFactory;
+-import com.google.android.play.core.integrity.IntegrityTokenRequest;
+-import com.google.android.play.core.integrity.IntegrityTokenResponse;
+-import com.google.firebase.pnv.VerificationSupportResult;
+-
+-import org.json.JSONException;
++
+ import org.json.JSONObject;
+ import org.telegram.PhoneFormat.PhoneFormat;
+ import org.telegram.messenger.AccountInstance;
+@@ -132,7 +118,6 @@ import org.telegram.messenger.CallReceiver;
+ import org.telegram.messenger.ContactsController;
+ import org.telegram.messenger.Emoji;
+ import org.telegram.messenger.FileLog;
+-import org.telegram.messenger.FirebasePhoneNumberVerificationHelper;
+ import org.telegram.messenger.ImageLocation;
+ import org.telegram.messenger.LocaleController;
+ import org.telegram.messenger.MediaDataController;
+@@ -403,8 +388,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+     private Runnable[] editDoneCallback = new Runnable[2];
+     private boolean[] postedEditDoneCallback = new boolean[2];
+ 
+-    private boolean forceDisableSafetyNet;
+-
+     private static class ProgressView extends View implements Theme.Colorable {
+ 
+         private final Path path = new Path();
+@@ -1747,7 +1730,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                             .setTitle(getString(R.string.RestorePasswordNoEmailTitle))
+                             .setMessage(getString(R.string.SafetyNetErrorOccurred))
+                             .setPositiveButton(getString(R.string.OK), (dialog, which) -> {
+-                                forceDisableSafetyNet = true;
+                                 if (currentViewNum != VIEW_PHONE_INPUT) {
+                                     setPage(VIEW_PHONE_INPUT, true, null, true);
+                                 }
+@@ -1803,118 +1785,8 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             return;
+         }
+         if (res.type instanceof TLRPC.TL_auth_sentCodeTypeFirebaseSms && !res.type.verifiedFirebase && !isRequestingFirebaseSms) {
+-            if (PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices()) {
+-                TLRPC.TL_auth_sentCodeTypeFirebaseSms r = (TLRPC.TL_auth_sentCodeTypeFirebaseSms) res.type;
+-                needShowProgress(0);
+-                isRequestingFirebaseSms = true;
+-                final String phone = params.getString("phoneFormated");
+-                if (r.play_integrity_nonce != null) {
+-                    IntegrityManager integrityManager = IntegrityManagerFactory.create(getContext());
+-                    final String nonce = new String(Base64.encode(r.play_integrity_nonce, Base64.URL_SAFE));
+-                    FileLog.d("getting classic integrity with nonce = " + nonce);
+-                    Task<IntegrityTokenResponse> integrityTokenResponse = integrityManager.requestIntegrityToken(IntegrityTokenRequest.builder().setNonce(nonce).setCloudProjectNumber(r.play_integrity_project_id).build());
+-                    integrityTokenResponse
+-                        .addOnSuccessListener(result -> {
+-                            final String token = result.token();
+-
+-                            if (token == null) {
+-                                FileLog.d("Resend firebase sms because integrity token = null");
+-                                resendCodeFromSafetyNet(params, res, "PLAYINTEGRITY_TOKEN_NULL");
+-                                return;
+-                            }
+-
+-                            TLRPC.TL_auth_requestFirebaseSms req = new TLRPC.TL_auth_requestFirebaseSms();
+-                            req.phone_number = phone;
+-                            req.phone_code_hash = res.phone_code_hash;
+-                            req.play_integrity_token = token;
+-                            req.flags |= 4;
+-
+-                            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+-                                if (response instanceof TLRPC.TL_boolTrue) {
+-                                    needHideProgress(false);
+-                                    isRequestingFirebaseSms = false;
+-                                    res.type.verifiedFirebase = true;
+-                                    AndroidUtilities.runOnUIThread(() -> fillNextCodeParams(params, res, animate));
+-                                } else {
+-                                    FileLog.d("{PLAYINTEGRITY_REQUESTFIREBASESMS_FALSE} Resend firebase sms because auth.requestFirebaseSms = false");
+-                                    resendCodeFromSafetyNet(params, res, "PLAYINTEGRITY_REQUESTFIREBASESMS_FALSE");
+-                                }
+-                            }, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+-                        })
+-                        .addOnFailureListener(e -> {
+-                            final String reason = "PLAYINTEGRITY_EXCEPTION_" + errorString(e);
+-                            FileLog.e("{"+reason+"} Resend firebase sms because integrity threw error", e);
+-                            resendCodeFromSafetyNet(params, res, reason);
+-                        });
+-                } else {
+-                    SafetyNet.getClient(ApplicationLoader.applicationContext).attest(res.type.nonce, BuildVars.SAFETYNET_KEY)
+-                    .addOnSuccessListener(attestationResponse -> {
+-                        String jws = attestationResponse.getJwsResult();
+-
+-                        if (jws != null) {
+-                            TLRPC.TL_auth_requestFirebaseSms req = new TLRPC.TL_auth_requestFirebaseSms();
+-                            req.phone_number = phone;
+-                            req.phone_code_hash = res.phone_code_hash;
+-                            req.safety_net_token = jws;
+-                            req.flags |= 1;
+-
+-                            String[] spl = jws.split("\\.");
+-                            if (spl.length > 0) {
+-                                try {
+-                                    JSONObject obj = new JSONObject(new String(Base64.decode(spl[1].getBytes(StandardCharsets.UTF_8), 0)));
+-                                    final boolean basicIntegrity = obj.optBoolean("basicIntegrity");
+-                                    final boolean ctsProfileMatch = obj.optBoolean("ctsProfileMatch");
+-                                    if (basicIntegrity && ctsProfileMatch) {
+-                                        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+-                                            if (response instanceof TLRPC.TL_boolTrue) {
+-                                                needHideProgress(false);
+-                                                isRequestingFirebaseSms = false;
+-                                                res.type.verifiedFirebase = true;
+-                                                AndroidUtilities.runOnUIThread(() -> fillNextCodeParams(params, res, animate));
+-                                            } else {
+-                                                FileLog.d("{SAFETYNET_REQUESTFIREBASESMS_FALSE} Resend firebase sms because auth.requestFirebaseSms = false");
+-                                                resendCodeFromSafetyNet(params, res, "SAFETYNET_REQUESTFIREBASESMS_FALSE");
+-                                            }
+-                                        }, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+-                                    } else {
+-                                        if (!basicIntegrity && !ctsProfileMatch) {
+-                                            FileLog.d("{SAFETYNET_BASICINTEGRITY_CTSPROFILEMATCH_FALSE} Resend firebase sms because ctsProfileMatch = false and basicIntegrity = false");
+-                                            resendCodeFromSafetyNet(params, res, "SAFETYNET_BASICINTEGRITY_CTSPROFILEMATCH_FALSE");
+-                                        } else if (!basicIntegrity) {
+-                                            FileLog.d("{SAFETYNET_BASICINTEGRITY_FALSE} Resend firebase sms because basicIntegrity = false");
+-                                            resendCodeFromSafetyNet(params, res, "SAFETYNET_BASICINTEGRITY_FALSE");
+-                                        } else if (!ctsProfileMatch) {
+-                                            FileLog.d("{SAFETYNET_CTSPROFILEMATCH_FALSE} Resend firebase sms because ctsProfileMatch = false");
+-                                            resendCodeFromSafetyNet(params, res, "SAFETYNET_CTSPROFILEMATCH_FALSE");
+-                                        }
+-                                    }
+-                                } catch (JSONException e) {
+-                                    FileLog.e(e);
+-
+-                                    FileLog.d("{SAFETYNET_JSON_EXCEPTION} Resend firebase sms because of exception");
+-                                    resendCodeFromSafetyNet(params, res, "SAFETYNET_JSON_EXCEPTION");
+-                                }
+-                            } else {
+-                                FileLog.d("{SAFETYNET_CANT_SPLIT} Resend firebase sms because can't split JWS token");
+-                                resendCodeFromSafetyNet(params, res, "SAFETYNET_CANT_SPLIT");
+-                            }
+-                        } else {
+-                            FileLog.d("{SAFETYNET_NULL_JWS} Resend firebase sms because JWS = null");
+-                            resendCodeFromSafetyNet(params, res, "SAFETYNET_NULL_JWS");
+-                        }
+-                    })
+-                    .addOnFailureListener(e -> {
+-                        FileLog.e(e);
+-
+-                        final String reason = "SAFETYNET_EXCEPTION_" + errorString(e);
+-                        FileLog.d("{"+reason+"} Resend firebase sms because of safetynet exception");
+-                        resendCodeFromSafetyNet(params, res, reason);
+-                    });
+-                }
+-            } else {
+-                FileLog.d("{GOOGLE_PLAY_SERVICES_NOT_AVAILABLE} Resend firebase sms because firebase is not available");
+-                resendCodeFromSafetyNet(params, res, "GOOGLE_PLAY_SERVICES_NOT_AVAILABLE");
+-            }
++            FileLog.d("{GOOGLE_PLAY_SERVICES_NOT_AVAILABLE} Resend firebase sms because firebase is not available");
++            resendCodeFromSafetyNet(params, res, "GOOGLE_PLAY_SERVICES_NOT_AVAILABLE");
+             return;
+         }
+ 
+@@ -3115,10 +2987,8 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             TLRPC.TL_codeSettings settings = new TLRPC.TL_codeSettings();
+             settings.allow_flashcall = simcardAvailable && allowCall && allowCancelCall && allowReadCallLog;
+             settings.allow_missed_call = simcardAvailable && allowCall;
+-            settings.allow_app_hash = settings.allow_firebase = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
+-            if (forceDisableSafetyNet || TextUtils.isEmpty(BuildVars.SAFETYNET_KEY)) {
+-                settings.allow_firebase = false;
+-            }
++            settings.allow_app_hash = false;
++            settings.allow_firebase = false;
+ 
+             ArrayList<TLRPC.TL_auth_authorization> loginTokens = AuthTokensHelper.getSavedLogInTokens();
+             if (loginTokens != null) {
+@@ -3429,7 +3299,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                     }
+                 }
+                 if (activityMode == MODE_LOGIN) {
+-                    requestFpnv();
++                    requestPasskey(false);
+                 }
+             }, SHOW_DELAY);
+         }
+@@ -3441,176 +3311,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                 cancelRequestingPasskey.run();
+                 cancelRequestingPasskey = null;
+             }
+-            fpnvDestroyed = true;
+-            if (waitingConfigForFpnv) {
+-                waitingConfigForFpnv = false;
+-                NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.configLoaded);
+-            }
+-            if (fpnvCancellationTokenSource != null) {
+-                fpnvCancellationTokenSource.cancel();
+-                fpnvCancellationTokenSource = null;
+-            }
+-            if (fpnvProgressDialog != null) {
+-                fpnvProgressDialog.dismiss();
+-                fpnvProgressDialog = null;
+-            }
+-            if (fpnvConsentDialog != null) {
+-                fpnvConsentDialog.dismiss();
+-                fpnvConsentDialog = null;
+-            }
+-        }
+-
+-        private boolean requestedFpnv;
+-        private boolean waitingConfigForFpnv;
+-        private boolean fpnvDestroyed;
+-        private CancellationTokenSource fpnvCancellationTokenSource;
+-        private AlertDialog fpnvProgressDialog;
+-        private AlertDialog fpnvConsentDialog;
+-
+-        // Automatic sign-in on the phone page: Firebase PNV when the server allows it,
+-        // the SIM supports it and the user agrees; otherwise (or when it fails) a passkey.
+-        private void requestFpnv() {
+-            if (activityMode != MODE_LOGIN || requestedFpnv || fpnvDestroyed) {
+-                return;
+-            }
+-            final MessagesController messagesController = MessagesController.getInstance(currentAccount);
+-            if (!messagesController.remoteConfigLoaded) {
+-                if (!waitingConfigForFpnv) {
+-                    waitingConfigForFpnv = true;
+-                    NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.configLoaded);
+-                    ConnectionsManager.getInstance(currentAccount).updateDcSettings();
+-                }
+-                return;
+-            }
+-
+-            requestedFpnv = true;
+-            if (!BuildVars.SUPPORTS_FPNV || !messagesController.fpnvAllowed) {
+-                requestPasskey(false);
+-                return;
+-            }
+-            FirebasePhoneNumberVerificationHelper.getVerificationSupportInfo(results -> {
+-                if (!canStartAutoLogin()) {
+-                    return;
+-                }
+-                if (results != null && !results.isEmpty()) {
+-                    showFpnvConsent(results.get(0));
+-                } else {
+-                    requestPasskey(false);
+-                }
+-            });
+-        }
+-
+-        // The system sheet opens only after the user agrees here; declining falls back to a passkey.
+-        private void showFpnvConsent(VerificationSupportResult verificationSupportResult) {
+-            final Context context = getContext();
+-            final FirebasePhoneNumberVerificationHelper.SimInfo sim = FirebasePhoneNumberVerificationHelper.getSimInfo(context, verificationSupportResult);
+-
+-            final TableView tableView = new TableView(context, resourceProvider);
+-            if (sim.carrierName != null) {
+-                tableView.addRow(getString(R.string.FpnvConsentCarrier), sim.carrierName);
+-            }
+-            if (sim.slot >= 0) {
+-                tableView.addRow(getString(R.string.FpnvConsentSimSlot), formatString(R.string.FpnvConsentSimSlotValue, sim.slot + 1));
+-            }
+-            if (sim.phoneNumber != null) {
+-                tableView.addRow(getString(R.string.FpnvConsentPhoneNumber), sim.phoneNumber.startsWith("+") ? PhoneFormat.getInstance().format(sim.phoneNumber) : sim.phoneNumber);
+-            }
+-            final FrameLayout tableContainer = new FrameLayout(context);
+-            tableContainer.addView(tableView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.FILL_HORIZONTAL, 24, 4, 24, 4));
+-
+-            final boolean[] confirmed = new boolean[1];
+-            final AlertDialog.Builder builder = new AlertDialog.Builder(context, resourceProvider);
+-            builder.setTitle(getString(R.string.FpnvConsentTitle));
+-            builder.setMessage(getString(R.string.FpnvConsentText));
+-            builder.setView(tableContainer);
+-            builder.setPositiveButton(getString(R.string.FpnvConsentContinue), (d, which) -> {
+-                confirmed[0] = true;
+-                if (canStartAutoLogin()) {
+-                    requestLoginViaFirebasePhoneNumberVerification();
+-                }
+-            });
+-            builder.setNegativeButton(getString(R.string.Cancel), null);
+-            final AlertDialog dialog = builder.create();
+-            dialog.setOnDismissListener(d -> {
+-                if (fpnvConsentDialog == dialog) {
+-                    fpnvConsentDialog = null;
+-                }
+-                if (!confirmed[0] && canStartAutoLogin()) {
+-                    requestPasskey(false);
+-                }
+-            });
+-            fpnvConsentDialog = dialog;
+-            dialog.show();
+-        }
+-
+-        private boolean canStartAutoLogin() {
+-            final Activity activity = getParentActivity();
+-            return !fpnvDestroyed && !nextPressed && currentViewNum == VIEW_PHONE_INPUT && activity != null && !activity.isFinishing();
+-        }
+-
+-        private void requestLoginViaFirebasePhoneNumberVerification() {
+-            final Executor executor = AndroidUtilities::runOnUIThread;
+-            final CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+-            fpnvCancellationTokenSource = cancellationTokenSource;
+-
+-            FirebasePhoneNumberVerificationHelper.loginViaFirebasePhoneNumberVerification(
+-                getContext(), currentAccount, cancellationTokenSource.getToken(), () -> {
+-                    if (!canStartAutoLogin()) {
+-                        return;
+-                    }
+-                    final AlertDialog progressDialog = new AlertDialog(getContext(), AlertDialog.ALERT_TYPE_SPINNER);
+-                    progressDialog.setOnCancelListener(d -> cancellationTokenSource.cancel());
+-                    progressDialog.show();
+-                    fpnvProgressDialog = progressDialog;
+-                })
+-                    .addOnCompleteListener(executor, r -> {
+-                        if (fpnvProgressDialog != null) {
+-                            fpnvProgressDialog.dismiss();
+-                            fpnvProgressDialog = null;
+-                        }
+-                        if (fpnvCancellationTokenSource == cancellationTokenSource) {
+-                            fpnvCancellationTokenSource = null;
+-                        }
+-                    })
+-                    .addOnSuccessListener(executor, authAuthorization -> {
+-                        if (fpnvDestroyed) {
+-                            return;
+-                        }
+-                        if (authAuthorization instanceof TLRPC.TL_auth_authorizationSignUpRequired) {
+-                            final TLRPC.TL_auth_authorizationSignUpRequired authorization =
+-                                (TLRPC.TL_auth_authorizationSignUpRequired) authAuthorization;
+-                            if (authorization.terms_of_service != null) {
+-                                currentTermsOfService = authorization.terms_of_service;
+-                            }
+-                            Bundle params = new Bundle();
+-                            params.putBoolean("fromFirebasePhoneNumberVerification", true);
+-                            setPage(VIEW_REGISTER, true, params, false);
+-                        } else if (authAuthorization instanceof TLRPC.TL_auth_authorization) {
+-                            onAuthSuccess((TLRPC.TL_auth_authorization) authAuthorization);
+-                        } else {
+-                            requestPasskey(false);
+-                        }
+-                    })
+-                    .addOnFailureListener(executor, exception -> {
+-                        if (fpnvDestroyed) {
+-                            return;
+-                        }
+-                        if (exception instanceof ConnectionsManager.RequestException) {
+-                            final String err = exception.getMessage();
+-                            if (err != null && err.contains("SESSION_PASSWORD_NEEDED")) {
+-                                requestPassword();
+-                                return;
+-                            }
+-                            if (err != null && BuildVars.DEBUG_VERSION) {
+-                                BulletinFactory.of(slideViewsContainer, null).showForError(err);
+-                            }
+-                        } else if (!(exception instanceof CancellationException)) {
+-                            FileLog.e(exception);
+-                        }
+-                        if (canStartAutoLogin()) {
+-                            requestPasskey(false);
+-                        }
+-                    });
+         }
+ 
+         private boolean requestedPasskey = false;
+@@ -3719,14 +3419,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+         public void didReceivedNotification(int id, int account, Object... args) {
+             if (id == NotificationCenter.emojiLoaded) {
+                 countryButton.getCurrentView().invalidate();
+-            } else if (id == NotificationCenter.configLoaded && account == currentAccount) {
+-                if (waitingConfigForFpnv) {
+-                    waitingConfigForFpnv = false;
+-                    NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.configLoaded);
+-                    if (canStartAutoLogin()) {
+-                        requestFpnv();
+-                    }
+-                }
+             }
+         }
+     }
+@@ -6163,8 +5855,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+ 
+         private TextView titleView;
+         private TextView subtitleView;
+-        private TextView signInWithGoogleView;
+-        private LoginOrView loginOrView;
+         private RLottieImageView inboxImageView;
+ 
+         private Bundle currentParams;
+@@ -6173,8 +5863,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+         private String phone, emailPhone;
+         private String requestPhone, phoneHash;
+ 
+-        private GoogleSignInAccount googleAccount;
+-
+         public LoginActivitySetupEmail(Context context) {
+             super(context);
+ 
+@@ -6230,72 +5918,8 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+ 
+             addView(emailOutlineView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 58, 16, 24, 16, 0));
+ 
+-            signInWithGoogleView = new TextView(context);
+-            signInWithGoogleView.setGravity(Gravity.LEFT);
+-            signInWithGoogleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+-            signInWithGoogleView.setLineSpacing(AndroidUtilities.dp(2), 1.0f);
+-            signInWithGoogleView.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
+-            signInWithGoogleView.setMaxLines(2);
+-
+-            SpannableStringBuilder str = new SpannableStringBuilder("d ");
+-            Drawable dr = ContextCompat.getDrawable(context, com.google.android.gms.base.R.drawable.googleg_standard_color_18);
+-            dr.setBounds(0, AndroidUtilities.dp(9), AndroidUtilities.dp(18), AndroidUtilities.dp(18 + 9));
+-            str.setSpan(new ImageSpan(dr, ImageSpan.ALIGN_BOTTOM), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+-            str.setSpan(new ReplacementSpan() {
+-                @Override
+-                public int getSize(@NonNull Paint paint, CharSequence text, int start, int end, @Nullable Paint.FontMetricsInt fm) {
+-                    return AndroidUtilities.dp(12);
+-                }
+-
+-                @Override
+-                public void draw(@NonNull Canvas canvas, CharSequence text, int start, int end, float x, int top, int y, int bottom, @NonNull Paint paint) {}
+-            }, 1, 2, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+-            str.append(getString(R.string.SignInWithGoogle));
+-            signInWithGoogleView.setText(str);
+-
+-            loginOrView = new LoginOrView(context);
+-
+             Space space = new Space(context);
+             addView(space, LayoutHelper.createLinear(0, 0, 1f));
+-
+-            FrameLayout bottomContainer = new FrameLayout(context);
+-            bottomContainer.addView(signInWithGoogleView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM | Gravity.LEFT, 0, 0, 0, 24));
+-            bottomContainer.addView(loginOrView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 16, Gravity.BOTTOM | Gravity.LEFT, 0, 0, 0, 70));
+-            loginOrView.setMeasureAfter(signInWithGoogleView);
+-            addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+-            VerticalPositionAutoAnimator.attach(bottomContainer);
+-
+-            bottomContainer.setOnClickListener(view -> {
+-                NotificationCenter.getGlobalInstance().addObserver(new NotificationCenter.NotificationCenterDelegate() {
+-                    @Override
+-                    public void didReceivedNotification(int id, int account, Object... args) {
+-                        int request = (int) args[0];
+-                        int result = (int) args[1];
+-                        Intent data = (Intent) args[2];
+-                        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.onActivityResultReceived);
+-
+-                        if (request == BasePermissionsActivity.REQUEST_CODE_SIGN_IN_WITH_GOOGLE) {
+-                            try {
+-                                googleAccount = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
+-                                onNextPressed(null);
+-                            } catch (ApiException e) {
+-                                FileLog.e(e);
+-                            }
+-                        }
+-                    }
+-                }, NotificationCenter.onActivityResultReceived);
+-
+-                GoogleSignInClient googleClient = GoogleSignIn.getClient(getContext(), new GoogleSignInOptions.Builder()
+-                        .requestIdToken(BuildVars.GOOGLE_AUTH_CLIENT_ID)
+-                        .requestEmail()
+-                        .build());
+-                googleClient.signOut().addOnCompleteListener(command -> {
+-                    if (getParentActivity() == null || getParentActivity().isFinishing()) {
+-                        return;
+-                    }
+-                    getParentActivity().startActivityForResult(googleClient.getSignInIntent(), BasePermissionsActivity.REQUEST_CODE_SIGN_IN_WITH_GOOGLE);
+-                });
+-            });
+         }
+ 
+         @Override
+@@ -6304,8 +5928,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             subtitleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+             subtitleView.setLinkTextColor(Theme.getColor(Theme.key_chat_messageLinkIn));
+             emailField.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+-            signInWithGoogleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+-            loginOrView.updateColors();
+ 
+             emailOutlineView.invalidate();
+         }
+@@ -6332,10 +5954,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             requestPhone = currentParams.getString("phoneFormated");
+             phoneHash = currentParams.getString("phoneHash");
+ 
+-            int v = params.getBoolean("googleSignInAllowed") && PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices() ? VISIBLE : GONE;
+-            loginOrView.setVisibility(v);
+-            signInWithGoogleView.setVisibility(v);
+-
+             showKeyboard(emailField);
+             emailField.requestFocus();
+         }
+@@ -6362,7 +5980,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                 return;
+             }
+ 
+-            String email = googleAccount != null ? googleAccount.getEmail() : emailField.getText().toString();
++            String email = emailField.getText().toString();
+             Bundle params = new Bundle();
+             params.putString("phone", phone);
+             params.putString("ephone", emailPhone);
+@@ -6371,44 +5989,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             params.putString("email", email);
+             params.putBoolean("setup", true);
+ 
+-            if (googleAccount != null) {
+-                TL_account.verifyEmail verifyEmail = new TL_account.verifyEmail();
+-                if (activityMode == MODE_CHANGE_LOGIN_EMAIL) {
+-                    verifyEmail.purpose = new TLRPC.TL_emailVerifyPurposeLoginChange();
+-                } else {
+-                    TLRPC.TL_emailVerifyPurposeLoginSetup purpose = new TLRPC.TL_emailVerifyPurposeLoginSetup();
+-                    purpose.phone_number = requestPhone;
+-                    purpose.phone_code_hash = phoneHash;
+-                    verifyEmail.purpose = purpose;
+-                }
+-                TLRPC.TL_emailVerificationGoogle verificationGoogle = new TLRPC.TL_emailVerificationGoogle();
+-                verificationGoogle.token = googleAccount.getIdToken();
+-                verifyEmail.verification = verificationGoogle;
+-
+-                googleAccount = null;
+-                ConnectionsManager.getInstance(currentAccount).sendRequest(verifyEmail, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+-                    if (response instanceof TL_account.TL_emailVerified && activityMode == MODE_CHANGE_LOGIN_EMAIL) {
+-                        finishFragment();
+-                        emailChangeFinishCallback.run();
+-                    } else if (response instanceof TL_account.TL_emailVerifiedLogin) {
+-                        TL_account.TL_emailVerifiedLogin emailVerifiedLogin = (TL_account.TL_emailVerifiedLogin) response;
+-
+-                        params.putString("email", emailVerifiedLogin.email);
+-                        fillNextCodeParams(params, emailVerifiedLogin.sent_code);
+-                    } else if (error != null) {
+-                        if (error.text.contains("EMAIL_NOT_ALLOWED")) {
+-                            needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString(R.string.EmailNotAllowed));
+-                        } else if (error.text.contains("EMAIL_TOKEN_INVALID")) {
+-                            needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString(R.string.EmailTokenInvalid));
+-                        } else if (error.code != -1000) {
+-                            AlertsCreator.processError(currentAccount, error, LoginActivity.this, verifyEmail);
+-                        }
+-                    }
+-                }), ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+-
+-                return;
+-            }
+-
+             if (TextUtils.isEmpty(email)) {
+                 onPasscodeError(false);
+                 return;
+@@ -6496,21 +6076,17 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+         private CodeFieldContainer codeFieldContainer;
+         private TextView titleView;
+         private TextView confirmTextView;
+-        private TextView signInWithGoogleView;
+         private FrameLayout resendFrameLayout;
+         private TextView resendCodeView;
+         private FrameLayout cantAccessEmailFrameLayout;
+         private TextView cantAccessEmailView;
+         private TextView emailResetInView;
+         private TextView wrongCodeView;
+-        private LoginOrView loginOrView;
+         private RLottieImageView inboxImageView;
+ 
+         private boolean resetRequestPending;
+         private Bundle currentParams;
+         private boolean nextPressed;
+-        private GoogleSignInAccount googleAccount;
+-
+         private int resetAvailablePeriod, resetPendingDate;
+         private String phone, emailPhone, email;
+         private String requestPhone, phoneHash;
+@@ -6576,61 +6152,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+ 
+             addView(codeFieldContainer, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 42, Gravity.CENTER_HORIZONTAL, 0, setup ? 48 : 32, 0, 0));
+ 
+-            signInWithGoogleView = new TextView(context);
+-            signInWithGoogleView.setGravity(Gravity.CENTER);
+-            signInWithGoogleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+-            signInWithGoogleView.setLineSpacing(AndroidUtilities.dp(2), 1.0f);
+-            signInWithGoogleView.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
+-            signInWithGoogleView.setMaxLines(2);
+-
+-            SpannableStringBuilder str = new SpannableStringBuilder("d ");
+-            Drawable dr = ContextCompat.getDrawable(context, com.google.android.gms.base.R.drawable.googleg_standard_color_18);
+-            dr.setBounds(0, AndroidUtilities.dp(9), AndroidUtilities.dp(18), AndroidUtilities.dp(18 + 9));
+-            str.setSpan(new ImageSpan(dr, ImageSpan.ALIGN_BOTTOM), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+-            str.setSpan(new ReplacementSpan() {
+-                @Override
+-                public int getSize(@NonNull Paint paint, CharSequence text, int start, int end, @Nullable Paint.FontMetricsInt fm) {
+-                    return AndroidUtilities.dp(12);
+-                }
+-
+-                @Override
+-                public void draw(@NonNull Canvas canvas, CharSequence text, int start, int end, float x, int top, int y, int bottom, @NonNull Paint paint) {}
+-            }, 1, 2, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+-            str.append(getString(R.string.SignInWithGoogle));
+-            signInWithGoogleView.setText(str);
+-
+-            signInWithGoogleView.setOnClickListener(view -> {
+-                NotificationCenter.getGlobalInstance().addObserver(new NotificationCenter.NotificationCenterDelegate() {
+-                    @Override
+-                    public void didReceivedNotification(int id, int account, Object... args) {
+-                        int request = (int) args[0];
+-                        int result = (int) args[1];
+-                        Intent data = (Intent) args[2];
+-                        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.onActivityResultReceived);
+-
+-                        if (request == BasePermissionsActivity.REQUEST_CODE_SIGN_IN_WITH_GOOGLE) {
+-                            try {
+-                                googleAccount = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
+-                                onNextPressed(null);
+-                            } catch (ApiException e) {
+-                                FileLog.e(e);
+-                            }
+-                        }
+-                    }
+-                }, NotificationCenter.onActivityResultReceived);
+-
+-                GoogleSignInClient googleClient = GoogleSignIn.getClient(getContext(), new GoogleSignInOptions.Builder()
+-                                .requestIdToken(BuildVars.GOOGLE_AUTH_CLIENT_ID)
+-                                .requestEmail()
+-                                .build());
+-                googleClient.signOut().addOnCompleteListener(command -> {
+-                    if (getParentActivity() == null) {
+-                        return;
+-                    }
+-                    getParentActivity().startActivityForResult(googleClient.getSignInIntent(), BasePermissionsActivity.REQUEST_CODE_SIGN_IN_WITH_GOOGLE);
+-                });
+-            });
+-
+             cantAccessEmailFrameLayout = new FrameLayout(context);
+             AndroidUtilities.updateViewVisibilityAnimated(cantAccessEmailFrameLayout, activityMode != MODE_CHANGE_LOGIN_EMAIL && !isSetup, 1f, false);
+ 
+@@ -6744,9 +6265,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             });
+             AndroidUtilities.updateViewVisibilityAnimated(resendCodeView, false, 1f, false);
+ 
+-            loginOrView = new LoginOrView(context);
+-            VerticalPositionAutoAnimator.attach(loginOrView);
+-
+             errorViewSwitcher = new ViewSwitcher(context) {
+                 @Override
+                 protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+@@ -6779,8 +6297,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             } else {
+                 bottomContainer.addView(errorViewSwitcher, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
+                 bottomContainer.addView(cantAccessEmailFrameLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
+-                bottomContainer.addView(loginOrView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 16, Gravity.CENTER, 0, 0, 0, 16));
+-                bottomContainer.addView(signInWithGoogleView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM, 0, 0, 0, 16));
+             }
+             addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f));
+         }
+@@ -6830,8 +6346,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+         public void updateColors() {
+             titleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+             confirmTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+-            signInWithGoogleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+-            loginOrView.updateColors();
+             resendCodeView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+             cantAccessEmailView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+             emailResetInView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+@@ -6850,11 +6364,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+         private void showResendCodeView(boolean show) {
+             AndroidUtilities.updateViewVisibilityAnimated(resendCodeView, show);
+             AndroidUtilities.updateViewVisibilityAnimated(cantAccessEmailFrameLayout, !show && activityMode != MODE_CHANGE_LOGIN_EMAIL && !isSetup);
+-
+-            if (loginOrView.getVisibility() != GONE) {
+-                loginOrView.setLayoutParams(LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 16, Gravity.CENTER, 0, 0, 0, show ? 8 : 16));
+-                loginOrView.requestLayout();
+-            }
+         }
+ 
+         @Override
+@@ -6947,10 +6456,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                 confirmTextView.setText(AndroidUtilities.formatSpannable(getString(R.string.CheckYourEmailSubtitle), confirmText));
+             }
+ 
+-            int v = params.getBoolean("googleSignInAllowed") && PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices() ? VISIBLE : GONE;
+-            loginOrView.setVisibility(v);
+-            signInWithGoogleView.setVisibility(v);
+-
+             showKeyboard(codeFieldContainer.codeField[0]);
+             codeFieldContainer.requestFocus();
+ 
+@@ -7085,7 +6590,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+             }
+ 
+             code = codeFieldContainer.getCode();
+-            if (code.length() == 0 && googleAccount == null) {
++            if (code.length() == 0) {
+                 onPasscodeError(false);
+                 return;
+             }
+@@ -7114,15 +6619,9 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                 TLRPC.TL_auth_signIn request = new TLRPC.TL_auth_signIn();
+                 request.phone_number = requestPhone;
+                 request.phone_code_hash = phoneHash;
+-                if (googleAccount != null) {
+-                    TLRPC.TL_emailVerificationGoogle verification = new TLRPC.TL_emailVerificationGoogle();
+-                    verification.token = googleAccount.getIdToken();
+-                    request.email_verification = verification;
+-                } else {
+-                    TLRPC.TL_emailVerificationCode verification = new TLRPC.TL_emailVerificationCode();
+-                    verification.code = code;
+-                    request.email_verification = verification;
+-                }
++                TLRPC.TL_emailVerificationCode verification = new TLRPC.TL_emailVerificationCode();
++                verification.code = code;
++                request.email_verification = verification;
+                 request.flags |= 2;
+                 req = request;
+             }
+@@ -7229,15 +6728,10 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
+                         }
+                     }
+                 }
+-                googleAccount = null;
+             }), ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+         }
+ 
+         private void animateSuccess(Runnable callback) {
+-            if (googleAccount != null) {
+-                callback.run();
+-                return;
+-            }
+             for (int i = 0; i < codeFieldContainer.codeField.length; i++) {
+                 int finalI = i;
+                 codeFieldContainer.postDelayed(()-> codeFieldContainer.codeField[finalI].animateSuccessProgress(1f), i * 75L);

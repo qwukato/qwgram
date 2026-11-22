@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- qwgram launcher icon: speech bubble on the Material 3 primary color -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="56"
+        android:scaleX="1.18"
+        android:scaleY="1.18">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="nonZero"
+            android:pathData="M44,33 H64 A14,14 0 0 1 78,47 V55 A14,14 0 0 1 64,69 H46 L34,79 C33,80 31.6,79.2 31.9,77.9 L33.2,71 C31.2,68.6 30,65.5 30,62 V47 A14,14 0 0 1 44,33 Z M45.6,51 A3.6,3.6 0 1 0 38.4,51 A3.6,3.6 0 1 0 45.6,51 Z M57.6,51 A3.6,3.6 0 1 0 50.4,51 A3.6,3.6 0 1 0 57.6,51 Z M69.6,51 A3.6,3.6 0 1 0 62.4,51 A3.6,3.6 0 1 0 69.6,51 Z" />
+    </group>
+</vector>

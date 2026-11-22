@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Tue, 12 May 2026 21:30:08 +0200
+Subject: prefer media tab in profile shared media
+
+---
+ .../telegram/ui/Components/SharedMediaLayout.java | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+@@ -1683,7 +1683,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+         int[] mediaCount = preloader.getLastMediaCount();
+         topicId = sharedMediaPreloader.topicId;
+         hasMedia = new int[]{mediaCount[0], mediaCount[1], mediaCount[2], mediaCount[3], mediaCount[4], mediaCount[5], topicId == 0 ? commonGroupsCount : 0, mediaCount[7], mediaCount[8]};
+-        final TLRPC.ProfileTab main_tab;
++        TLRPC.ProfileTab main_tab;
+         if (userInfo != null) {
+             main_tab = userInfo.main_tab;
+         } else if (chatInfo != null) {
+@@ -1691,6 +1691,10 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+         } else {
+             main_tab = null;
+         }
++        final boolean inuPreferMediaTab = desu.inugram.helpers.profile.ProfileHelper.preferMediaTab() && !isStoriesView();
++        if (inuPreferMediaTab) {
++            main_tab = null;
++        }
+         if (initialTab == TAB_GIFTS || initialTab == TAB_RECOMMENDED_CHANNELS || initialTab == TAB_SAVED_DIALOGS || initialTab == TAB_COMMON_GROUPS) {
+             this.initialTab = initialTab;
+         } else if (user != null && user.bot && user.bot_has_main_app && user.bot_can_edit) {
+@@ -1711,9 +1715,9 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+             this.initialTab = TAB_AUDIO;
+         } else if (main_tab instanceof TLRPC.TL_profileTabVoice && (hasMedia[2] == -1 || hasMedia[2] > 0)) {
+             this.initialTab = TAB_VOICE;
+-        } else if (userInfo != null && userInfo.stories_pinned_available || chatInfo != null && chatInfo.stories_pinned_available || isStoriesView()) {
++        } else if (!inuPreferMediaTab && (userInfo != null && userInfo.stories_pinned_available || chatInfo != null && chatInfo.stories_pinned_available || isStoriesView())) {
+             this.initialTab = getInitialTab();
+-        } else if (userInfo != null && userInfo.stargifts_count > 0 || chatInfo != null && chatInfo.stargifts_count > 0) {
++        } else if (!inuPreferMediaTab && (userInfo != null && userInfo.stargifts_count > 0 || chatInfo != null && chatInfo.stargifts_count > 0)) {
+             this.initialTab = TAB_GIFTS;
+         } else if (initialTab != -1 && topicId == 0) {
+             this.initialTab = initialTab;
+@@ -6607,7 +6611,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+             }
+         }
+         if (info != null && (stories_pinned_available != info.stories_pinned_available)) {
+-            if (scrollSlidingTextTabStrip != null) {
++            if (scrollSlidingTextTabStrip != null && (!desu.inugram.helpers.profile.ProfileHelper.preferMediaTab() || isStoriesView())) {
+                 scrollSlidingTextTabStrip.setInitialTabId(isArchivedOnlyStoriesView() ? TAB_ARCHIVED_STORIES : TAB_STORIES);
+             }
+             updateTabs(true);
+@@ -6619,7 +6623,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+         boolean stories_pinned_available = this.userInfo != null && this.userInfo.stories_pinned_available;
+         this.userInfo = userInfo;
+         updateTabs(true);
+-        if (userInfo != null && (stories_pinned_available != userInfo.stories_pinned_available)) {
++        if (userInfo != null && (stories_pinned_available != userInfo.stories_pinned_available) && (!desu.inugram.helpers.profile.ProfileHelper.preferMediaTab() || isStoriesView())) {
+             scrollToPage(TAB_STORIES);
+         }
+     }
+@@ -11610,6 +11614,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+             boolean a = isAnyStoryPageType(mediaPages[0].selectedType) && mediaPages[0].selectedType != TAB_ARCHIVED_STORIES;
+             boolean b = (mediaPages[1].getVisibility() == VISIBLE) ?
+                 isAnyStoryPageType(mediaPages[1].selectedType) && mediaPages[1].selectedType != TAB_ARCHIVED_STORIES: a;
++            storiesContainer.setVisibility(a || b ? View.VISIBLE : View.INVISIBLE);
+             if (a == b) {
+                 newSubTabsVisibilityFactor = a ? 1f : 0f;
+                 storiesContainer.setTranslationX(a ? 0 : mediaPages[0].getMeasuredWidth());

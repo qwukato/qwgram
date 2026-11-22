@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.pet>
+Date: Mon, 31 Aug 2026 05:04:53 +0400
+Subject: respect container alpha when drawing section backgrounds
+
+---
+ .../org/telegram/ui/Components/SectionsScrollView.java    | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/SectionsScrollView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/SectionsScrollView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/SectionsScrollView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/SectionsScrollView.java
+@@ -199,6 +199,10 @@ public class SectionsScrollView extends ScrollView implements IBlur3Capture {
+         if (!(child.getParent() instanceof View)) return child.getY();
+         return getChildY((View) child.getParent()) + child.getY();
+     }
++    private float getChildAlpha(View child) {
++        if (child == contentView || !(child.getParent() instanceof View)) return child.getAlpha();
++        return getChildAlpha((View) child.getParent()) * child.getAlpha();
++    }
+ 
+     private void collectSections() {
+         sectionsCount = 0;
+@@ -215,7 +219,7 @@ public class SectionsScrollView extends ScrollView implements IBlur3Capture {
+                 start = prev = null;
+                 continue;
+             }
+-            if (start != null && Math.abs(prev.getAlpha() - child.getAlpha()) > 0.1f) {
++            if (start != null && Math.abs(getChildAlpha(prev) - getChildAlpha(child)) > 0.1f) {
+                 addSection(start, prev);
+                 start = null;
+             }
+@@ -253,7 +257,7 @@ public class SectionsScrollView extends ScrollView implements IBlur3Capture {
+         sections[sectionsCount++] = top;
+         sections[sectionsCount++] = right;
+         sections[sectionsCount++] = bottom;
+-        sections[sectionsCount++] = from.getAlpha();
++        sections[sectionsCount++] = getChildAlpha(from);
+     }
+ 
+     // bottom paddings of the gathered parents that end with this child (e.g. under LinkActionView buttons)

@@ -1,0 +1,54 @@
+name: Export stock files
+
+# Нужен, чтобы ПОСМОТРЕТЬ настоящие файлы Telegram с уже наложенными патчами и писать новые патчи
+# с точным контекстом. Запуск: Actions -> Export stock files -> Run workflow, в поле paths
+# перечисли пути через пробел, например:
+#   TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java TMessagesProj/build.gradle
+# Результат: артефакт files.zip (маленький, его можно скачать и прислать).
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: 'Пути внутри worktree через пробел'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: configure git identity
+        run: |
+          git config --global user.email ci@zhirgram
+          git config --global user.name 'zhirgram ci'
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: worktree (без сабмодулей, так быстрее)
+        run: pnpm run setup -- --ci --pluginless --no-submodules
+      - name: собрать файлы
+        env:
+          PATHS: ${{ inputs.paths }}
+        run: |
+          mkdir -p out
+          cd worktree-pluginless
+          # защита от выхода за пределы worktree
+          for p in $PATHS; do
+            case "$p" in /*|*..*) echo "::error::недопустимый путь $p"; exit 1;; esac
+          done
+          zip -r ../out/files.zip $PATHS
+          unzip -l ../out/files.zip | tail -20
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: files
+          path: out/files.zip
+          retention-days: 7

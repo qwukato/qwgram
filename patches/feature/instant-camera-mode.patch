@@ -1,0 +1,373 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Thu, 9 Apr 2026 04:55:09 +0300
+Subject: customizable instant camera in attach alert (stock/static/fab/tab)
+
+---
+ .../ui/Components/ChatAttachAlert.java        | 33 ++++++++++--
+ .../ChatAttachAlertPhotoLayout.java           | 53 ++++++++++++++-----
+ .../ui/Components/glass/GlassTabView.java     |  1 +
+ 3 files changed, 68 insertions(+), 19 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlert.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlert.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlert.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlert.java
+@@ -189,6 +189,7 @@ import me.vkryl.core.BitwiseUtils;
+ 
+ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.NotificationCenterDelegate, BottomSheet.BottomSheetDelegateInterface, FactorAnimator.Target {
+ 
++    public static final int inu_TAG_CAMERA = 1000;
+     public static final int LAYOUT_TYPE_PHOTO = 1;
+     public static final int LAYOUT_TYPE_MUSIC = 3;
+     public static final int LAYOUT_TYPE_DOCUMENTS = 4;
+@@ -1028,7 +1029,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+     private MessageSendPreview messageSendPreview;
+     public boolean allowLivePhotos = false;
+ 
+-    private ChatAttachAlertPhotoLayout photoLayout;
++    public ChatAttachAlertPhotoLayout photoLayout;
+     private ChatAttachAlertContactsLayout contactsLayout;
+     private ChatAttachAlertAudioLayout audioLayout;
+     private ChatAttachAlertPollLayout pollLayout;
+@@ -1046,8 +1047,8 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+     private float gramSendExitTranslationY;
+     private AttachAlertLayout[] layouts = new AttachAlertLayout[12];
+     private LongSparseArray<ChatAttachAlertBotWebViewLayout> botAttachLayouts = new LongSparseArray<>();
+-    private AttachAlertLayout currentAttachLayout;
+-    private AttachAlertLayout nextAttachLayout;
++    public AttachAlertLayout currentAttachLayout;
++    public AttachAlertLayout nextAttachLayout;
+ 
+     private BlurredBackgroundDrawable emojiViewChildBg;
+     private BlurredBackgroundDrawable captionContainerBg;
+@@ -1159,7 +1160,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+ 
+     private DecelerateInterpolator decelerateInterpolator = new DecelerateInterpolator();
+ 
+-    protected ChatAttachViewDelegate delegate;
++    public ChatAttachViewDelegate delegate;
+     private EmojiView.EmojiViewDelegate emojiViewDelegate;
+ 
+     public int[] scrollOffsetY = new int[2];
+@@ -2755,6 +2756,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+         containerView.addView(buttonsRecyclerViewWrapper, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 70, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+         NonIslandHelper.applyChatAttachTabBar(buttonsRecyclerViewWrapper, buttonsRecyclerView, iBlur3FactoryFrostedLiquidGlass, resourcesProvider);
+         desu.inugram.helpers.chat.VoiceRecorderHelper.addFab(this, (FrameLayout) containerView, resourcesProvider);
++        desu.inugram.helpers.chat.AttachCameraHelper.addFab(this, (FrameLayout) containerView, resourcesProvider);
+         buttonsRecyclerView.setOnItemClickListener((view, position) -> {
+             BaseFragment lastFragment = baseFragment;
+             if (lastFragment == null) {
+@@ -2896,6 +2898,8 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+                         layouts[10] = richLayout = new ChatAttachAlertRichLayout(this, getContext(), currentAccount, resourcesProvider);
+                     }
+                     showLayout(richLayout);
++                } else if (num == inu_TAG_CAMERA) {
++                    desu.inugram.helpers.chat.AttachCameraHelper.openCamera(this);
+                 } else if (view.getTag() instanceof Integer) {
+                     delegate.didPressedButton((Integer) view.getTag(), true, true, 0, 0, 0, isCaptionAbove(), false, 0);
+                 }
+@@ -2933,6 +2937,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+             }
+         });
+         buttonsRecyclerView.setOnItemLongClickListener((view, position) -> {
++            if (desu.inugram.helpers.chat.AttachCameraHelper.onLongClickTab(this, view)) return true;
+             if (view instanceof AttachBotButton) {
+                 AttachBotButton button = (AttachBotButton) view;
+                 if (destroyed || button.currentUser == null) {
+@@ -6576,6 +6581,14 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+         return true;
+     }
+ 
++    private static boolean inu_checkPhotoPermission(Context context) {
++        if (Build.VERSION.SDK_INT >= 33) {
++            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
++                && ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
++        }
++        return checkPhotoAndCameraPermission(context);
++    }
++
+     private static boolean checkPhotoAndDocumentsPermission(Context context) {
+         if (Build.VERSION.SDK_INT >= 33) {
+             return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+@@ -6680,6 +6693,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+ 
+         private Context mContext;
+         private int galleryButton;
++        private int inu_cameraButton;
+ 
+         private int attachBotsStartRow;
+         private int attachBotsEndRow;
+@@ -6733,10 +6747,14 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+                     if (position == galleryButton) {
+                         attachButton.setTextAndIcon(1, getString(R.string.ChatGallery), GlassTabView.TabAnimation.GALLERY);
+                         attachButton.setTag(1);
+-                        err = !checkPhotoAndCameraPermission(mContext);
++                        err = desu.inugram.helpers.chat.AttachCameraHelper.hasCameraTab(ChatAttachAlert.this) ? !inu_checkPhotoPermission(mContext) : !checkPhotoAndCameraPermission(mContext);
+                     } else if (position == moneyButton) {
+                         attachButton.setTextAndIcon(LAYOUT_TYPE_MONEY, getString(R.string.WalletAttachMoney), GlassTabView.TabAnimation.GRAM);
+                         attachButton.setTag(LAYOUT_TYPE_MONEY);
++                    } else if (position == inu_cameraButton) {
++                        attachButton.setTextAndIcon(inu_TAG_CAMERA, getString(R.string.InuAttachCamera), GlassTabView.TabAnimation.INU_CAMERA);
++                        attachButton.setTag(inu_TAG_CAMERA);
++                        err = ContextCompat.checkSelfPermission(mContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED;
+                     } else if (position == documentButton) {
+                         attachButton.setTextAndIcon(4, getString(R.string.ChatDocument), GlassTabView.TabAnimation.FILES);
+                         attachButton.setTag(4);
+@@ -6821,6 +6839,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+         public void notifyDataSetChanged() {
+             buttonsCount = 0;
+             galleryButton = -1;
++            inu_cameraButton = -1;
+             documentButton = -1;
+             moneyButton = -1;
+             musicButton = -1;
+@@ -6839,6 +6858,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+ 
+             if (isPollAttach) {
+                 galleryButton = buttonsCount++;
++                if (desu.inugram.helpers.chat.AttachCameraHelper.hasCameraTab(ChatAttachAlert.this)) inu_cameraButton = buttonsCount++;
+                 if (pollAllowedLayouts == 0 || BitwiseUtils.hasFlag(pollAllowedLayouts, 1 << LAYOUT_TYPE_DOCUMENTS)) {
+                     documentButton = buttonsCount++;
+                 }
+@@ -6866,11 +6886,13 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+             } else if (editingMessageObject != null) {
+                 if (editType == EDITMEDIA_TYPE_ANY) {
+                     galleryButton = buttonsCount++;
++                    if (desu.inugram.helpers.chat.AttachCameraHelper.hasCameraTab(ChatAttachAlert.this)) inu_cameraButton = buttonsCount++;
+                     documentButton = buttonsCount++;
+                     musicButton = buttonsCount++;
+                 } else {
+                     if (editType == EDITMEDIA_TYPE_PHOTOVIDEO) {
+                         galleryButton = buttonsCount++;
++                        if (desu.inugram.helpers.chat.AttachCameraHelper.hasCameraTab(ChatAttachAlert.this)) inu_cameraButton = buttonsCount++;
+                     }
+                     if (editType == EDITMEDIA_TYPE_FILE) {
+                         documentButton = buttonsCount++;
+@@ -6884,6 +6906,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
+                 TLRPC.Chat chat = baseFragment instanceof ChatActivity ? ((ChatActivity) baseFragment).getCurrentChat() : null;
+                 final boolean paidUser = user != null && ((ChatActivity) baseFragment).getMessagesController().getSendPaidMessagesStars(user.id) > 0;
+                 galleryButton = buttonsCount++;
++                if (desu.inugram.helpers.chat.AttachCameraHelper.hasCameraTab(ChatAttachAlert.this)) inu_cameraButton = buttonsCount++;
+                 documentButton = buttonsCount++;
+                 if (MessagesController.getInstance(currentAccount).config.walletAvailable.get() && ((ChatActivity) baseFragment).getChatMode() == ChatActivity.MODE_DEFAULT && isMoneyTabRecipient(user)) {
+                     moneyButton = buttonsCount++;
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlertPhotoLayout.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlertPhotoLayout.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlertPhotoLayout.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ChatAttachAlertPhotoLayout.java
+@@ -134,6 +134,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+     private static final int VIEW_TYPE_AVATAR_CONSTRUCTOR = 4;
+     private static final int SHOW_FAST_SCROLL_MIN_COUNT = 30;
+     private final boolean needCamera;
++    public final boolean inu_cameraOutsideGrid;
+ 
+     private RecyclerListView cameraPhotoRecyclerView;
+     private LinearLayoutManager cameraPhotoLayoutManager;
+@@ -219,7 +220,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+     private int itemsPerRow = 3;
+ 
+     private boolean deviceHasGoodCamera;
+-    private boolean noCameraPermissions;
++    public boolean noCameraPermissions;
+     private boolean noGalleryPermissions;
+     private boolean requestingPermissions;
+ 
+@@ -401,6 +402,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+ 
+         @Override
+         public void onClose() {
++            desu.inugram.helpers.chat.AttachFabHelper.setPhotoTransitionAnchor(null);
+             resumeCameraPreview();
+             AndroidUtilities.runOnUIThread(()-> setCurrentSpoilerVisible(-1, true), 150);
+             onSelectedItemsCountChanged(getSelectedCount());
+@@ -435,9 +437,11 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+                 object.scale = cell.getScale();
+                 object.clipBottomAddition = (int) parentAlert.getClipLayoutBottom();
+                 cell.showCheck(false);
++                desu.inugram.helpers.chat.AttachFabHelper.setPhotoTransitionAnchor(cell.getImageView());
+                 return object;
+             }
+ 
++            desu.inugram.helpers.chat.AttachFabHelper.setPhotoTransitionAnchor(null);
+             return null;
+         }
+ 
+@@ -742,6 +746,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         super(alert, context, resourcesProvider);
+         this.forceDarkTheme = forceDarkTheme;
+         this.needCamera = needCamera;
++        this.inu_cameraOutsideGrid = needCamera && desu.inugram.helpers.chat.AttachCameraHelper.hasCameraOutsideGrid(alert);
+         NotificationCenter.getGlobalInstance().addWeakObserver(this, NotificationCenter.albumsDidLoad);
+         NotificationCenter.getGlobalInstance().addWeakObserver(this, NotificationCenter.cameraInitied);
+         FrameLayout container = alert.getContainer();
+@@ -828,7 +833,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         gridView.getFastScroll().setAlpha(0f);
+         gridView.getFastScroll().usePadding = false;
+         gridView.getFastScroll().topOffset = ActionBar.getCurrentActionBarHeight(); // + AndroidUtilities.statusBarHeight;
+-        gridView.setAdapter(adapter = new PhotoAttachAdapter(context, needCamera));
++        gridView.setAdapter(adapter = new PhotoAttachAdapter(context, needCamera && !inu_cameraOutsideGrid));
+         gridView.addItemDecoration(cameraViewItemDecoration = new CameraViewItemDecoration(gridView));
+         adapter.createCache();
+         gridView.setClipToPadding(false);
+@@ -902,10 +907,11 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         layoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+             @Override
+             public int getSpanSize(int position) {
+-                if (position == adapter.itemsCount - 1 || (noGalleryPermissions || noCameraPermissions) && position == 0) {
++                final boolean inu_cameraPermissionCell = noCameraPermissions && adapter.needCamera && selectedAlbumEntry == galleryAlbumEntry;
++                if (position == adapter.itemsCount - 1 || (noGalleryPermissions || inu_cameraPermissionCell) && position == 0) {
+                     return layoutManager.getSpanCount();
+                 }
+-                if (noCameraPermissions) {
++                if (inu_cameraPermissionCell) {
+                     position--;
+                 }
+                 return itemSize + (position % itemsPerRow != itemsPerRow - 1 ? dp(GAP) : 0);
+@@ -952,11 +958,11 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+                 return;
+             }
+ 
+-            if (position != 0 || !needCamera || selectedAlbumEntry != galleryAlbumEntry) {
++            if (position != 0 || !adapter.needCamera || selectedAlbumEntry != galleryAlbumEntry) {
+                 if (adapter.hasCameraSpaceRow && position > itemsPerRow) {
+                     position--;
+                 }
+-                if (selectedAlbumEntry == galleryAlbumEntry && needCamera) {
++                if (selectedAlbumEntry == galleryAlbumEntry && adapter.needCamera) {
+                     position--;
+                 }
+                 if (showAvatarConstructor) {
+@@ -1084,7 +1090,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+             if (parentAlert.storyMediaPicker) {
+                 return false;
+             }
+-            if (position == 0 && selectedAlbumEntry == galleryAlbumEntry) {
++            if (position == 0 && adapter.needCamera && selectedAlbumEntry == galleryAlbumEntry) {
+                 if (parentAlert.delegate != null) {
+                     parentAlert.delegate.didPressedButton(0, false, true, 0, 0, 0, parentAlert.isCaptionAbove(), false, 0);
+                 }
+@@ -1543,9 +1549,18 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         openCameraByClick();
+     }
+ 
+-    private void openCameraByClick() {
++    public void openCameraByClick() {
+         if (SharedConfig.inappCamera) {
+-            openCamera(true);
++            if (!desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) {
++                if (!CameraController.getInstance().isCameraInitied()) {
++                    CameraController.getInstance().initCamera(() -> {
++                        if (!cameraOpened && !parentAlert.isDismissed() && parentAlert.currentAttachLayout == this) openCameraByClick();
++                    });
++                    return;
++                }
++                showCamera();
++            }
++            openCamera(!inu_cameraOutsideGrid);
+         } else {
+             if (parentAlert.delegate != null) {
+                 parentAlert.delegate.didPressedButton(0, false, true, 0, 0, 0, parentAlert.isCaptionAbove(), false, 0);
+@@ -2458,7 +2473,11 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         if ((old != deviceHasGoodCamera || old2 != noCameraPermissions) && adapter != null) {
+             adapter.notifyDataSetChanged();
+         }
+-        if (!parentAlert.destroyed && parentAlert.isShowing() && deviceHasGoodCamera && parentAlert.getBackDrawable().getAlpha() != 0 && !cameraOpened) {
++        if (deviceHasGoodCamera && !desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) {
++            File file = new File(ApplicationLoader.getFilesDirFixed(), "cthumb.jpg");
++            if (file.exists()) file.delete();
++        }
++        if (!parentAlert.destroyed && parentAlert.isShowing() && deviceHasGoodCamera && parentAlert.getBackDrawable().getAlpha() != 0 && !cameraOpened && desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) {
+             showCamera();
+         }
+     }
+@@ -2624,6 +2643,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+                 }
+             });
+             cameraView.setClipToOutline(true);
++            if (inu_cameraOutsideGrid) cameraView.setBackgroundColor(0xFF000000);
+             cameraView.setContentDescription(LocaleController.getString(R.string.AccDescrInstantCamera));
+             parentAlert.getContainer().addView(cameraView, 1, new FrameLayout.LayoutParams(itemSize, itemSize));
+             cameraView.setDelegate(new CameraView.CameraViewDelegate() {
+@@ -2721,7 +2741,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+     }
+ 
+     private void saveLastCameraBitmap() {
+-        if (!canSaveCameraPreview) {
++        if (!canSaveCameraPreview || !desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) {
+             return;
+         }
+         try {
+@@ -2868,6 +2888,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+         if (takingPhoto || cameraView == null) {
+             return;
+         }
++        if (inu_cameraOutsideGrid) animated = false;
+         animateCameraValues[1] = itemSize;
+         animateCameraValues[2] = itemSize * 2 + dp(GAP);
+         if (zoomControlHideRunnable != null) {
+@@ -2962,6 +2983,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+             if (gridView != null) {
+                 gridView.invalidate();
+             }
++            if (inu_cameraOutsideGrid) { cameraView.setVisibility(GONE); hideCamera(true); }
+         }
+         if (cameraView != null) {
+             cameraView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+@@ -3916,10 +3938,11 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+             checkCameraWhenShown = false;
+             checkCamera(true);
+         }
++        desu.inugram.helpers.chat.AttachCameraHelper.onLayoutShown(this);
+     }
+ 
+     public void setCheckCameraWhenShown(boolean checkCameraWhenShown) {
+-        this.checkCameraWhenShown = checkCameraWhenShown;
++        this.checkCameraWhenShown = checkCameraWhenShown && desu.inugram.helpers.chat.AttachCameraHelper.isInstant();
+     }
+ 
+     @Override
+@@ -4008,7 +4031,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+ //                    afterCameraInitRunnable = null;
+ //                    isCameraFrontfaceBeforeEnteringEditMode = null;
+ //                };
+-                showCamera();
++                if (desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) showCamera();
+             }
+         }
+     }
+@@ -4133,7 +4156,7 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+ 
+     @Override
+     public void onOpenAnimationEnd() {
+-        checkCamera(parentAlert != null && parentAlert.baseFragment instanceof ChatActivity);
++        checkCamera(parentAlert != null && parentAlert.baseFragment instanceof ChatActivity && desu.inugram.helpers.chat.AttachCameraHelper.isInstant());
+     }
+ 
+     @Override
+@@ -4894,11 +4917,13 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
+ 
+         public void updateBitmap() {
+             Bitmap bitmap = null;
++            if (desu.inugram.helpers.chat.AttachCameraHelper.isInstant()) {
+             try {
+                 File file = new File(ApplicationLoader.getFilesDirFixed(), "cthumb.jpg");
+                 bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+             } catch (Throwable ignore) {
+ 
++            }
+             }
+             if (bitmap != null) {
+                 placeholderDrawable = new BitmapDrawable(getContext().getResources(), bitmap);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/glass/GlassTabView.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/glass/GlassTabView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/glass/GlassTabView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/glass/GlassTabView.java
+@@ -597,6 +597,7 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
+         REPLIES(R.raw.tab_reply, R.raw.tab_reply_reverse),
+         WALLET(R.raw.tab_wallet, R.raw.tab_wallet_reverse),
+         LINK(TabAnimationType.STATIC, R.drawable.tabs_link_24),
++        INU_CAMERA(TabAnimationType.STATIC, R.drawable.outline_attach_camera_24),
+         ARTICLE(R.raw.tab_article, R.raw.tab_article_reverse),
+         GRAM(R.raw.gram, R.raw.gram_reverse),
+ 

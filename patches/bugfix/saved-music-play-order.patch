@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.pet>
+Date: Sun, 25 Oct 2026 18:02:28 +0400
+Subject: play saved music top to bottom
+
+---
+ .../src/main/java/org/telegram/messenger/MediaController.java   | 2 +-
+ .../main/java/org/telegram/ui/Components/AudioPlayerAlert.java  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java b/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
+@@ -3177,7 +3177,7 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
+     }
+     
+     // saved music lists are stored top to bottom, while chat playlists are stored oldest first
+-    private boolean isPlaylistOrderReversed() {
++    public boolean isPlaylistOrderReversed() {
+         return currentSavedMusicList != null ? !SharedConfig.playOrderReversed : SharedConfig.playOrderReversed;
+     }
+ 
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
+@@ -1631,7 +1631,7 @@ public class AudioPlayerAlert extends BottomSheet implements NotificationCenter.
+                     idx++;
+                 }
+                 if (idx >= 0) {
+-                    if (SharedConfig.playOrderReversed) {
++                    if (MediaController.getInstance().isPlaylistOrderReversed()) {
+                         layoutManager.scrollToPosition(idx);
+                     } else {
+                         layoutManager.scrollToPosition(playlist.size() - idx);

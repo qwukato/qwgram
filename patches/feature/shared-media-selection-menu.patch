@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.pet>
+Date: Sat, 10 Oct 2026 16:04:13 +0200
+Subject: add three-dot menu to shared media selection
+
+---
+ .../src/main/java/org/telegram/ui/ChatActivity.java       | 8 ++++++--
+ .../org/telegram/ui/Components/SharedMediaLayout.java     | 7 ++++++-
+ 2 files changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
+@@ -34621,6 +34621,10 @@ public class ChatActivity extends BaseFragment implements
+     }
+ 
+     public void saveMessageToGallery(MessageObject messageObject) {
++        inu_saveMessageToGallery(currentAccount, getParentActivity(), messageObject);
++    }
++
++    public static void inu_saveMessageToGallery(int currentAccount, Activity parentActivity, MessageObject messageObject) {
+         String path = messageObject.messageOwner.attachPath;
+         if (!TextUtils.isEmpty(path)) {
+             File temp = new File(path);
+@@ -34664,11 +34668,11 @@ public class ChatActivity extends BaseFragment implements
+                 }
+             }
+             if (!TextUtils.isEmpty(videoPath)) {
+-                MediaController.saveFile(path, videoPath, getParentActivity(), null);
++                MediaController.saveFile(path, videoPath, parentActivity, null);
+                 return;
+             }
+         }
+-        MediaController.saveFile(path, getParentActivity(), messageObject.isVideo() ? 1 : 0, null, null);
++        MediaController.saveFile(path, parentActivity, messageObject.isVideo() ? 1 : 0, null, null);
+     }
+ 
+     public void processSelectedOption(int option) {
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/SharedMediaLayout.java
+@@ -768,6 +768,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+     private ActionBarMenuItem gotoItem;
+     private ActionBarMenuItem pinItem;
+     private ActionBarMenuItem unpinItem;
++    private desu.inugram.helpers.chat.ChatActionsHelper.SelectionMenu inu_selectionMenu;
+     private int searchItemState;
+     private Drawable pinnedHeaderShadowDrawable;
+     private boolean ignoreSearchCollapse;
+@@ -2056,6 +2057,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+             updateForwardItem();
+         }
+         deleteItem = createActionModeItem(context, delete, R.drawable.msg_delete, getString("Delete", R.string.Delete));
++        inu_selectionMenu = desu.inugram.helpers.chat.ChatActionsHelper.createSharedMediaMenu(this, profileActivity, dialog_id, topicId, selectedFiles, actionModeLayout, actionModeViews, v -> onActionBarItemClick(v, forward));
+ 
+         photoVideoAdapter = new SharedPhotoVideoAdapter(context) {
+             @Override
+@@ -5163,6 +5165,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+                 cantDeleteMessagesCount = 0;
+             }, null, resourcesProvider);
+         } else if (id == forward) {
++            desu.inugram.helpers.chat.ChatHelper.clearForwardFlags();
+             if (userInfo != null) {
+                 if (profileActivity.getMessagesController().isUserNoForwards(userInfo)) {
+                     if (fwdRestrictedHint != null) {
+@@ -5224,8 +5227,9 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+                         if (message != null) {
+                             profileActivity.getSendMessagesHelper().sendMessage(SendMessagesHelper.SendMessageParams.of(message.toString(), did, null, null, null, true, null, null, null, true, 0, 0, null, false));
+                         }
+-                        profileActivity.getSendMessagesHelper().sendMessage(fmessages, did, false, false, true, 0, 0);
++                        profileActivity.getSendMessagesHelper().sendMessage(fmessages, did, desu.inugram.helpers.chat.ChatHelper.pendingHideAuthor, desu.inugram.helpers.chat.ChatHelper.pendingHideCaption, true, 0, 0);
+                     }
++                    desu.inugram.helpers.chat.ChatHelper.clearForwardFlags();
+                     fragment1.finishFragment();
+                     UndoView undoView = null;
+                     if (profileActivity instanceof ProfileActivity) {
+@@ -5987,6 +5991,7 @@ public class SharedMediaLayout extends FrameLayout implements Theme.Colorable, N
+     }
+ 
+     private void updateStoriesPinButton() {
++        desu.inugram.helpers.chat.ChatActionsHelper.updateSelectionMenu(inu_selectionMenu);
+         if (isBot()) {
+             if (pinItem != null) {
+                 pinItem.setVisibility(View.GONE);

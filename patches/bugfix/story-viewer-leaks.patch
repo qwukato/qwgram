@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.pet>
+Date: Wed, 26 Aug 2026 01:41:27 +0400
+Subject: destroy story input views on release
+
+---
+ .../main/java/org/telegram/ui/Stories/PeerStoriesView.java    | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java b/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
+@@ -4761,6 +4761,7 @@ public class PeerStoriesView extends SizeNotifierFrameLayout implements Notifica
+         NotificationCenter.getGlobalInstance().addWeakObserver(this, NotificationCenter.emojiLoaded);
+     }
+ 
++
+     @Override
+     protected void onDetachedFromWindow() {
+         super.onDetachedFromWindow();
+@@ -6348,6 +6349,9 @@ public class PeerStoriesView extends SizeNotifierFrameLayout implements Notifica
+             // it registers itself in NotificationCenter in its constructor, only onDestroy() unregisters it
+             chatActivityEnterView.onDestroy();
+         }
++        if (mentionContainer != null && mentionContainer.getAdapter() != null) {
++            mentionContainer.getAdapter().onDestroy();
++        }
+     }
+ 
+     public void reset() {

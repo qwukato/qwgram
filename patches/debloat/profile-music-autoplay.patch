@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.pet>
+Date: Wed, 12 Aug 2026 22:30:08 +0400
+Subject: Dont auto-play music when opening the profile music player
+
+---
+ .../org/telegram/messenger/MediaController.java  | 16 ++++++++++++++++
+ .../java/org/telegram/ui/ProfileActivity.java    | 14 ++++++++++++--
+ 2 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java b/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MediaController.java
+@@ -3763,6 +3763,22 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
+         return playMessage(messageObject, false);
+     }
+ 
++    public boolean inu_isMessagePreparedOnly() {
++        return playingMessageObject != null && audioPlayer == null && videoPlayer == null && !downloadingCurrentMessage;
++    }
++
++    public boolean inu_prepareMessage(final MessageObject messageObject) {
++        if (messageObject == null) {
++            return false;
++        }
++        playingMessageObject = messageObject;
++        downloadingCurrentMessage = false;
++        isPaused = true;
++        lastProgress = 0;
++        NotificationCenter.getInstance(messageObject.currentAccount).postNotificationName(NotificationCenter.messagePlayingPlayStateChanged, messageObject.getId());
++        return true;
++    }
++
+     public boolean playMessage(final MessageObject messageObject, boolean silent) {
+         if (messageObject == null) {
+             return false;
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java
+@@ -3893,8 +3893,18 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
+                     MediaController.getInstance().currentSavedMusicList = savedMusicList;
+                     MediaController.getInstance().getPlaylist().clear();
+                     MediaController.getInstance().getPlaylist().addAll(savedMusicList.list);
+-                    if (!sameList) MediaController.getInstance().playMessage(savedMusicList.list.get(0));
+-                    showDialog(new AudioPlayerAlert(getContext(), getResourceProvider()));
++                    if (!sameList) {
++                        if (desu.inugram.InuConfig.DISABLE_PROFILE_MUSIC_AUTOPLAY.getValue()) {
++                            MediaController.getInstance().inu_prepareMessage(savedMusicList.list.get(0));
++                        } else {
++                            MediaController.getInstance().playMessage(savedMusicList.list.get(0));
++                        }
++                    }
++                    showDialog(new AudioPlayerAlert(getContext(), getResourceProvider()), dialog -> {
++                        if (MediaController.getInstance().currentSavedMusicList == savedMusicList && MediaController.getInstance().inu_isMessagePreparedOnly()) {
++                            MediaController.getInstance().cleanup();
++                        }
++                    });
+                 }
+             });
+ 

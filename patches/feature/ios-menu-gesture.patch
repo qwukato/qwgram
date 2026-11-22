@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alina sireneva <alina@tei.su>
+Date: Mon, 20 Apr 2026 12:50:31 +0300
+Subject: improved ios-style release-to-activate gestures: plain backgrounds, gesture detection
+
+---
+ .../ui/ActionBar/ActionBarMenuItem.java       | 36 +++++++++----------
+ .../telegram/ui/Components/ItemOptions.java   | 13 +++----
+ .../org/telegram/ui/MainTabsActivity.java     |  7 ++--
+ 3 files changed, 23 insertions(+), 33 deletions(-)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ActionBar/ActionBarMenuItem.java
+@@ -331,8 +331,9 @@ public class ActionBarMenuItem extends FrameLayout {
+             if (showMenuRunnable != null && !isInside(event, ViewConfiguration.get(getContext()).getScaledTouchSlop())) {
+                 cancelShowMenuByLongPress();
+             }
+-            if (showSubmenuByMove && !overlayMenu && hasSubMenu() && !popupShown) {
++            if (showSubmenuByMove && hasSubMenu() && !popupShown && !overlayShown) {
+                 if (event.getY() > getHeight()) {
++                    cancelShowMenuByLongPress();
+                     if (getParent() != null) {
+                         getParent().requestDisallowInterceptTouchEvent(true);
+                     }
+@@ -346,8 +347,7 @@ public class ActionBarMenuItem extends FrameLayout {
+         } else if (event.getActionMasked() == MotionEvent.ACTION_UP && (popupShown || overlayShown)) {
+             cancelShowMenuByLongPress();
+             if (selectedMenuView != null) {
+-                selectedMenuView.setSelected(false);
+-                selectedMenuView.setPressed(false);
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(selectedMenuView, false);
+                 final View selected = selectedMenuView;
+                 final Object tag = selected.getTag();
+                 selectedMenuView = null;
+@@ -384,8 +384,7 @@ public class ActionBarMenuItem extends FrameLayout {
+                 cancelShowMenuByLongPress();
+             }
+             if (selectedMenuView != null) {
+-                selectedMenuView.setSelected(false);
+-                selectedMenuView.setPressed(false);
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(selectedMenuView, false);
+                 selectedMenuView = null;
+             }
+         }
+@@ -411,7 +410,7 @@ public class ActionBarMenuItem extends FrameLayout {
+         getLocationOnScreen(location);
+         final float screenX = event.getX() + location[0];
+         final float screenY = event.getY() + location[1];
+-        selectedMenuView = null;
++        View hit = null;
+         for (int a = 0; a < popupLayout.getItemsCount(); a++) {
+             View child = popupLayout.getItemAt(a);
+             Object tag = child.getTag();
+@@ -425,20 +424,17 @@ public class ActionBarMenuItem extends FrameLayout {
+             final float x = screenX - location[0];
+             final float y = screenY - location[1];
+             child.getHitRect(rect);
+-            if (child.getVisibility() != VISIBLE || !rect.contains((int) x, (int) y)) {
+-                child.setPressed(false);
+-                child.setSelected(false);
+-                if (Build.VERSION.SDK_INT == 21 && child.getBackground() != null) {
+-                    child.getBackground().setVisible(false, false);
+-                }
+-            } else {
+-                child.setPressed(true);
+-                child.setSelected(true);
+-                if (Build.VERSION.SDK_INT == 21 && child.getBackground() != null) {
+-                    child.getBackground().setVisible(true, false);
+-                }
+-                child.drawableHotspotChanged(x - child.getLeft(), y - child.getTop());
+-                selectedMenuView = child;
++            if (child.getVisibility() == VISIBLE && rect.contains((int) x, (int) y)) {
++                hit = child;
++            }
++        }
++        if (hit != selectedMenuView) {
++            if (selectedMenuView != null) {
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(selectedMenuView, false);
++            }
++            selectedMenuView = hit;
++            if (hit != null) {
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(hit, true, getShownSubMenuOverlay() == null, false);
+             }
+         }
+     }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ItemOptions.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ItemOptions.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ItemOptions.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ItemOptions.java
+@@ -1958,7 +1958,6 @@ public class ItemOptions {
+ 
+     private View.OnTouchListener hoverReleaseListener;
+     private View hoveredItem;
+-    private final int[] hoverLoc = new int[2];
+ 
+     private void installHoverReleaseListener() {
+         if (scrimView == null) return;
+@@ -2003,17 +2002,13 @@ public class ItemOptions {
+         View hit = findItemAt(layout, rawX, rawY);
+         if (hit != hoveredItem) {
+             if (hoveredItem != null) {
+-                hoveredItem.setPressed(false);
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(hoveredItem, false);
+             }
+             hoveredItem = hit;
+             if (hoveredItem != null) {
+-                hoveredItem.setPressed(true);
++                desu.inugram.helpers.LongPressDragMenuHelper.setHover(hoveredItem, true);
+             }
+         }
+-        if (hoveredItem != null) {
+-            hoveredItem.getLocationOnScreen(hoverLoc);
+-            hoveredItem.drawableHotspotChanged(rawX - hoverLoc[0], rawY - hoverLoc[1]);
+-        }
+     }
+ 
+     private void releaseHover(int rawX, int rawY) {
+@@ -2021,14 +2016,14 @@ public class ItemOptions {
+         if (hoveredItem != null) {
+             View target = hoveredItem;
+             hoveredItem = null;
+-            target.setPressed(false);
++            desu.inugram.helpers.LongPressDragMenuHelper.setHover(target, false);
+             target.performClick();
+         }
+     }
+ 
+     private void cancelHover() {
+         if (hoveredItem != null) {
+-            hoveredItem.setPressed(false);
++            desu.inugram.helpers.LongPressDragMenuHelper.setHover(hoveredItem, false);
+             hoveredItem = null;
+         }
+     }
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/MainTabsActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/MainTabsActivity.java
+index 0000000..0000000 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/MainTabsActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/MainTabsActivity.java
+@@ -359,7 +359,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
+         tabs[INDEX_CHATS].setOnLongClickListener(this::openFoldersSelector);
+         tabs[INDEX_CONTACTS].setOnLongClickListener(this::openContactsSelector);
+         tabs[INDEX_CALLS].setOnLongClickListener(this::openCallsSelector);
+-        tabs[INDEX_PROFILE].setOnLongClickListener(this::openAccountSelector);
++        desu.inugram.helpers.LongPressDragMenuHelper.attach(tabs[INDEX_PROFILE], this::openAccountSelector);
+ 
+         tabsView.addTabToIgnoreClick(tabs[INDEX_CHATS]);
+         tabsView.addTabToIgnoreClick(tabs[INDEX_CONTACTS]);
+@@ -654,7 +654,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
+         }
+     }
+ 
+-    public boolean openAccountSelector(View button) {
++    public ItemOptions openAccountSelector(View button) {
+         final ArrayList<Integer> accountNumbers = new ArrayList<>();
+ 
+         accountNumbers.clear();
+@@ -723,11 +723,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
+         final ShapeDrawable bg = Theme.createRoundRectDrawable(dp(28), getThemedColor(Theme.key_windowBackgroundWhite));
+         bg.getPaint().setShadowLayer(dp(6), 0, dp(1), Theme.multAlpha(0xFF000000, 0.15f));
+         o.setScrimViewBackground(bg);
+-        o.show();
+ 
+         HintsController.Hint.AccountSwitchHint.doNotShowAgain();
+ 
+-        return true;
++        return o;
+     }
+ 
+     public LinearLayout accountView(int account, boolean selected) {
