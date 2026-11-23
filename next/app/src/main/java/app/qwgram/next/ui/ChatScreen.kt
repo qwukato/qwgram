@@ -246,7 +246,11 @@ class ChatController(val chatId: Long) {
             is TdApi.UpdateMessageSendFailed -> if (u.message.chatId == chatId) replace(u.oldMessageId, u.message)
             is TdApi.UpdateDeleteMessages -> if (u.chatId == chatId && u.isPermanent) {
                 val ids = u.messageIds.toSet()
-                messages.removeAll { it.id in ids }
+                // keep messages deleted by others (not our own deletions / not cache evictions)
+                if (Prefs.keepDeleted.value && !u.fromCache) {
+                    messages.filter { it.id in ids && !it.isOutgoing }.forEach { DeletedMessages.add(chatId, it.id) }
+                    messages.removeAll { it.id in ids && it.isOutgoing }
+                } else messages.removeAll { it.id in ids }
             }
             is TdApi.UpdateMessageContent -> if (u.chatId == chatId) mutate(u.messageId) { it.content = u.newContent }
             is TdApi.UpdateMessageEdited -> if (u.chatId == chatId) mutate(u.messageId) { it.editDate = u.editDate }
@@ -333,6 +337,7 @@ fun ChatScreen(chatId: Long) {
         if (kb > 0) kb.toDp() else 300.dp + WindowInsets.navigationBars.getBottom(this).toDp()
     }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var confirmSend by remember { mutableStateOf<TdApi.InputMessageContent?>(null) }
     var highlight by remember { mutableStateOf(0L) }
 
     DisposableEffect(chatId) {
@@ -449,8 +454,9 @@ fun ChatScreen(chatId: Long) {
     }
 
     val menuOpen = menuFor != null
-    val blur by androidx.compose.animation.core.animateDpAsState(if (menuOpen) 10.dp else 0.dp, Springs.effects(), label = "blur")
-    Box(Modifier.fillMaxSize().then(if (blur > 0.dp) Modifier.blur(blur) else Modifier)) {
+    // the chat recedes a little behind the open menu (no blur): slight zoom-out, the scrim dims it
+    val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
+    Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
         ChatWallpaper()
         var topH by remember { mutableStateOf(0.dp) }
         var bottomH by remember { mutableStateOf(0.dp) }
@@ -626,8 +632,8 @@ fun ChatScreen(chatId: Long) {
                     StickerPanel(
                         chatId, panelHeight,
                         onEmoji = { text += it },
-                        onSticker = { s -> sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false },
-                        onGif = { a -> sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false },
+                        onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false } },
+                        onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false } },
                     )
                 }
             } else ChannelBar(chat)
@@ -660,6 +666,14 @@ fun ChatScreen(chatId: Long) {
         )
     }
     forward?.let { list -> ForwardSheet(list, onDismiss = { forward = null }) }
+    confirmSend?.let { content ->
+        AlertDialog(
+            onDismissRequest = { confirmSend = null },
+            title = { Text(if (content is TdApi.InputMessageSticker) "Отправить стикер?" else "Отправить GIF?") },
+            confirmButton = { QTextButton(onClick = { sendContent(chatId, content, replyTo); replyTo = null; panel = false; confirmSend = null }) { Text("Отправить") } },
+            dismissButton = { QTextButton(onClick = { confirmSend = null }) { Text("Отмена") } },
+        )
+    }
     deleteFor?.let { list -> DeleteDialog(list, chat) { deleteFor = null; selected.clear() } }
     viewer?.let { p -> PhotoViewer(p) { viewer = null } }
 }
@@ -682,7 +696,19 @@ fun sendContent(chatId: Long, content: TdApi.InputMessageContent, replyTo: TdApi
 }
 
 private var lastTyping = 0L
+fun applyOnline(visible: Boolean) {
+    Td.send(TdApi.SetOption("online", TdApi.OptionValueBoolean(visible && !Prefs.ghostOffline.value)))
+}
+
+/** messages others deleted while "keep deleted" is on: kept on screen and marked (this session only) */
+object DeletedMessages {
+    val ids = androidx.compose.runtime.mutableStateListOf<Long>()
+    fun has(m: TdApi.Message) = (m.chatId xor m.id) in ids
+    fun add(chatId: Long, id: Long) { ids.add(chatId xor id) }
+}
+
 private fun typing(chatId: Long) {
+    if (Prefs.ghostTyping.value) return
     val now = System.currentTimeMillis()
     if (now - lastTyping < 4500) return
     lastTyping = now
@@ -820,20 +846,14 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
             }
     }
     if (floating) {
-        // M3 Expressive: separate floating parts — back button, title pill, actions pill
+        // M3 top app bar without a container, on the fade: title takes all free width
         Row(
-            Modifier.statusBarsPadding().padding(start = 8.dp, end = 8.dp, top = 6.dp).height(56.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+            Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 3.dp) {
-                MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }, size = 56.dp)
-            }
-            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.weight(1f).fillMaxHeight()) {
-                Box(contentAlignment = Alignment.CenterStart) { titleArea(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) }
-            }
-            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.fillMaxHeight()) {
-                Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
-            }
+            MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+            titleArea(Modifier.weight(1f))
+            actions()
         }
     } else {
         Surface(color = cs.surfaceContainer) {
@@ -877,12 +897,18 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
 
 @Composable
 private fun PinnedBar(m: TdApi.Message, onClick: () -> Unit, onClose: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(3.dp).height(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+    val cs = MaterialTheme.colorScheme
+    // floating M3 card under the app bar
+    MorphBox(
+        onClick = onClick, rest = 20.dp, pressed = 12.dp, color = cs.surfaceContainerHigh, elevation = 2.dp,
+        contentAlignment = Alignment.CenterStart,
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp).fillMaxWidth(),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 2.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(4.dp).height(34.dp).clip(CircleShape).background(cs.primary))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("Закреплённое сообщение", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text("Закреплённое сообщение", style = MaterialTheme.typography.labelLarge, color = cs.primary)
                 Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             MorphIconButton(Icons.Filled.Close, "Открепить", onClose)
@@ -984,9 +1010,16 @@ private fun Composer(
                     }
                 }
             }
+            AnimatedVisibility(Prefs.charCounter.value && text.isNotEmpty(), enter = expandVertically(Springs.spatial()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
+                Text(
+                    "${text.length} / 4096", style = MaterialTheme.typography.labelSmall,
+                    color = if (text.length > 4096) cs.error else cs.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(end = 72.dp, bottom = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            }
             Row(verticalAlignment = Alignment.Bottom) {
                 Surface(
-                    shape = RoundedCornerShape(26.dp), color = if (floating) cs.surfaceContainerHigh else cs.surfaceContainerHigh,
+                    shape = RoundedCornerShape(26.dp), color = cs.surfaceContainerHigh,
                     shadowElevation = if (floating) 3.dp else 0.dp,
                     modifier = Modifier.weight(1f).heightIn(min = 52.dp),
                 ) {
@@ -1200,12 +1233,13 @@ private fun MessageMenu(
         reactions = av?.let { (it.topReactions + it.recentReactions + it.popularReactions).mapNotNull { r -> (r.type as? TdApi.ReactionTypeEmoji)?.emoji }.distinct().take(24) }.orEmpty()
     }
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, Springs.spatial()) }
+    // short and springy: quick stiff spring with a small overshoot
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 1100f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)) }
     var closing by remember { mutableStateOf(false) }
     fun close(then: () -> Unit = {}) {
         if (closing) return
         closing = true
-        scope.launch { appear.animateTo(0f, Springs.exit()); onDismiss(); then() }
+        scope.launch { appear.animateTo(0f, androidx.compose.animation.core.tween(120)); onDismiss(); then() }
     }
     BackHandler { close() }
 
@@ -1234,7 +1268,7 @@ private fun MessageMenu(
         Modifier.fillMaxSize()
             .onGloballyPositioned { origin = it.positionInRoot() }
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .background(Color.Black.copy(alpha = 0.22f))
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
             .pointerInput(Unit) { detectTapGestures { close() } },
     )
     androidx.compose.ui.layout.Layout(
@@ -1243,15 +1277,15 @@ private fun MessageMenu(
             Column(
                 Modifier.width(IntrinsicSize.Max).widthIn(min = 220.dp, max = 300.dp).graphicsLayer {
                     val v = appear.value
-                    val sc = 0.82f + 0.18f * v
+                    val sc = 0.88f + 0.12f * v
                     scaleX = sc; scaleY = sc
                     alpha = v.coerceIn(0f, 1f)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (out) 1f else 0f, if (below) 0f else 1f)
                 },
                 horizontalAlignment = if (out) Alignment.End else Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                if (reactions.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+                if (reactions.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
                     androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(reactions) { e ->
                             MorphBox(onClick = { react(m, e); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
@@ -1261,13 +1295,17 @@ private fun MessageMenu(
                     }
                 }
                 var index = 0
-                listOf(main, extra, danger).filter { it.isNotEmpty() }.forEach { group ->
-                    Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+                val groups = listOf(main, extra, danger).filter { it.isNotEmpty() }
+                groups.forEachIndexed { gi, group ->
+                    // M3 Expressive segmented menu: big outer corners, small inner ones between segments
+                    val top = if (gi == 0) 20.dp else 6.dp
+                    val bottom = if (gi == groups.lastIndex) 20.dp else 6.dp
+                    Surface(shape = RoundedCornerShape(top, top, bottom, bottom), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(vertical = 6.dp)) {
                             group.forEach { item ->
                                 val i = index++
                                 val enter = remember { androidx.compose.animation.core.Animatable(0f) }
-                                LaunchedEffect(Unit) { kotlinx.coroutines.delay(18L * i); enter.animateTo(1f, Springs.spatial()) }
+                                LaunchedEffect(Unit) { kotlinx.coroutines.delay(10L * i); enter.animateTo(1f, Springs.fastSpatial()) }
                                 Row(
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         .graphicsLayer { alpha = enter.value.coerceIn(0f, 1f); translationY = (1f - enter.value) * 10.dp.toPx() }

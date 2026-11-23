@@ -94,6 +94,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.launch
 import app.qwgram.next.td.Td
 import app.qwgram.next.td.rememberFileBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import org.drinkless.tdlib.TdApi
 import java.util.Calendar
 
@@ -277,7 +278,10 @@ private fun StickerCell(s: TdApi.Sticker, onSticker: (TdApi.Sticker) -> Unit) {
     val bmp = rememberFileBitmap(file, 192)
     MorphBox(onClick = { onSticker(s) }, modifier = Modifier.aspectRatio(1f).padding(3.dp), rest = 16.dp, pressed = 28.dp, color = Color.Transparent, squish = 0.88f) {
         if (bmp != null) Image(bmp, s.emoji, Modifier.fillMaxSize().padding(2.dp), contentScale = ContentScale.Fit)
-        else Text(s.emoji, fontSize = 28.sp)
+        else Box(contentAlignment = Alignment.Center) {
+            Text(s.emoji, fontSize = 26.sp, modifier = Modifier.graphicsLayer { alpha = 0.3f })
+            LoadingIndicator(Modifier.size(30.dp))
+        }
     }
 }
 
@@ -293,6 +297,7 @@ private fun GifGrid(onGif: (TdApi.Animation) -> Unit) {
             val bmp = rememberFileBitmap(a.thumbnail?.file, 256)
             MorphBox(onClick = { onGif(a) }, modifier = Modifier.aspectRatio(1f).padding(3.dp), rest = 14.dp, pressed = 24.dp, color = MaterialTheme.colorScheme.surfaceContainerHigh, squish = 0.92f) {
                 if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else LoadingIndicator(Modifier.size(36.dp))
             }
         }
     }
@@ -365,7 +370,7 @@ private fun ScheduleDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
 
 @Composable
 fun SelectionBar(count: Int, onClose: () -> Unit, onCopy: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+    Surface(color = if (app.qwgram.next.Prefs.floatingBars.value) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             MorphIconButton(Icons.Rounded.Close, "Отменить", onClose)
             AnimatedContent(count, transitionSpec = { (fadeIn(Springs.effects())).togetherWith(fadeOut(Springs.exit())) }, label = "cnt", modifier = Modifier.weight(1f).padding(start = 8.dp)) { n ->
@@ -405,7 +410,7 @@ fun ChatSearchBar(s: ChatSearch, onClose: () -> Unit, onSubmit: () -> Unit, onSt
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     val cs = MaterialTheme.colorScheme
-    Surface(color = cs.surfaceContainer) {
+    Surface(color = if (app.qwgram.next.Prefs.floatingBars.value) Color.Transparent else cs.surfaceContainer) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose)
             Box(Modifier.weight(1f).padding(horizontal = 4.dp).height(48.dp).clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {

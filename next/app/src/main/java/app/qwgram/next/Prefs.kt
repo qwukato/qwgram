@@ -109,9 +109,21 @@ object Prefs {
     val seconds = B("seconds", false)
 
     // ---- navigation ----
-    val navStyle = S("nav_style", "standard")           // standard | floating
+    val navStyle = S("nav_style", "floating")           // standard | floating
     val navLabels = B("nav_labels", true)
     val floatingBars = B("floating_bars", true)
+    val pressMorph = S("press_morph", "normal")          // off | soft | normal | strong
+    val outBubble = S("out_bubble", "primary")            // primary | secondary | tertiary
+    val fabShape = S("fab_shape", "cookie")               // cookie | sunny | circle | square
+    val screenAnim = S("screen_anim", "slide")            // slide | scale | fade
+    val archiveHidden = B("archive_hidden", false)
+    val ghostOffline = B("ghost_offline", false)          // never appear online
+    val ghostTyping = B("ghost_typing", false)            // don't send "typing…"
+    val keepDeleted = B("keep_deleted", false)            // keep messages others deleted (this session)
+    val hideReactions = B("hide_reactions", false)
+    val charCounter = B("char_counter", false)
+    val showIds = B("show_ids", true)
+    val confirmSticker = B("confirm_sticker", false)
     val kbHeight = I("kb_height", 0)                       // last keyboard height (px), the emoji panel uses it           // floating composer & chat header
     val listSwipe = S("list_swipe", "folders")            // folders | actions (archive / read)
     val autoDlMobile = B("autodl_mobile", true)
@@ -139,7 +151,11 @@ object Prefs {
     val markReadOnOpen = B("mark_read", true)
 
     fun resetAppearance() {
-        all.filter { it.key !in setOf("hide_phone", "strip_tracking", "silent_default", "confirm_delete", "keep_alive", "notify_preview", "mark_read") }
+        all.filter { it.key !in setOf(
+            "hide_phone", "strip_tracking", "silent_default", "confirm_delete", "keep_alive", "notify_preview", "mark_read",
+            "ghost_offline", "ghost_typing", "keep_deleted", "hide_reactions", "char_counter", "show_ids", "confirm_sticker",
+            "kb_height", "archive_hidden", "autodl_mobile", "autodl_wifi",
+        ) }
             .forEach { it.reset() }
     }
 }

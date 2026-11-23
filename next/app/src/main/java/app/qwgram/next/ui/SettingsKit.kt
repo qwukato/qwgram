@@ -56,31 +56,59 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Check
 
-/** Settings page frame: large collapsing app bar + lazy content. */
+/**
+ * M3 top app bar floating over the content on a fade: solid surface at the top dissolving to transparent, so
+ * scrolled content passes underneath softly. Title takes all free width (adapts to long names), optional subtitle.
+ */
+@Composable
+fun FadeHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onBack: (() -> Unit)? = { Nav.pop() },
+    titleAlpha: () -> Float = { 1f },
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.62f to cs.surface.copy(alpha = 0.92f), 1f to cs.surface.copy(alpha = 0f)))
+            .statusBarsPadding().padding(bottom = 18.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack) else Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer { alpha = titleAlpha() }) {
+                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            actions()
+        }
+    }
+}
+
+/** Settings page frame: content scrolls under a fading M3 header. */
 @Composable
 fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: LazyListScope.() -> Unit) {
-    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            androidx.compose.material3.TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
-                actions = { actions() },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { pad ->
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var headerH by remember { mutableStateOf(96.dp) }
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = pad.calculateTopPadding(), bottom = 32.dp + pad.calculateBottomPadding()),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - 12.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) { content() }
+        FadeHeader(title, Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, actions = { actions() })
     }
 }
 

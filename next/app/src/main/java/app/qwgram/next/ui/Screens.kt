@@ -95,6 +95,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
@@ -105,9 +107,22 @@ fun ProfileScreen(chatId: Long) {
     val chat = if (me) null else TdStore.chats[chatId]
     val user = if (me) TdStore.me else chat?.let { TdStore.users[TdStore.privateUserId(it)] }
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var bio by remember { mutableStateOf("") }
-    var media by remember { mutableStateOf<List<TdApi.Message>>(emptyList()) }
     var tab by remember { mutableStateOf(0) }
+    val mediaCache = remember { androidx.compose.runtime.mutableStateMapOf<Int, List<TdApi.Message>>() }
+    var shownTab by remember { mutableStateOf(0) }
+    val media = mediaCache[shownTab].orEmpty()
+    var gallery by remember { mutableStateOf<List<TdApi.Photo>?>(null) }
+    fun openAvatars() {
+        scope.launch {
+            val list = if (user != null) Td.callOrNull(TdApi.GetUserProfilePhotos(user.id, 0, 100))?.photos?.map { TdApi.Photo(false, it.minithumbnail, it.sizes) }.orEmpty()
+            else emptyList()
+            val fallback = chat?.photo?.let { ph -> listOf(TdApi.Photo(false, ph.minithumbnail, arrayOf(TdApi.PhotoSize("x", ph.big, 640, 640, intArrayOf())))) }.orEmpty()
+            val all = list.ifEmpty { fallback }
+            if (all.isNotEmpty()) gallery = all
+        }
+    }
     val pickPhoto = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             val f = uriToCacheFile(ctx, uri)
@@ -116,7 +131,6 @@ fun ProfileScreen(chatId: Long) {
             }
         }
     }
-    val scope = rememberCoroutineScope()
     LaunchedEffect(chatId) {
         if (user != null) Td.callOrNull(TdApi.GetUserFullInfo(user.id))?.let { bio = it.bio?.text.orEmpty() }
         chat?.type?.let { t ->
@@ -132,10 +146,13 @@ fun ProfileScreen(chatId: Long) {
                 3 -> TdApi.SearchMessagesFilterVoiceNote()
                 else -> TdApi.SearchMessagesFilterPhotoAndVideo()
             }
-            val r = Td.callOrNull(TdApi.SearchChatMessages().apply {
-                this.chatId = chat.id; query = ""; fromMessageId = 0; offset = 0; limit = 90; filter = f
-            })
-            media = r?.messages?.toList().orEmpty()
+            if (mediaCache[tab] == null) {
+                val r = Td.callOrNull(TdApi.SearchChatMessages().apply {
+                    this.chatId = chat.id; query = ""; fromMessageId = 0; offset = 0; limit = 90; filter = f
+                })
+                mediaCache[tab] = r?.messages?.toList().orEmpty()
+            }
+            shownTab = tab
         }
     }
     val cleanBio = bio.replace(Regex("[\\u200B-\\u200F\\u2060-\\u2064\\uFEFF\\u3164\\u115F\\u1160\\u00AD]"), "").trim()
@@ -149,50 +166,52 @@ fun ProfileScreen(chatId: Long) {
         chat != null -> Texts.chatStatus(chat)
         else -> ""
     }
-    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
-                scrollBehavior = scroll,
-            )
+            FadeHeader(title, subtitle = status, titleAlpha = {
+                // the name appears in the bar once the big one scrolls away
+                if (gridState.firstVisibleItemIndex > 0) 1f else ((gridState.firstVisibleItemScrollOffset - 260f) / 140f).coerceIn(0f, 1f)
+            })
         },
     ) { pad ->
-        LazyVerticalGrid(GridCells.Fixed(3), contentPadding = PaddingValues(top = pad.calculateTopPadding(), bottom = 32.dp), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (me) {
                         Box(contentAlignment = Alignment.BottomEnd) {
-                            UserAvatar(user, 120.dp, Modifier.clip(CircleShape).clickable { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                            Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Outlined.PhotoCamera, "Сменить фото", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                            }
+                            UserAvatar(user, 120.dp, Modifier.clip(CircleShape).clickable { openAvatars() })
+                            MorphIconButton(
+                                Icons.Outlined.PhotoCamera, "Сменить фото",
+                                { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                size = 40.dp, color = MaterialTheme.colorScheme.primary, tint = MaterialTheme.colorScheme.onPrimary,
+                            )
                         }
-                    } else if (chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp)
+                    } else Box(Modifier.clip(CircleShape).clickable { openAvatars() }) { if (chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp) }
                     Spacer(Modifier.height(16.dp))
                     Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                     if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium, color = if (status == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     if (chat != null && !TdStore.isSaved(chat)) {
                         Spacer(Modifier.height(20.dp))
                         val muted = TdStore.isMuted(chat)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ProfileAction(Icons.AutoMirrored.Outlined.Chat, "Сообщение", false, Modifier.weight(1f)) {
+                        val un = (user?.usernames?.activeUsernames?.firstOrNull()
+                            ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
+                        val uid = TdStore.privateUserId(chat)
+                        // M3 Expressive standard button group: pressed one stretches, toggled one becomes a rounded square
+                        ButtonGroupRow(buildList {
+                            add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
                                 if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
-                            }
-                            ProfileAction(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Без звука" else "Звук", muted, Modifier.weight(1f)) { setMuted(chat, !muted) }
-                            val un = (user?.usernames?.activeUsernames?.firstOrNull()
-                                ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
-                            val uid = TdStore.privateUserId(chat)
-                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) ProfileAction(Icons.Outlined.Lock, "Секретный", false, Modifier.weight(1f)) {
+                            })
+                            add(GroupButton(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, null, selected = muted, desc = if (muted) "Включить звук" else "Без звука") { setMuted(chat, !muted) })
+                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) add(GroupButton(Icons.Outlined.Lock, null, desc = "Секретный чат") {
                                 scope.launch { Td.callOrNull(TdApi.CreateNewSecretChat(uid))?.let { Nav.push(Route.Chat(it.id)) } ?: Toast.makeText(ctx, "Не удалось начать секретный чат", Toast.LENGTH_SHORT).show() }
-                            }
-                            if (un != null) ProfileAction(Icons.Outlined.Share, "Поделиться", false, Modifier.weight(1f)) {
+                            })
+                            add(GroupButton(Icons.Outlined.Search, null, desc = "Поиск в чате") { Nav.push(Route.Chat(chat.id)) })
+                            if (un != null) add(GroupButton(Icons.Outlined.Share, null, desc = "Поделиться") {
                                 val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, "https://t.me/$un")
                                 ctx.startActivity(android.content.Intent.createChooser(i, null))
-                            }
-                        }
+                            })
+                        })
                     }
                     Spacer(Modifier.height(16.dp))
                     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
@@ -204,7 +223,10 @@ fun ProfileScreen(chatId: Long) {
                                 if (un != null) add(Triple(Icons.Outlined.AlternateEmail, "@$un", "Имя пользователя"))
                                 if (cleanBio.isNotEmpty()) add(Triple(Icons.Outlined.Info, cleanBio, if (user != null) "О себе" else "Описание"))
                                 if (un != null) add(Triple(Icons.Outlined.Link, "t.me/$un", "Ссылка"))
-                                if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
+                                if (Prefs.showIds.value) {
+                                    if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
+                                    else if (chat != null) add(Triple(Icons.Outlined.Tag, chat.id.toString(), "ID чата"))
+                                }
                             }
                             rows.forEach { (icon, v, label) ->
                                 ListItem(
@@ -232,31 +254,32 @@ fun ProfileScreen(chatId: Long) {
                     }
                     if (chat != null) {
                         Spacer(Modifier.height(16.dp))
-                        androidx.compose.material3.PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = MaterialTheme.colorScheme.surface) {
-                            listOf("Медиа", "Файлы", "Ссылки", "Голосовые").forEachIndexed { i, t ->
-                                androidx.compose.material3.Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
-                            }
+                        ConnectedGroup(listOf(0 to "Медиа", 1 to "Файлы", 2 to "Ссылки", 3 to "Голос"), tab) { tab = it }
+                        androidx.compose.animation.AnimatedVisibility(mediaCache[shownTab]?.isEmpty() == true, enter = fadeIn(Springs.effects()), exit = fadeOut(Springs.exit())) {
+                            Text("Пока ничего нет", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
                         }
-                        if (media.isEmpty()) Text("Пока ничего нет", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+                        if (tab != shownTab) LoadingIndicator(Modifier.padding(8.dp).size(36.dp))
                     }
                 }
             }
-            if (tab == 0) items(media, key = { it.id }) { m -> MediaTile(m) }
-            else items(media, key = { it.id }, span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) { m ->
+            if (shownTab == 0) items(media, key = { "t0_" + it.id }) { m -> Box(Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) { MediaTile(m) } }
+            else items(media, key = { "t${shownTab}_" + it.id }, span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) { m ->
                 ListItem(
                     headlineContent = { Text(Texts.preview(m), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text(Texts.listDate(m.date)) },
                     leadingContent = {
                         Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                            Icon(when (tab) { 1 -> Icons.Outlined.Description; 2 -> Icons.Outlined.Link; else -> Icons.Outlined.Mic }, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Icon(when (shownTab) { 1 -> Icons.Outlined.Description; 2 -> Icons.Outlined.Link; else -> Icons.Outlined.Mic }, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                         }
                     },
-                    modifier = Modifier.clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
+                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                        .clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
                 )
             }
         }
     }
+    gallery?.let { PhotoGallery(it, 0) { gallery = null } }
 }
 
 @Composable
@@ -488,20 +511,11 @@ fun SectionHeader(text: String) {
 fun ArchiveScreen() {
     var actionChat by remember { mutableStateOf<TdApi.Chat?>(null) }
     LaunchedEffect(Unit) { Td.send(TdApi.LoadChats(TdApi.ChatListArchive(), 100)) }
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text("Архив") },
-                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { pad ->
-        Box(Modifier.padding(top = pad.calculateTopPadding())) {
-            ChatList(TdApi.ChatListArchive(), PaddingValues(0.dp), showArchive = false) { actionChat = it }
-        }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var headerH by remember { mutableStateOf(96.dp) }
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        ChatList(TdApi.ChatListArchive(), PaddingValues(top = headerH - 12.dp), showArchive = false) { actionChat = it }
+        FadeHeader("Архив", Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "Чаты без уведомлений о новых сообщениях")
     }
     actionChat?.let { ChatActionsSheet(it) { actionChat = null } }
 }
@@ -517,10 +531,11 @@ fun ContactsTab(pad: PaddingValues) {
     val users = ids.mapNotNull { TdStore.users[it] }
         .filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
         .sortedWith(compareByDescending<TdApi.User> { Texts.isOnline(it) }.thenByDescending { (it.status as? TdApi.UserStatusOffline)?.wasOnline ?: 0 })
-    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
-    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        androidx.compose.material3.TopAppBar(title = { Text("Контакты") }, scrollBehavior = scroll)
-        LazyColumn(contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 24.dp)) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var headerH by remember { mutableStateOf(96.dp) }
+    Box(Modifier.fillMaxSize()) {
+        FadeHeader("Контакты", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "${users.size} " + Texts.plural(users.size, "контакт", "контакта", "контактов"), onBack = null)
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = headerH - 12.dp, bottom = pad.calculateBottomPadding() + 24.dp)) {
             item {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(52.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {

@@ -43,6 +43,8 @@ object Nav {
     class Entry(val route: Route, val id: Long, entering: Boolean) {
         val offset = Animatable(if (entering) 1f else 0f)
         var closing = false
+        /** moved by a finger / back gesture at least once: from then on it always slides */
+        var dragged = false
     }
 
     private var seq = 0L
@@ -99,7 +101,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
     PredictiveBackHandler(enabled = entries.size > 1) { events ->
         val e = Nav.stack.last()
         try {
-            events.collect { ev -> if (Prefs.predictiveBack.value) e.offset.snapTo(ev.progress * 0.4f) }
+            events.collect { ev -> if (Prefs.predictiveBack.value) { e.dragged = true; e.offset.snapTo(ev.progress * 0.4f) } }
             Nav.pop()
         } catch (c: CancellationException) {
             scope.launch { e.offset.animateTo(0f, Springs.smooth()) }
@@ -107,6 +109,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
         }
     }
 
+    val corner = screenCornerRadius()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         entries.takeLast(2).forEach { e ->
             key(e.id) {
@@ -119,8 +122,18 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                         .graphicsLayer {
                             val w = size.width
                             if (isTop) {
-                                translationX = e.offset.value * w
-                                shadowElevation = if (e.offset.value > 0.001f && entries.size > 1) 24.dp.toPx() else 0f
+                                val o = e.offset.value
+                                val moving = o > 0.001f && entries.size > 1
+                                when (Prefs.screenAnim.value) {
+                                    // scale: the screen grows in from 92% with a fade (Material "zoom")
+                                    "scale" -> if (!e.closing && o > 0f && !e.dragged) { translationX = o * w * 0.25f; val sc = 1f - 0.08f * o; scaleX = sc; scaleY = sc; alpha = 1f - o } else translationX = o * w
+                                    "fade" -> if (!e.closing && o > 0f && !e.dragged) { alpha = 1f - o; translationX = o * w * 0.08f } else translationX = o * w
+                                    else -> translationX = o * w
+                                }
+                                // the moving screen rounds its corners exactly like the display
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(if (moving) corner else 0.dp)
+                                clip = moving
+                                shadowElevation = if (moving) 24.dp.toPx() else 0f
                             } else {
                                 // parallax of the screen underneath (Material shared-axis feel)
                                 val t = top.offset.value
@@ -164,7 +177,7 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope): Modifier = 
                 dx += d.x; dy += d.y
                 if (abs(dy) > slop && abs(dy) > abs(dx)) return@awaitEachGesture
                 if (dx < -slop) return@awaitEachGesture
-                if (dx > slop && dx > abs(dy) * 1.2f) dragging = true else continue
+                if (dx > slop * 0.6f && dx > abs(dy)) { dragging = true; e.dragged = true } else continue
             }
             ch.consume()
             val v = (e.offset.value + d.x / w).coerceIn(0f, 1f)
@@ -172,7 +185,7 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope): Modifier = 
         }
         if (dragging) {
             val vx = tracker.calculateVelocity().x
-            if (e.offset.value > 0.22f || vx > 600f) Nav.pop()
+            if (e.offset.value > 0.2f || vx > 350f) Nav.pop()
             else scope.launch { e.offset.animateTo(0f, Springs.smooth()) }
         }
     }

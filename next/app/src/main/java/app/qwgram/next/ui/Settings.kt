@@ -85,6 +85,11 @@ import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.AccountCircle
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ settings tab
@@ -93,12 +98,15 @@ import org.drinkless.tdlib.TdApi
 fun SettingsHome(pad: PaddingValues) {
     val me = TdStore.me
     var logout by remember { mutableStateOf(false) }
-    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
-    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        androidx.compose.material3.TopAppBar(title = { Text("Настройки") }, scrollBehavior = scroll)
+    val density = LocalDensity.current
+    var headerH by remember { mutableStateOf(96.dp) }
+    Box(Modifier.fillMaxSize()) {
+        FadeHeader("Настройки", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, onBack = null) {
+            MorphIconButton(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
+        }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = pad.calculateBottomPadding() + 32.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - 12.dp, bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item {
@@ -120,8 +128,9 @@ fun SettingsHome(pad: PaddingValues) {
                 }
             }
             item { Spacer(Modifier.height(10.dp)) }
-            item { QuickTiles() }
+            item { QuickTiles2() }
             group("Аккаунт") {
+                nav("Мой профиль", "Как вас видят другие", Icons.Outlined.AccountCircle, 0) { Nav.push(Route.Me) }
                 nav("Мой аккаунт", "Имя, о себе, @username", Icons.Outlined.Person) { Nav.push(Route.Page("account")) }
                 nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
             }
@@ -148,57 +157,24 @@ fun SettingsHome(pad: PaddingValues) {
     )
 }
 
-/** four big expressive tiles with shaped icon containers (cookie, clover, sun, pentagon) */
-@Composable
-private fun QuickTiles() {
-    val cs = MaterialTheme.colorScheme
-    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val page: String)
-    val tiles = listOf(
-        Tile("Оформление", Icons.Outlined.Palette, androidx.compose.material3.MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, "appearance"),
-        Tile("Приватность", Icons.Outlined.Lock, androidx.compose.material3.MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, "privacy"),
-        Tile("Уведомления", Icons.Outlined.Notifications, androidx.compose.material3.MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, "notifications"),
-        Tile("Данные", Icons.Outlined.DataUsage, androidx.compose.material3.MaterialShapes.Pentagon, cs.surfaceContainerHighest, cs.onSurface, "data"),
-    )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        tiles.forEachIndexed { i, t ->
-            val start = if (i == 0) 24.dp else 8.dp
-            MorphBox(
-                onClick = { Nav.push(Route.Page(t.page)) }, rest = if (i == 0 || i == tiles.lastIndex) 24.dp else 12.dp, pressed = 28.dp,
-                color = cs.surfaceContainerLow, modifier = Modifier.weight(1f).height(104.dp), squish = 0.94f,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(48.dp).clip(t.shape.asShape()).background(t.bg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.fg) }
-                    Spacer(Modifier.height(8.dp))
-                    androidx.compose.foundation.text.BasicText(
-                        t.title, maxLines = 1, style = MaterialTheme.typography.labelMedium.copy(color = cs.onSurface),
-                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 12.sp, stepSize = 0.5.sp),
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------------------ pages
-
 @Composable
 fun SettingsPage(id: String) {
     when {
         id.startsWith("folder:") -> { FolderEditPage(id.removePrefix("folder:").toIntOrNull()); return }
         id.startsWith("sched:") -> { ScheduledPage(id.removePrefix("sched:").toLong()); return }
+        id.startsWith("compose:") -> { NewMessagePage(id.removePrefix("compose:")); return }
     }
     when (id) {
-        "appearance" -> AppearanceHub()
+        "appearance" -> AppearanceHub2()
         "ap-theme" -> ThemePage()
         "ap-shapes" -> ShapesPage()
-        "ap-list" -> ListPage()
+        "ap-list" -> ListPage2()
         "ap-folders" -> FoldersStylePage()
-        "ap-chat" -> ChatStylePage()
-        "ap-nav" -> NavPage()
-        "ap-motion" -> MotionPage()
-        "ap-text" -> TextPage()
-        "features" -> FeaturesPage()
+        "ap-chat" -> ChatStylePage2()
+        "ap-nav" -> NavPage2()
+        "ap-motion" -> MotionPage2()
+        "ap-text" -> TextPage2()
+        "features" -> FeaturesPage2()
         "account" -> AccountPage()
         "notifications" -> NotificationsPage()
         "privacy" -> PrivacyPage()
@@ -228,27 +204,7 @@ private fun ResetAction() {
 }
 
 @Composable
-private fun AppearanceHub() = PageScaffold("Внешний вид", actions = { ResetAction() }) {
-    group {
-        nav("Тема и цвета", "Светлая, тёмная, AMOLED, акцент, палитра, контраст", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("ap-theme")) }
-        nav("Формы и аватарки", "26 форм Material 3 Expressive, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
-        nav("Список чатов", "Плотность, карточки, счётчики, заголовок", Icons.Outlined.ViewAgenda) { Nav.push(Route.Page("ap-list")) }
-        nav("Папки", "Группа кнопок, вкладки или чипы", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("ap-folders")) }
-    }
-    group {
-        nav("Чат и сообщения", "Пузыри, текст, фон, жесты", Icons.Outlined.ChatBubbleOutline, 0) { Nav.push(Route.Page("ap-chat")) }
-        nav("Панели и навигация", "Нижняя панель, кнопка «Написать», меню", Icons.Outlined.Dock) { Nav.push(Route.Page("ap-nav")) }
-        nav("Анимации", "Пружины, скорость, жест «назад»", Icons.Outlined.Animation, 2) { Nav.push(Route.Page("ap-motion")) }
-        nav("Шрифт и масштаб", "Начертание, размер интерфейса", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
-    }
-}
-
-/**
- * Live preview built from the real components, framed like a small phone screen.
- * Bubbles are sized to the frame (LocalBubbleArea), so nothing spills out; touches are ignored.
- */
-@Composable
-fun Preview(list: Boolean = true, chat: Boolean = true) {
+fun Preview(list: Boolean = true, chat: Boolean = true, framed: Boolean = true) {
     val cs = MaterialTheme.colorScheme
     val now = remember { (System.currentTimeMillis() / 1000).toInt() }
     val demo = remember {
@@ -263,27 +219,25 @@ fun Preview(list: Boolean = true, chat: Boolean = true) {
         content = TdApi.MessageText().apply { text = TdApi.FormattedText(t, arrayOf()) }
     }
     val msgs = remember { listOf(msg(1, false, "Привет! 👋") to Grp.Top, msg(2, false, "Как тебе новый вид?") to Grp.Bottom, msg(3, true, "Очень плавно ✨") to Grp.Single) }
-    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
-        Text("Предпросмотр", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
-        Surface(
-            shape = RoundedCornerShape(28.dp), color = cs.surface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val area = maxWidth - 16.dp
-                Column(Modifier.androidx_blockTouches()) {
-                    if (list) Box(Modifier.padding(vertical = 4.dp)) { ChatRow(demo, null) {} }
-                    if (chat) Box(Modifier.fillMaxWidth().background(cs.surfaceContainerLow).padding(horizontal = 8.dp, vertical = 10.dp)) {
-                        androidx.compose.runtime.CompositionLocalProvider(LocalBubbleArea provides area) {
-                            Column {
-                                msgs.forEach { (m, g) -> MessageItem(m, g, demo, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {}) }
-                            }
+    val inner: @Composable () -> Unit = {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val area = maxWidth - 16.dp
+            Column(Modifier.androidx_blockTouches().clip(RoundedCornerShape(20.dp))) {
+                if (list) Box(Modifier.padding(vertical = 4.dp)) { ChatRow(demo, null) {} }
+                if (chat) Box(Modifier.fillMaxWidth().background(cs.surfaceContainerLow).padding(horizontal = 8.dp, vertical = 10.dp)) {
+                    androidx.compose.runtime.CompositionLocalProvider(LocalBubbleArea provides area) {
+                        Column {
+                            msgs.forEach { (m, g) -> MessageItem(m, g, demo, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {}) }
                         }
                     }
                 }
             }
         }
+    }
+    if (!framed) { inner(); return }
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
+        Text("Предпросмотр", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+        Surface(shape = RoundedCornerShape(28.dp), color = cs.surface, border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant), modifier = Modifier.fillMaxWidth()) { inner() }
     }
 }
 
@@ -304,7 +258,7 @@ private val SEEDS = listOf(0xFF6750A4, 0xFF3D6CB5, 0xFF0B6B5E, 0xFF3F6B2A, 0xFF6
 private fun ThemePage() {
     var hex by remember { mutableStateOf(false) }
     PageScaffold("Тема и цвета", actions = { ResetAction() }) {
-        item { Preview() }
+        item { ThemePreview() }
         group("Режим") {
             segmented("Тема", Prefs.themeMode, listOf("light" to "Светлая", "dark" to "Тёмная", "system" to "Системная"))
             switch("Чёрная AMOLED-тема", Prefs.amoled, "Настоящий чёрный фон в тёмной теме")
@@ -422,30 +376,6 @@ private fun ShapePicker() {
 }
 
 @Composable
-private fun ListPage() = PageScaffold("Список чатов", actions = { ResetAction() }) {
-    item { Preview(list = true, chat = false) }
-    group("Вид") {
-        segmented("Стиль списка", Prefs.listStyle, listOf("flat" to "Сплошной", "cards" to "Карточки"))
-        segmented("Плотность", Prefs.density, listOf(0 to "Плотно", 1 to "Обычно", 2 to "Свободно"))
-        segmented("Строк в превью", Prefs.previewLines, listOf(1 to "Одна", 2 to "Две"))
-        switch("Разделители", Prefs.separators, "Тонкие линии между чатами")
-    }
-    group("Счётчики") {
-        segmented("Непрочитанные", Prefs.badgeStyle, listOf("filled" to "Заливка", "tonal" to "Тональные", "dot" to "Точка"))
-    }
-    group("Верхняя панель") {
-        segmented("Вид", Prefs.topBar, listOf("title" to "Заголовок", "search" to "Строка поиска"))
-        pick("Текст заголовка", Prefs.titleText, listOf("qwgram" to "qwgram", "name" to "Ваше имя", "chats" to "Чаты", "folder" to "Название папки"))
-    }
-    group("Жесты", footer = "Если выбрать действия, папки переключаются только нажатием на вкладку.") {
-        segmented("Свайп по списку", Prefs.listSwipe, listOf("folders" to "Папки", "actions" to "Архив / прочитано"))
-    }
-    group("Элементы") {
-        switch("Архив в списке чатов", Prefs.showArchiveRow, "Иначе он в боковом меню")
-    }
-}
-
-@Composable
 private fun FoldersStylePage() = PageScaffold("Папки") {
     group("Стиль", footer = "«Группа кнопок» — соединённые кнопки из Material 3 Expressive: выбранная папка становится полностью скруглённой.") {
         pick("Вид папок", Prefs.folderStyle, listOf("group" to "Группа кнопок (Expressive)", "tabs" to "Вкладки, как в Telegram", "chips" to "Фильтр-чипы"))
@@ -454,105 +384,6 @@ private fun FoldersStylePage() = PageScaffold("Папки") {
     group("Поведение") {
         switch("Смена папок свайпом", Prefs.folderSwipe, "Листайте список влево и вправо")
         switch("Скрыть «Все чаты»", Prefs.hideAllChats)
-    }
-}
-
-@Composable
-private fun ChatStylePage() = PageScaffold("Чат и сообщения", actions = { ResetAction() }) {
-    item { Preview(list = false, chat = true) }
-    group("Пузыри") {
-        segmented("Стиль", Prefs.bubbleStyle, listOf("tonal" to "Тональный", "filled" to "Заливка", "outlined" to "Контур"))
-        sliderInt("Скругление", Prefs.bubbleRadius, 4..28, 2) { "$it dp" }
-        sliderInt("Ширина", Prefs.bubbleWidth, 60..95, 5) { "$it%" }
-        switch("Хвостик у пузыря", Prefs.bubbleTail)
-    }
-    group("Текст") {
-        sliderInt("Размер текста", Prefs.textSize, 12..22, 1) { "$it sp" }
-        switch("Крупные эмодзи без текста", Prefs.bigEmoji)
-        switch("Секунды во времени", Prefs.seconds)
-    }
-    group("Фон") {
-        segmented("Фон чата", Prefs.wallpaper, listOf("plain" to "Обычный", "tonal" to "Тональный", "shapes" to "Фигуры", "dots" to "Точки"))
-    }
-    group("Жесты и поведение") {
-        pick("Двойной тап по сообщению", Prefs.doubleTap, listOf("react" to "Поставить реакцию", "reply" to "Ответить", "none" to "Ничего"))
-        pick("Реакция по двойному тапу", Prefs.doubleTapEmoji, listOf("❤️" to "❤️", "👍" to "👍", "🔥" to "🔥", "😂" to "😂", "🎉" to "🎉"))
-        switch("Ответ свайпом влево", Prefs.swipeReply)
-        switch("Аватарки в группах", Prefs.groupAvatars)
-        switch("Отправка по Enter", Prefs.sendByEnter)
-    }
-}
-
-@Composable
-private fun NavPage() = PageScaffold("Панели и навигация", actions = { ResetAction() }) {
-    group("Нижняя панель") {
-        segmented("Вид", Prefs.navStyle, listOf("standard" to "Обычная", "floating" to "Плавающая"))
-        switch("Подписи", Prefs.navLabels)
-        switch("Вкладка «Контакты»", Prefs.showContactsTab)
-    }
-    group("Плавающие панели", footer = "Шапка чата и панель ввода парят над фоном чата со скруглением и мягкой тенью.") {
-        switch("Плавающие шапка и поле ввода", Prefs.floatingBars)
-    }
-    group("Кнопка «Написать»") {
-        segmented("Вид", Prefs.fabStyle, listOf("extended" to "С текстом", "icon" to "Значок", "none" to "Скрыть"))
-    }
-    group("Меню") {
-        switch("Боковое меню", Prefs.drawer, "Аккаунт, контакты, избранное, архив")
-    }
-}
-
-@Composable
-private fun MotionPage() = PageScaffold("Анимации", actions = { ResetAction() }) {
-    group("Движение", footer = "Выразительное — пружины с лёгким отскоком из Material 3 Expressive. Спокойное — без отскока.") {
-        segmented("Стиль", Prefs.motion, listOf("expressive" to "Выразительное", "standard" to "Спокойное", "off" to "Выкл"))
-        sliderFloat("Скорость", Prefs.motionSpeed, 0.5f..2f, 5) { "%.2f×".format(it).replace(",00", "").replace(".00", "") }
-    }
-    group("Жесты") {
-        switch("Предиктивный жест «назад»", Prefs.predictiveBack, "Экран уменьшается, пока вы тянете от края")
-        switch("Тактильный отклик", Prefs.haptics)
-    }
-    group("Индикаторы загрузки") {
-        custom {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                LoadingIndicator()
-                ContainedLoadingIndicator()
-                LinearWavyProgressIndicator(modifier = Modifier.width(120.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun TextPage() = PageScaffold("Шрифт и масштаб") {
-    item { Preview() }
-    group("Шрифт") {
-        segmented("Начертание", Prefs.font, listOf("system" to "Системный", "serif" to "С засечками", "mono" to "Моноширинный"))
-    }
-    group("Масштаб") {
-        sliderFloat("Размер интерфейса", Prefs.uiScale, 0.85f..1.15f, 5) { "${(it * 100).toInt()}%" }
-        sliderInt("Текст сообщений", Prefs.textSize, 12..22, 1) { "$it sp" }
-    }
-}
-
-@Composable
-private fun FeaturesPage() {
-    val ctx = LocalContext.current
-    PageScaffold("Функции qwgram") {
-        group("Приватность") {
-            switch("Скрывать свой номер", Prefs.hidePhone, "В настройках, профиле и меню")
-            switch("Тихая отправка по умолчанию", Prefs.silentByDefault, "Сообщения уходят без звука у получателя")
-            switch("Отмечать прочитанным при открытии", Prefs.markReadOnOpen, "Выключите, чтобы читать незаметно")
-        }
-        group("Ссылки") {
-            switch("Удалять трекинг из ссылок", Prefs.stripTracking, "utm_*, fbclid, si и другие параметры слежки")
-        }
-        group("Фоновая работа", footer = "Без сервисов Google сообщения приходят, пока qwgram работает в фоне. Уведомление службы можно скрыть в настройках Android.") {
-            switch("Получать сообщения в фоне", Prefs.keepAlive) { KeepAliveService.sync(ctx) }
-            switch("Текст в уведомлениях", Prefs.notifyPreview)
-        }
-        group("Диалоги") {
-            switch("Подтверждать удаление", Prefs.confirmDelete)
-        }
     }
 }
 

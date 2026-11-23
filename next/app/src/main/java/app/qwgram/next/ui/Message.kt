@@ -94,6 +94,13 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.DeleteOutline
 import org.drinkless.tdlib.TdApi
 import kotlin.math.roundToInt
 
@@ -168,11 +175,12 @@ fun MessageItem(
                         }
                         ch.consume()
                         raw = (raw + d.x).coerceAtMost(0f)
-                        // rubber band: free until the threshold, then resists
+                        // one smooth curve from the first pixel: follows the finger, then gently saturates
                         val pull = -raw
-                        val shown = if (pull <= threshold) pull else threshold + (pull - threshold) * 0.3f
-                        scope.launch { swipe.snapTo(-shown.coerceAtMost(threshold * 1.8f)) }
-                        val now = pull >= threshold
+                        val maxShown = threshold * 1.9f
+                        val shown = maxShown * (1f - kotlin.math.exp(-pull / maxShown))
+                        scope.launch { swipe.snapTo(-shown) }
+                        val now = pull >= threshold * 1.15f
                         if (now && !armed) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         armed = now
                     }
@@ -180,7 +188,7 @@ fun MessageItem(
                         if (armed) onSwipeReply()
                         armed = false
                         // soft return: low stiffness, gentle settle (no snapping back)
-                        scope.launch { swipe.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 260f)) }
+                        scope.launch { swipe.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 220f)) }
                     }
                 }
             },
@@ -213,14 +221,17 @@ fun MessageItem(
         Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }.onGloballyPositioned { bubbleRect = it.boundsInRoot() }) {
             Bubble(m, grp, chat, group && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick)
         }
-        if (swipe.value < -8f) {
+        val swiping by remember { derivedStateOf { swipe.value < -4f } }
+        if (swiping) {
             val thr = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
-            val p = (-swipe.value / thr).coerceIn(0f, 1f)
             val pop by androidx.compose.animation.core.animateFloatAsState(if (armed) 1.15f else 1f, Springs.fastSpatial(), label = "pop")
             val bg by androidx.compose.animation.animateColorAsState(if (armed) cs.primary else cs.secondaryContainer, Springs.effects(), label = "rb")
             Box(
                 Modifier.align(Alignment.CenterVertically).offset { IntOffset(swipe.value.roundToInt() + 8, 0) }
-                    .graphicsLayer { scaleX = p * pop; scaleY = p * pop; alpha = p; rotationZ = (1f - p) * -90f }
+                    .graphicsLayer {
+                        val p = (-swipe.value / thr).coerceIn(0f, 1f)
+                        scaleX = p * pop; scaleY = p * pop; alpha = p; rotationZ = (1f - p) * -90f
+                    }
                     .size(34.dp).clip(CircleShape).background(bg),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(18.dp), tint = if (armed) cs.onPrimary else cs.onSecondaryContainer) }
@@ -254,9 +265,9 @@ private fun Bubble(
     val shape = if (out) RoundedCornerShape(topStart = r, topEnd = topSide, bottomEnd = bottomSide, bottomStart = r)
     else RoundedCornerShape(topStart = topSide, topEnd = r, bottomEnd = r, bottomStart = bottomSide)
     val (bg, fg) = when {
-        out && style == "filled" -> cs.primary to cs.onPrimary
+        out && style == "filled" -> when (Prefs.outBubble.value) { "secondary" -> cs.secondary to cs.onSecondary; "tertiary" -> cs.tertiary to cs.onTertiary; else -> cs.primary to cs.onPrimary }
         out && style == "outlined" -> cs.surface to cs.onSurface
-        out -> cs.primaryContainer to cs.onPrimaryContainer
+        out -> when (Prefs.outBubble.value) { "secondary" -> cs.secondaryContainer to cs.onSecondaryContainer; "tertiary" -> cs.tertiaryContainer to cs.onTertiaryContainer; else -> cs.primaryContainer to cs.onPrimaryContainer }
         style == "outlined" -> cs.surface to cs.onSurface
         else -> cs.surfaceContainerHigh to cs.onSurface
     }
@@ -284,8 +295,9 @@ private fun Bubble(
                 (c as? TdApi.MessageText)?.text?.text ?: (c as TdApi.MessageAnimatedEmoji).emoji,
                 fontSize = (Prefs.textSize.value * 3).sp, lineHeight = (Prefs.textSize.value * 3.4).sp,
             )
-            Reactions(m, out)
-            Surface(shape = CircleShape, color = cs.surfaceContainerHigh) { Meta(m, chat, cs.onSurfaceVariant, Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) }
+            val metaPill: @Composable () -> Unit = { Surface(shape = CircleShape, color = cs.surfaceContainerHigh) { Meta(m, chat, cs.onSurfaceVariant, Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) } }
+            if (m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value) ReactionsMeta(m, Modifier.padding(top = 4.dp), metaPill)
+            else metaPill()
         }
         return
     }
@@ -296,7 +308,7 @@ private fun Bubble(
         border = if (style == "outlined") androidx.compose.foundation.BorderStroke(if (out) 1.5.dp else 1.dp, if (out) cs.primary else cs.outlineVariant) else null,
         modifier = gestures.widthIn(max = maxW),
     ) {
-        val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true
+        val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
         Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if (hasReactionsOuter && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
             val pad = if (media) Modifier.padding(horizontal = 8.dp) else Modifier.padding(horizontal = 12.dp)
             if (showName && (grp == Grp.Single || grp == Grp.Top)) {
@@ -314,7 +326,7 @@ private fun Bubble(
             val cap = Texts.caption(c)
             val hasCap = cap != null && cap.text.isNotEmpty()
             val preview = (c as? TdApi.MessageText)?.linkPreview
-            val hasReactions = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true
+            val hasReactions = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
             Box {
             when (c) {
                 is TdApi.MessagePhoto -> PhotoView(c.photo, shapeTop = r - 3.dp, onClick = { onPhoto(c.photo) })
@@ -359,9 +371,7 @@ private fun Bubble(
                 Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, modifier = pad.padding(top = 8.dp), color = fg.copy(alpha = 0.8f))
             }
             if (hasReactions) {
-                Row(Modifier.fillMaxWidth().then(pad).padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
-                    Reactions(m, out, Modifier.weight(1f, fill = false))
-                    Spacer(Modifier.weight(1f).widthIn(min = 10.dp))
+                ReactionsMeta(m, Modifier.fillMaxWidth().then(pad).padding(top = 6.dp, bottom = 6.dp)) {
                     Meta(m, chat, metaColor, Modifier.padding(bottom = 2.dp))
                 }
             } else if ((!hasCap && !media) || (hasCap && preview != null)) {
@@ -413,6 +423,10 @@ private fun Meta(m: TdApi.Message, chat: TdApi.Chat, color: Color, modifier: Mod
             Spacer(Modifier.width(2.dp))
             Text(compact(views) + "  ", style = MaterialTheme.typography.labelSmall, color = color)
         }
+        if (DeletedMessages.has(m)) {
+            Icon(Icons.Outlined.DeleteOutline, "Удалено", Modifier.size(13.dp), tint = MaterialTheme.colorScheme.error)
+            Text(" удалено  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        }
         if (m.editDate > 0) Text("изм. ", style = MaterialTheme.typography.labelSmall, color = color)
         Text(Texts.time(m.date), style = MaterialTheme.typography.labelSmall, color = color)
         if (m.isOutgoing && !m.isChannelPost) {
@@ -436,29 +450,77 @@ private fun compact(n: Int): String = when {
     else -> n.toString()
 }
 
+/**
+ * Reactions flow in compact lines; the time/ticks sit at the end of the last line (or on their own line when they
+ * don't fit), right-aligned to the bubble. Reports real intrinsic widths so the bubble hugs its content.
+ */
 @Composable
-private fun Reactions(m: TdApi.Message, out: Boolean, modifier: Modifier = Modifier) {
+private fun ReactionsMeta(m: TdApi.Message, modifier: Modifier = Modifier, meta: @Composable () -> Unit) {
     val list = m.interactionInfo?.reactions?.reactions ?: return
-    if (list.isEmpty()) return
     val cs = MaterialTheme.colorScheme
-    FlowRow(modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        list.forEach { r ->
-            val emoji = (r.type as? TdApi.ReactionTypeEmoji)?.emoji ?: "⭐"
-            Surface(
-                onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) },
-                shape = CircleShape,
-                color = if (r.isChosen) cs.primary.copy(alpha = 0.22f) else cs.onSurface.copy(alpha = 0.07f),
-                contentColor = if (r.isChosen) cs.primary else cs.onSurfaceVariant,
-                border = if (r.isChosen) androidx.compose.foundation.BorderStroke(1.5.dp, cs.primary.copy(alpha = 0.6f)) else null,
-            ) {
-                Row(Modifier.padding(start = 7.dp, end = 9.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(emoji, fontSize = 15.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Text(compact(r.totalCount), style = MaterialTheme.typography.labelMedium)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val policy = remember(density) { FlowMetaPolicy(with(density) { 4.dp.roundToPx() }, with(density) { 8.dp.roundToPx() }) }
+    androidx.compose.ui.layout.Layout(
+        modifier = modifier,
+        measurePolicy = policy,
+        content = {
+            list.forEach { r ->
+                val emoji = (r.type as? TdApi.ReactionTypeEmoji)?.emoji ?: "⭐"
+                val chosen = r.isChosen
+                MorphBox(
+                    onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) }, rest = 14.dp, pressed = 7.dp,
+                    color = if (chosen) cs.primary.copy(alpha = 0.24f) else cs.onSurface.copy(alpha = 0.08f),
+                    contentColor = if (chosen) cs.primary else cs.onSurfaceVariant,
+                    modifier = Modifier.height(28.dp),
+                ) {
+                    Row(Modifier.padding(start = 7.dp, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(emoji, fontSize = 14.sp)
+                        Spacer(Modifier.width(3.dp))
+                        Text(compact(r.totalCount), style = MaterialTheme.typography.labelMedium, fontWeight = if (chosen) androidx.compose.ui.text.font.FontWeight.Bold else null)
+                    }
                 }
             }
+            meta()
+        },
+    )
+}
+
+private class FlowMetaPolicy(private val gap: Int, private val metaGap: Int) : androidx.compose.ui.layout.MeasurePolicy {
+    override fun androidx.compose.ui.layout.MeasureScope.measure(
+        measurables: List<androidx.compose.ui.layout.Measurable>, constraints: androidx.compose.ui.unit.Constraints,
+    ): androidx.compose.ui.layout.MeasureResult {
+        val maxW = constraints.maxWidth
+        val chips = measurables.dropLast(1).map { it.measure(androidx.compose.ui.unit.Constraints(maxWidth = maxW)) }
+        val meta = measurables.last().measure(androidx.compose.ui.unit.Constraints(maxWidth = maxW))
+        val pos = ArrayList<androidx.compose.ui.unit.IntOffset>(chips.size)
+        var x = 0
+        var y = 0
+        var lineH = 0
+        var widest = 0
+        chips.forEach { c ->
+            if (x > 0 && x + c.width > maxW) { y += lineH + gap; x = 0; lineH = 0 }
+            pos.add(androidx.compose.ui.unit.IntOffset(x, y))
+            x += c.width + gap
+            lineH = maxOf(lineH, c.height)
+            widest = maxOf(widest, x - gap)
+        }
+        val lastEnd = (x - gap).coerceAtLeast(0)
+        val inline = lastEnd + metaGap + meta.width <= maxW
+        val contentW = if (inline) maxOf(widest, lastEnd + metaGap + meta.width) else maxOf(widest, meta.width)
+        val w = maxOf(constraints.minWidth, contentW).coerceAtMost(maxW)
+        val metaY = if (inline) y + lineH - meta.height else y + lineH + 2
+        val h = if (inline) y + lineH else y + lineH + 2 + meta.height
+        return layout(w, h) {
+            chips.forEachIndexed { i, c -> c.place(pos[i]) }
+            meta.place(w - meta.width, metaY.coerceAtLeast(0))
         }
     }
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.maxIntrinsicWidth(measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>, height: Int): Int =
+        measurables.sumOf { it.maxIntrinsicWidth(height) } + gap * (measurables.size - 2).coerceAtLeast(0) + metaGap
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.minIntrinsicWidth(measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>, height: Int): Int =
+        measurables.maxOf { it.minIntrinsicWidth(height) }
 }
 
 @Composable
@@ -571,9 +633,11 @@ private fun PhotoView(p: TdApi.Photo, shapeTop: androidx.compose.ui.unit.Dp, onC
 private fun DownloadProgress(file: TdApi.File, modifier: Modifier) {
     val f = TdStore.files[file.id] ?: file
     val total = maxOf(f.size, f.expectedSize)
-    val p = if (total > 0) f.local.downloadedSize.toFloat() / total else 0f
-    Box(modifier.size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.CircularProgressIndicator(progress = { p }, modifier = Modifier.size(36.dp), color = Color.White, trackColor = Color.White.copy(alpha = 0.25f))
+    val target = if (total > 0) f.local.downloadedSize.toFloat() / total else 0f
+    val p by androidx.compose.animation.core.animateFloatAsState(target, Springs.smooth(), label = "dl")
+    Box(modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.38f)), contentAlignment = Alignment.Center) {
+        if (target <= 0.01f) androidx.compose.material3.LoadingIndicator(Modifier.size(40.dp), color = Color.White)
+        else androidx.compose.material3.CircularWavyProgressIndicator(progress = { p }, modifier = Modifier.size(40.dp), color = Color.White, trackColor = Color.White.copy(alpha = 0.25f))
     }
 }
 
@@ -604,8 +668,13 @@ private fun StickerView(s: TdApi.Sticker) {
     val isStatic = s.format is TdApi.StickerFormatWebp
     val bmp = rememberFileBitmap(if (isStatic) s.sticker else s.thumbnail?.file, maxSide = 512)
     Box(Modifier.size(170.dp), contentAlignment = Alignment.Center) {
-        if (bmp != null) Image(bmp, s.emoji, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        else Text(s.emoji, fontSize = 64.sp)
+        androidx.compose.animation.AnimatedContent(bmp != null, transitionSpec = { (androidx.compose.animation.fadeIn(Springs.effects()) + androidx.compose.animation.scaleIn(Springs.spatial(), initialScale = 0.8f)).togetherWith(androidx.compose.animation.fadeOut(Springs.exit())) }, label = "st") { ready ->
+            if (ready && bmp != null) Image(bmp, s.emoji, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            else Box(contentAlignment = Alignment.Center) {
+                Text(s.emoji, fontSize = 56.sp, modifier = Modifier.graphicsLayer { alpha = 0.35f })
+                androidx.compose.material3.LoadingIndicator(Modifier.size(48.dp))
+            }
+        }
     }
 }
 
@@ -615,7 +684,7 @@ private fun VoiceView(file: TdApi.File, duration: Int, waveform: ByteArray, fg: 
     val progress = if (Player.fileId == file.id) Player.progress else 0f
     val bars = remember(waveform) { decodeWaveform(waveform, 36) }
     Row(modifier.widthIn(min = 220.dp), verticalAlignment = Alignment.CenterVertically) {
-        PlayButton(playing, fg) { Player.toggle(file) }
+        PlayButton(playing, fg, file) { Player.toggle(file) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Row(Modifier.height(26.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -647,11 +716,43 @@ private fun decodeWaveform(w: ByteArray, n: Int): List<Float> {
     }
 }
 
+/**
+ * Play/pause as an expressive toggle: the container morphs circle → rounded square while playing, tightens on
+ * press; while the file downloads a wavy progress ring runs around it and the icon becomes a loading indicator.
+ */
 @Composable
-private fun PlayButton(playing: Boolean, fg: Color, onClick: () -> Unit) {
+private fun PlayButton(playing: Boolean, fg: Color, file: TdApi.File?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Surface(onClick = onClick, shape = if (playing) RoundedCornerShape(14.dp) else CircleShape, color = fg, contentColor = if (fg == cs.onPrimary) cs.primary else cs.surface, modifier = Modifier.size(44.dp)) {
-        Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (playing) "Пауза" else "Слушать") }
+    val f = file?.let { TdStore.files[it.id] ?: it }
+    val loading = f != null && !f.local.isDownloadingCompleted && f.local.isDownloadingActive
+    val total = f?.let { maxOf(it.size, it.expectedSize) } ?: 0L
+    val dl = if (f != null && total > 0) f.local.downloadedSize.toFloat() / total else 0f
+    val dlA by androidx.compose.animation.core.animateFloatAsState(dl, Springs.smooth(), label = "vd")
+    val morph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Square) }
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val target = (if (playing) 1f else 0f) + if (pressed) 0.35f * pressFactor() * (if (playing) -1f else 1f) else 0f
+    val p by androidx.compose.animation.core.animateFloatAsState(target.coerceIn(0f, 1f), if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "pm")
+    val content = if (fg == cs.onPrimary) cs.primary else cs.surface
+    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(44.dp).graphicsLayer { shape = MorphShape(morph, p); clip = true }.background(fg)
+                .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.animation.AnimatedContent(
+                when { loading -> 2; playing -> 1; else -> 0 },
+                transitionSpec = { (androidx.compose.animation.scaleIn(Springs.fastSpatial(), initialScale = 0.5f) + androidx.compose.animation.fadeIn(Springs.effects())).togetherWith(androidx.compose.animation.scaleOut(Springs.exit(), targetScale = 0.5f) + androidx.compose.animation.fadeOut(Springs.exit())) },
+                label = "pi",
+            ) { st ->
+                when (st) {
+                    2 -> androidx.compose.material3.LoadingIndicator(Modifier.size(30.dp), color = content)
+                    1 -> Icon(Icons.Filled.Pause, "Пауза", tint = content)
+                    else -> Icon(Icons.Filled.PlayArrow, "Слушать", tint = content)
+                }
+            }
+        }
+        if (loading && dl > 0f) androidx.compose.material3.CircularWavyProgressIndicator(progress = { dlA }, modifier = Modifier.size(48.dp), color = fg, trackColor = fg.copy(alpha = 0.2f))
     }
 }
 
@@ -659,7 +760,7 @@ private fun PlayButton(playing: Boolean, fg: Color, onClick: () -> Unit) {
 private fun AudioView(a: TdApi.Audio, fg: Color, modifier: Modifier) {
     val playing = Player.fileId == a.audio.id && Player.playing
     Row(modifier.widthIn(min = 220.dp), verticalAlignment = Alignment.CenterVertically) {
-        PlayButton(playing, fg) { Player.toggle(a.audio) }
+        PlayButton(playing, fg, a.audio) { Player.toggle(a.audio) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(a.title.ifBlank { a.fileName }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -743,7 +844,40 @@ private fun PollView(m: TdApi.Message, p: TdApi.Poll, fg: Color, modifier: Modif
 
 /** full-screen photo with pinch-to-zoom */
 @Composable
-fun PhotoViewer(p: TdApi.Photo, onDismiss: () -> Unit) {
+fun PhotoViewer(p: TdApi.Photo, onDismiss: () -> Unit) = PhotoGallery(listOf(p), 0, onDismiss)
+
+/**
+ * Full-screen gallery: swipe between photos, pinch / double-tap to zoom (side swipes still page when not zoomed),
+ * drag down to close with the background fading out.
+ */
+@Composable
+fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
+    if (photos.isEmpty()) { onDismiss(); return }
+    val pager = androidx.compose.foundation.pager.rememberPagerState(start.coerceIn(0, photos.lastIndex)) { photos.size }
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val closeAt = with(density) { 140.dp.toPx() }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f }.background(Color.Black.copy(alpha = (1f - kotlin.math.abs(drag.value) / (closeAt * 2.5f)).coerceIn(0.2f, 1f)))) {
+            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize().graphicsLayer { translationY = drag.value }, beyondViewportPageCount = 1) { page ->
+                ZoomPhoto(photos[page], onTap = onDismiss,
+                    onVerticalDrag = { dy -> scope.launch { drag.snapTo(drag.value + dy) } },
+                    onVerticalEnd = { if (kotlin.math.abs(drag.value) > closeAt) onDismiss() else scope.launch { drag.animateTo(0f, Springs.morphRelease()) } })
+            }
+            Row(Modifier.statusBarsPadding().padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                MorphIconButton(Icons.Filled.Close, "Закрыть", onDismiss, color = Color.Black.copy(alpha = 0.35f), tint = Color.White)
+                Spacer(Modifier.weight(1f))
+                if (photos.size > 1) Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.35f)) {
+                    Text("${pager.currentPage + 1} из ${photos.size}", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZoomPhoto(p: TdApi.Photo, onTap: () -> Unit, onVerticalDrag: (Float) -> Unit, onVerticalEnd: () -> Unit) {
     val size = p.sizes.maxByOrNull { it.width * it.height } ?: return
     val bmp = rememberFileBitmap(size.photo, maxSide = 2560)
     val miniImg = remember(p) { Images.mini(p.minithumbnail) }
@@ -753,19 +887,23 @@ fun PhotoViewer(p: TdApi.Photo, onDismiss: () -> Unit) {
         scale = (scale * z).coerceIn(1f, 5f)
         offset = if (scale > 1f) offset + pan else androidx.compose.ui.geometry.Offset.Zero
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black).transformable(state)
-                .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }, onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = androidx.compose.ui.geometry.Offset.Zero }) },
-            contentAlignment = Alignment.Center,
-        ) {
-            val img = bmp ?: miniImg
-            if (img != null) Image(
-                img, null,
-                Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y },
-                contentScale = ContentScale.Fit,
-            )
-            if (bmp == null) DownloadProgress(size.photo, Modifier.align(Alignment.Center))
-        }
+    val shown by androidx.compose.animation.core.animateFloatAsState(scale, Springs.spatial(), label = "z")
+    Box(
+        Modifier.fillMaxSize()
+            .transformable(state, canPan = { scale > 1f })
+            .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }, onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = androidx.compose.ui.geometry.Offset.Zero }) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(onDragEnd = onVerticalEnd, onDragCancel = onVerticalEnd) { ch, dy -> if (scale <= 1f) { ch.consume(); onVerticalDrag(dy) } }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val img = bmp ?: miniImg
+        if (img != null) Image(
+            img, null,
+            Modifier.fillMaxWidth().graphicsLayer { scaleX = shown; scaleY = shown; translationX = offset.x; translationY = offset.y }
+                .then(if (bmp == null) Modifier.blur(10.dp) else Modifier),
+            contentScale = ContentScale.Fit,
+        )
+        if (bmp == null) DownloadProgress(size.photo, Modifier.align(Alignment.Center))
     }
 }

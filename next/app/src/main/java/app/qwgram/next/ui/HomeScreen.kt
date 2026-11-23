@@ -117,6 +117,17 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -142,21 +153,32 @@ fun HomeScreen() {
     LaunchedEffect(HomeState.tab) { fabExpanded = true }
 
     PushDrawer(drawer, drawerContent = { AppDrawer { drawer.close() } }) {
+        var fabOpen by remember { mutableStateOf(false) }
+        var addContact by remember { mutableStateOf(false) }
+        val floatingNav = Prefs.navStyle.value == "floating"
+        val showFab = Prefs.fabStyle.value != "none" && HomeState.tab != HomeTab.Settings
+        val fabActions = listOf(
+            FabAction("Новое сообщение", Icons.Outlined.Edit) { Nav.push(Route.Page("compose")) },
+            FabAction("Новая группа", Icons.Outlined.GroupAdd) { Nav.push(Route.Page("compose:group")) },
+            FabAction("Новый канал", Icons.Outlined.Campaign) { Nav.push(Route.Page("compose:channel")) },
+            FabAction("Новый контакт", Icons.Outlined.PersonAdd) { addContact = true },
+        )
+        val fab: @Composable () -> Unit = {
+            androidx.compose.animation.AnimatedVisibility(
+                showFab,
+                enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()) + androidx.compose.animation.expandHorizontally(Springs.spatial()),
+                exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()) + androidx.compose.animation.shrinkHorizontally(Springs.exit()),
+            ) {
+                if (HomeState.tab == HomeTab.Contacts) FabMenu(false, { addContact = true }, Icons.Outlined.PersonAdd, emptyList())
+                else FabMenu(fabOpen, { fabOpen = it }, Icons.Outlined.Edit, fabActions)
+            }
+        }
+        if (addContact) AddContactDialog { addContact = false }
+        androidx.activity.compose.BackHandler(enabled = fabOpen) { fabOpen = false }
+        LaunchedEffect(HomeState.tab) { fabOpen = false }
         Scaffold(
-            bottomBar = { BottomNav(Modifier) },
-            floatingActionButton = {
-                androidx.compose.animation.AnimatedVisibility(
-                    HomeState.tab == HomeTab.Chats && Prefs.fabStyle.value != "none",
-                    enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()),
-                    exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()),
-                ) {
-                    MorphFab(
-                        icon = Icons.Filled.Edit, text = "Написать",
-                        expanded = fabExpanded && Prefs.fabStyle.value == "extended",
-                        onClick = { Nav.push(Route.Page("compose")) },
-                    )
-                }
-            },
+            bottomBar = { if (floatingNav) Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).height(84.dp)) else BottomNav(Modifier) },
+            floatingActionButton = { if (!floatingNav) fab() },
             contentWindowInsets = WindowInsets(0),
         ) { pad ->
             Box(Modifier.fillMaxSize().nestedScroll(fabConn)) {
@@ -173,6 +195,67 @@ fun HomeScreen() {
                         HomeTab.Chats -> ChatsTab(pad, drawer)
                         HomeTab.Contacts -> ContactsTab(pad)
                         HomeTab.Settings -> SettingsHome(pad)
+                    }
+                }
+                // scrim behind the open FAB menu
+                val scrimA by androidx.compose.animation.core.animateFloatAsState(if (fabOpen) 1f else 0f, Springs.effects(), label = "fs")
+                if (scrimA > 0.01f) Box(
+                    Modifier.fillMaxSize().graphicsLayer { alpha = scrimA }
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                        .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { fabOpen = false },
+                )
+                if (floatingNav) FloatingNavRow(Modifier.align(Alignment.BottomCenter), fab)
+            }
+        }
+    }
+}
+
+/**
+ * Floating navigation: a pill with the destinations and the FAB as a separate expressive button beside it,
+ * over a fade so the list dissolves under them.
+ */
+@Composable
+private fun FloatingNavRow(modifier: Modifier, fab: @Composable () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface))
+            .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 16.dp, end = 16.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FloatingNavPill()
+            fab()
+        }
+    }
+}
+
+@Composable
+private fun FloatingNavPill() {
+    val unread = TdStore.unreadChats
+    val tabs = buildList {
+        add(Triple(HomeTab.Chats, "Чаты", Icons.Filled.Chat to Icons.AutoMirrored.Outlined.Chat))
+        if (Prefs.showContactsTab.value) add(Triple(HomeTab.Contacts, "Контакты", Icons.Filled.Person to Icons.Outlined.Person))
+        add(Triple(HomeTab.Settings, "Настройки", Icons.Filled.Settings to Icons.Outlined.Settings))
+    }
+    val labels = Prefs.navLabels.value
+    val cs = MaterialTheme.colorScheme
+    Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
+        Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            tabs.forEach { (t, title, icons) ->
+                val sel = HomeState.tab == t
+                val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHigh.copy(alpha = 0f), Springs.effects(), label = "nb")
+                MorphBox(
+                    onClick = { HomeState.tab = t }, rest = 26.dp, pressed = 14.dp, color = bg,
+                    contentColor = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant,
+                    modifier = Modifier.fillMaxHeight().animateContentSize(Springs.spatial()).widthIn(min = 56.dp),
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        NavIcon(t, unread, if (sel) icons.first else icons.second, title)
+                        if (sel && labels) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -437,14 +520,58 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
         return
     }
+    // hidden archive: pull the list down at the very top to reveal it (Telegram)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val hidden = Prefs.archiveHidden.value
+    var revealed by remember { mutableStateOf(false) }
+    var pull by remember { mutableStateOf(0f) }
+    val pullMax = with(density) { 96.dp.toPx() }
+    val ctx = LocalContext.current
+    val pullConn = remember(hidden) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (!hidden || revealed || source != NestedScrollSource.UserInput) return Offset.Zero
+                if (available.y > 0f) { pull = (pull + available.y * 0.6f).coerceAtMost(pullMax * 1.2f); if (pull >= pullMax) { revealed = true; pull = 0f } }
+                else if (consumed.y < 0f) pull = 0f
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity { pull = 0f; return androidx.compose.ui.unit.Velocity.Zero }
+        }
+    }
+    val scrolledAway by remember { derivedStateOf { state.firstVisibleItemIndex > 3 } }
+    LaunchedEffect(scrolledAway) { if (scrolledAway) revealed = false }
     LazyColumn(
         state = state,
-        contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 96.dp, top = 4.dp),
-        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 96.dp, top = pad.calculateTopPadding() + 4.dp),
+        modifier = Modifier.fillMaxSize().nestedScroll(pullConn),
         verticalArrangement = Arrangement.spacedBy(if (Prefs.listStyle.value == "cards") 2.dp else 0.dp),
     ) {
         if (archived.isNotEmpty()) {
-            item(key = "archive") { ArchiveRow(archived) }
+            if (hidden && !revealed) item(key = "archive-pull") {
+                // grows with the pull: archive icon fills up, then the row springs out
+                val p = (pull / pullMax).coerceIn(0f, 1f)
+                Box(Modifier.fillMaxWidth().height((p * 56f).dp), contentAlignment = Alignment.Center) {
+                    if (p > 0.05f) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.graphicsLayer { alpha = p; scaleX = 0.8f + 0.2f * p; scaleY = 0.8f + 0.2f * p }) {
+                        androidx.compose.material3.CircularWavyProgressIndicator(progress = { p }, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(if (p < 1f) "Потяните, чтобы открыть архив" else "Отпустите", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item(key = "archive") {
+                androidx.compose.animation.AnimatedVisibility(
+                    !hidden || revealed,
+                    enter = androidx.compose.animation.expandVertically(Springs.spatial()) + fadeIn(Springs.effects()),
+                    exit = androidx.compose.animation.shrinkVertically(Springs.smooth()) + fadeOut(Springs.exit()),
+                ) {
+                    ArchiveRow(archived, hidden, onToggleHidden = {
+                        val nowHidden = !Prefs.archiveHidden.value
+                        Prefs.archiveHidden.value = nowHidden
+                        revealed = false
+                        if (nowHidden) android.widget.Toast.makeText(ctx, "Архив скрыт. Потяните список вниз, чтобы увидеть его", android.widget.Toast.LENGTH_LONG).show()
+                    })
+                }
+            }
         }
         items(chats, key = { it.id }, contentType = { 0 }) { c0 ->
             // read the live chat by key: only this row recomposes when its counters change
@@ -462,20 +589,36 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
 }
 
 @Composable
-private fun ArchiveRow(archived: List<TdApi.Chat>) {
+private fun ArchiveRow(archived: List<TdApi.Chat>, hidden: Boolean, onToggleHidden: () -> Unit) {
     val unread = archived.sumOf { it.unreadCount }
-    androidx.compose.material3.ListItem(
-        headlineContent = { Text("Архив", style = MaterialTheme.typography.titleMedium) },
-        supportingContent = { Text(archived.take(5).joinToString(", ") { it.title }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingContent = {
+    val cs = MaterialTheme.colorScheme
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth()
+                .combinedClickable(onClick = { Nav.push(Route.Archive) }, onLongClick = { menu = true })
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
-                Modifier.size(Prefs.avatarSize.value.dp).clip(avatarShape()).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                Modifier.size(Prefs.avatarSize.value.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(cs.tertiaryContainer),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Outlined.Archive, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        },
-        trailingContent = { if (unread > 0) CountBadge(unread, muted = true) },
-        modifier = Modifier.clickable { Nav.push(Route.Archive) },
-    )
+            ) { Icon(Icons.Outlined.Archive, null, tint = cs.onTertiaryContainer) }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Архив", style = MaterialTheme.typography.titleMedium)
+                Text(archived.take(5).joinToString(", ") { it.title }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+            }
+            if (unread > 0) CountBadge(unread, muted = true)
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
+            DropdownMenuItem(
+                text = { Text(if (hidden) "Закрепить в списке" else "Скрыть архив") },
+                leadingIcon = { Icon(if (hidden) Icons.Outlined.PushPin else Icons.Outlined.VisibilityOff, null) },
+                onClick = { menu = false; onToggleHidden() },
+            )
+        }
+    }
 }
 
 // ------------------------------------------------------------------ drawer
@@ -530,7 +673,7 @@ private fun AppDrawer(close: () -> Unit) {
                         scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id, false))?.let { Nav.push(Route.Chat(it.id)) } }
                     },
                     DrawerEntry("Архив", Icons.Outlined.Archive) { Nav.push(Route.Archive) },
-                ), close,
+                ), close, "Чаты",
             )
             drawerGroup(
                 listOf(
@@ -538,7 +681,7 @@ private fun AppDrawer(close: () -> Unit) {
                     DrawerEntry("Внешний вид", Icons.Outlined.Palette) { Nav.push(Route.Page("appearance")) },
                     DrawerEntry("Функции qwgram", Icons.Outlined.AutoAwesome) { Nav.push(Route.Page("features")) },
                     DrawerEntry("Папки", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) },
-                ), close,
+                ), close, "Приложение",
             )
             drawerGroup(
                 listOf(
@@ -555,9 +698,12 @@ private fun AppDrawer(close: () -> Unit) {
 
 private class DrawerEntry(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: () -> Unit)
 
-/** segmented group like in settings: one tonal card per section, 2dp gaps, big outer corners */
-private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: List<DrawerEntry>, close: () -> Unit) {
-    item { Spacer(Modifier.height(10.dp)) }
+/** segmented group like in settings: caption, one tonal card per section, 2dp gaps, big outer corners */
+private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: List<DrawerEntry>, close: () -> Unit, title: String? = null) {
+    item {
+        if (title != null) Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 8.dp))
+        else Spacer(Modifier.height(10.dp))
+    }
     items.forEachIndexed { i, e ->
         item {
             val top = if (i == 0) 20.dp else 4.dp
@@ -565,12 +711,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
             val cs = MaterialTheme.colorScheme
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(cs.surfaceContainerHigh)
-                    .clickable { close(); e.action() }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    .clickable { close(); e.action() }.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(e.icon, null, tint = cs.onSurfaceVariant)
-                Spacer(Modifier.width(16.dp))
-                Text(e.title, style = MaterialTheme.typography.bodyLarge)
+                Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
+                    Icon(e.icon, null, tint = cs.onSecondaryContainer, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Text(e.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -579,10 +727,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
 /** state of the push drawer: 0 = closed, 1 = open; driven by fingers or springs */
 class DrawerControl(val progress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, val scope: kotlinx.coroutines.CoroutineScope) {
     var widthPx = 1f
-    fun open() { scope.launch { progress.animateTo(1f, Springs.smooth()) } }
-    fun close() { scope.launch { progress.animateTo(0f, Springs.smooth()) } }
+    fun open() { scope.launch { progress.animateTo(1f, Springs.smoothSlow()) } }
+    fun close() { scope.launch { progress.animateTo(0f, Springs.smoothSlow()) } }
     fun drag(deltaPx: Float) { scope.launch { progress.snapTo((progress.value + deltaPx / widthPx).coerceIn(0f, 1f)) } }
-    fun settle(velocityX: Float) { if (velocityX > 500f || (velocityX > -500f && progress.value > 0.4f)) open() else close() }
+    /** a light flick in either direction decides; otherwise the nearer side wins */
+    fun settle(velocityX: Float) { if (velocityX > 180f || (velocityX > -180f && progress.value > 0.5f)) open() else close() }
 }
 
 @Composable
@@ -602,6 +751,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
     androidx.activity.compose.BackHandler(enabled = open) { drawer.close() }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(cs.surfaceContainerLow)) {
         val w = minOf(maxWidth * 0.8f, 320.dp)
+        val corner = screenCornerRadius()
         val density = androidx.compose.ui.platform.LocalDensity.current
         drawer.widthPx = with(density) { w.toPx() }
         Box(
@@ -609,7 +759,35 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                 val p = drawer.progress.value
                 translationX = -(1f - p) * drawer.widthPx * 0.35f
                 alpha = 0.3f + 0.7f * p
-            },
+            }
+                // swipe left on the menu itself closes it (vertical scrolling inside still works)
+                .pointerInput(Unit) {
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var dx = 0f
+                        var dy = 0f
+                        var dragging = false
+                        while (true) {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed) break
+                            tracker.addPosition(ch.uptimeMillis, ch.position)
+                            val d = ch.positionChange()
+                            if (!dragging) {
+                                dx += d.x; dy += d.y
+                                if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
+                                if (dx > slop) return@awaitEachGesture
+                                if (dx < -slop * 0.6f && -dx > kotlin.math.abs(dy)) dragging = true else continue
+                            }
+                            ch.consume()
+                            drawer.drag(d.x)
+                        }
+                        if (dragging) drawer.settle(tracker.calculateVelocity().x)
+                    }
+                },
         ) { if (open) drawerContent() }
         Box(
             Modifier.fillMaxSize().graphicsLayer {
@@ -618,7 +796,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                 val sc = 1f - 0.07f * p
                 scaleX = sc; scaleY = sc
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-                shape = RoundedCornerShape((32f * p).dp)
+                shape = RoundedCornerShape(corner)
                 clip = p > 0.001f
                 shadowElevation = 24.dp.toPx() * p
             },
@@ -680,7 +858,7 @@ private fun Modifier.drawerSwipe(enabled: Boolean, edgeOnly: Boolean, drawer: Dr
                     dx += d.x; dy += d.y
                     if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
                     if (dx < -slop) return@awaitEachGesture
-                    if (dx > slop && dx > kotlin.math.abs(dy) * 1.2f) dragging = true else continue
+                    if (dx > slop * 0.6f && dx > kotlin.math.abs(dy)) dragging = true else continue
                 }
                 ch.consume()
                 drawer.drag(d.x)

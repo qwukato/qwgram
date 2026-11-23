@@ -139,3 +139,14 @@ fun QwLogo(width: Dp, modifier: Modifier = Modifier, color: Color = MaterialThem
         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color),
     )
 }
+
+/** the display's real corner radius (Android 12+ RoundedCorner API), so moved screens round exactly like the phone */
+@Composable
+fun screenCornerRadius(): Dp {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val px = if (android.os.Build.VERSION.SDK_INT >= 31) {
+        view.rootWindowInsets?.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0
+    } else 0
+    return if (px > 0) with(density) { px.toDp() } else 28.dp
+}

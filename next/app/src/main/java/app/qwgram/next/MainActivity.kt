@@ -56,4 +56,16 @@ class MainActivity : ComponentActivity() {
             Nav.push(Route.Chat(id))
         }
     }
+
+    // "online" is the client's job in TDLib: on while visible, off in background; ghost mode keeps it off
+    override fun onResume() {
+        super.onResume()
+        app.qwgram.next.ui.applyOnline(true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        app.qwgram.next.ui.applyOnline(false)
+    }
+
 }

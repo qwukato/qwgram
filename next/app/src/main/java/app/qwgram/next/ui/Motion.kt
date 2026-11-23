@@ -46,6 +46,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
 /**
@@ -66,42 +80,50 @@ object Springs {
     fun <T> effects(): FiniteAnimationSpec<T> = if (off) snap() else spring(Spring.DampingRatioNoBouncy, k(1600f))
 
     /** press-in: fast and monotonic (no spring), per the skill's smoothness rule #2 */
-    fun <T> pressIn(): FiniteAnimationSpec<T> = if (off) snap() else tween(90, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+    fun <T> pressIn(): FiniteAnimationSpec<T> = if (off) snap() else tween((150 / Prefs.motionSpeed.value).toInt(), easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+
+    /** release of a press morph: soft spring with a gentle overshoot (smoother than fastSpatial) */
+    fun <T> morphRelease(): FiniteAnimationSpec<T> = if (off) snap() else spring(if (calm) 0.9f else 0.62f, k(if (calm) 900f else 450f))
 
     /** exits: quick, no bounce */
     fun <T> exit(): FiniteAnimationSpec<T> = if (off) snap() else tween(180, easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f))
 }
 
-/** Drives the press morph: corner radius rest → pressed (fast), back with a bouncy spring; plus a 0.96 squish. */
+/** Drives the press morph: the container's corner radius rest → pressed (smooth), back on a soft spring. */
 class PressMorph(val radius: Animatable<Dp, *>, val scale: Animatable<Float, *>)
 
+/** how strongly buttons morph when pressed (Appearance → Animations) */
+fun pressFactor(): Float = when (Prefs.pressMorph.value) { "off" -> 0f; "soft" -> 0.5f; "strong" -> 1.35f; else -> 1f }
+
 @Composable
-fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed: Dp, squish: Float = 0.96f): PressMorph {
+fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed: Dp, squish: Float = 0.97f): PressMorph {
     val radius = remember { Animatable(rest, Dp.VectorConverter) }
     val scale = remember { Animatable(1f) }
-    LaunchedEffect(rest) { radius.snapTo(rest) }
-    LaunchedEffect(interaction, rest, pressed) {
+    val f = pressFactor()
+    val target = (rest + (pressed - rest) * f).coerceAtLeast(0.dp)
+    val sq = 1f - (1f - squish) * f
+    LaunchedEffect(rest) { if (!radius.isRunning) radius.snapTo(rest) }
+    LaunchedEffect(interaction, rest, target) {
         interaction.interactions.collect { i ->
             when (i) {
                 is PressInteraction.Press -> {
-                    launch { radius.animateTo(pressed, Springs.pressIn()) }
-                    launch { scale.animateTo(squish, Springs.pressIn()) }
+                    launch { radius.animateTo(target, Springs.pressIn()) }
+                    launch { scale.animateTo(sq, Springs.pressIn()) }
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    launch { radius.animateTo(rest, Springs.fastSpatial()) }
-                    launch { scale.animateTo(1f, Springs.fastSpatial()) }
+                    launch { radius.animateTo(rest, Springs.morphRelease()) }
+                    launch { scale.animateTo(1f, Springs.morphRelease()) }
                 }
             }
         }
     }
-    return morph(radius, scale)
+    return PressMorph(radius, scale)
 }
 
-private fun morph(r: Animatable<Dp, *>, s: Animatable<Float, *>) = PressMorph(r, s)
-
 /**
- * Generic expressive pressable: background + ripple clipped by a shape whose corners morph while pressed,
- * the whole thing squishes and springs back. Use for cards, FABs, chips, nav items, composer buttons.
+ * Generic expressive pressable. Only the CONTAINER morphs: its corners change while pressed and the background
+ * gives a slight squeeze; the icon/text inside stay still. All animated values are read in layer/draw lambdas,
+ * so pressing never recomposes the content.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -114,20 +136,25 @@ fun MorphBox(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     elevation: Dp = 0.dp,
     enabled: Boolean = true,
-    squish: Float = 0.96f,
+    squish: Float = 0.97f,
     onLongClick: (() -> Unit)? = null,
     contentAlignment: Alignment = Alignment.Center,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val m = rememberPressMorph(interaction, rest, pressed, squish)
-    val shape = RoundedCornerShape(m.radius.value)
     Box(
         modifier
-            .graphicsLayer { scaleX = m.scale.value; scaleY = m.scale.value }
-            .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape, clip = false) else Modifier)
-            .graphicsLayer { this.shape = shape; clip = true }
-            .background(color)
+            .graphicsLayer {
+                shape = RoundedCornerShape(m.radius.value)
+                clip = true
+                shadowElevation = elevation.toPx()
+            }
+            .drawBehind {
+                val s = m.scale.value
+                val r = m.radius.value.toPx().coerceAtMost(size.minDimension / 2f)
+                scale(s) { drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)) }
+            }
             .combinedClickable(
                 interactionSource = interaction, indication = ripple(), enabled = enabled,
                 onClick = onClick, onLongClick = onLongClick,
@@ -219,6 +246,121 @@ fun QButton(
             androidx.compose.material3.ProvideTextStyle(MaterialTheme.typography.labelLarge) {
                 Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center, content = content)
             }
+        }
+    }
+}
+
+
+/** one button in an M3 standard button group */
+class GroupButton(val icon: ImageVector? = null, val label: String? = null, val selected: Boolean = false, val desc: String? = label, val onClick: () -> Unit)
+
+/**
+ * M3 Expressive *standard button group*: round buttons side by side. The pressed one stretches and squeezes its
+ * neighbours, its corners tighten; a selected (toggled) button morphs from round to a rounded square and fills
+ * with the primary colour. Labeled buttons are wider pills, icon-only ones are circles.
+ */
+@Composable
+fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, height: Dp = 56.dp) {
+    val cs = MaterialTheme.colorScheme
+    Row(modifier.fillMaxWidth().height(height), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+        items.forEach { b ->
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val base = when { b.label != null && b.icon != null -> 1.7f; b.label != null -> 1.4f; else -> 1f }
+            val w by animateFloatAsState(base * if (pressed) 1f + 0.22f * pressFactor() else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "gw")
+            val r by animateDpAsState(
+                when { b.selected -> height * 0.3f; pressed -> height * (0.5f - 0.24f * pressFactor()); else -> height / 2 },
+                if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "gr",
+            )
+            val bg by animateColorAsState(if (b.selected) cs.primary else cs.secondaryContainer, Springs.effects(), label = "gb")
+            val fg = if (b.selected) cs.onPrimary else cs.onSecondaryContainer
+            Box(
+                Modifier.weight(w).fillMaxHeight()
+                    .graphicsLayer { shape = RoundedCornerShape(r); clip = true }
+                    .background(bg)
+                    .clickable(interactionSource = interaction, indication = ripple(), onClick = b.onClick)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (b.icon != null) Icon(b.icon, b.desc, Modifier.size(22.dp), tint = fg)
+                    if (b.icon != null && b.label != null) Spacer(Modifier.width(8.dp))
+                    if (b.label != null) androidx.compose.foundation.text.BasicText(
+                        b.label, maxLines = 1, style = MaterialTheme.typography.labelLarge.copy(color = fg),
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 14.sp, stepSize = 0.5.sp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+class FabAction(val title: String, val icon: ImageVector, val onClick: () -> Unit)
+
+/** the FAB container shape chosen in Appearance (expressive polygon or plain) */
+fun fabPolygon(): androidx.graphics.shapes.RoundedPolygon = when (Prefs.fabShape.value) {
+    "sunny" -> androidx.compose.material3.MaterialShapes.Sunny
+    "circle" -> androidx.compose.material3.MaterialShapes.Circle
+    "square" -> androidx.compose.material3.MaterialShapes.Square
+    else -> androidx.compose.material3.MaterialShapes.Cookie9Sided
+}
+
+/**
+ * M3 Expressive FAB menu: the FAB morphs from its expressive shape into a circle with a close icon and the actions
+ * spring out above it one after another as tonal pills. Tap outside (handled by the caller's scrim) to close.
+ */
+@Composable
+fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, actions: List<FabAction>, modifier: Modifier = Modifier, size: Dp = 64.dp) {
+    val cs = MaterialTheme.colorScheme
+    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        actions.forEachIndexed { i, a ->
+            val delayIdx = if (expanded) actions.size - 1 - i else i
+            val p = remember { Animatable(0f) }
+            LaunchedEffect(expanded) {
+                kotlinx.coroutines.delay(28L * delayIdx)
+                p.animateTo(if (expanded) 1f else 0f, if (expanded) Springs.spatial() else Springs.exit())
+            }
+            if (p.value > 0.01f || expanded) MorphBox(
+                onClick = { onToggle(false); a.onClick() }, rest = 28.dp, pressed = 14.dp,
+                color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, elevation = 3.dp,
+                modifier = Modifier.height(56.dp).graphicsLayer {
+                    val v = p.value
+                    alpha = v.coerceIn(0f, 1f)
+                    translationY = (1f - v) * 24.dp.toPx()
+                    scaleX = 0.7f + 0.3f * v; scaleY = 0.7f + 0.3f * v
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
+                },
+            ) {
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(a.icon, null)
+                    Spacer(Modifier.width(12.dp))
+                    Text(a.title, style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
+        val morph = remember(Prefs.fabShape.value) { androidx.graphics.shapes.Morph(fabPolygon(), androidx.compose.material3.MaterialShapes.Circle) }
+        val prog by animateFloatAsState(if (expanded) 1f else 0f, Springs.fastSpatial(), label = "fm")
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val press by animateFloatAsState(if (pressed) 1f else 0f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "fp")
+        val bg by animateColorAsState(if (expanded) cs.primary else cs.primaryContainer, Springs.effects(), label = "fb")
+        Box(
+            Modifier.size(size)
+                .graphicsLayer {
+                    // pressing pulls the shape towards the circle a little; open = full circle
+                    val v = (prog + press * 0.35f * pressFactor()).coerceIn(0f, 1f)
+                    shape = MorphShape(morph, v); clip = true; shadowElevation = 6.dp.toPx()
+                    rotationZ = (1f - prog) * 0f
+                }
+                .background(bg)
+                .clickable(interactionSource = interaction, indication = ripple()) { onToggle(!expanded) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (expanded) androidx.compose.material.icons.Icons.Rounded.Close else icon, if (expanded) "Закрыть" else "Меню",
+                tint = if (expanded) cs.onPrimary else cs.onPrimaryContainer,
+                modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = prog * 90f },
+            )
         }
     }
 }

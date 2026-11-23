@@ -67,16 +67,16 @@ import org.drinkless.tdlib.TdApi
 
 /** "Новое сообщение": search contacts / global usernames, start a group or a channel. */
 @Composable
-fun NewMessagePage() {
+fun NewMessagePage(start: String = "") {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var ids by remember { mutableStateOf<List<Long>>(emptyList()) }
     var q by remember { mutableStateOf("") }
     var found by remember { mutableStateOf<List<TdApi.Chat>>(emptyList()) }
-    var mode by remember { mutableStateOf(0) } // 0 message, 1 pick group members
+    var mode by remember { mutableStateOf(if (start == "group") 1 else 0) } // 0 message, 1 pick group members
     val picked = remember { mutableStateListOf<Long>() }
     var askTitle by remember { mutableStateOf(false) }
-    var newChannel by remember { mutableStateOf(false) }
+    var newChannel by remember { mutableStateOf(start == "channel") }
     LaunchedEffect(Unit) { Td.callOrNull(TdApi.GetContacts())?.let { ids = it.userIds.toList() } }
     LaunchedEffect(q) {
         found = if (q.length >= 3 && mode == 0) {
@@ -92,9 +92,10 @@ fun NewMessagePage() {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (mode == 1) "Участники группы" else "Новое сообщение") },
-                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { if (mode == 1) { mode = 0; picked.clear() } else Nav.pop() }) },
+            FadeHeader(
+                if (mode == 1) "Участники группы" else "Новое сообщение",
+                subtitle = if (mode == 1) (if (picked.isEmpty()) "Выберите участников" else "Выбрано: ${picked.size}") else null,
+                onBack = { if (mode == 1) { mode = 0; picked.clear() } else Nav.pop() },
             )
         },
         floatingActionButton = {
