@@ -11,6 +11,8 @@ on:
       - '**.md'
       - 'docs/**'
       - '.github/workflows/export-files.yml'
+      - 'next/**'
+      - '.github/workflows/build-next.yml'
 
 concurrency:
   group: build-${{ github.ref }}

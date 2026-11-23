@@ -1,0 +1,141 @@
+package app.qwgram.next
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import kotlin.reflect.KProperty
+
+/** Persistent interface settings, observable from Compose. */
+object Prefs {
+    private lateinit var sp: SharedPreferences
+
+    fun init(context: Context) {
+        sp = context.getSharedPreferences("qwgram", Context.MODE_PRIVATE)
+        all.forEach { it.load() }
+    }
+
+    private val all = mutableListOf<Item<*>>()
+
+    sealed class Item<T>(val key: String, val def: T) {
+        val state: MutableState<T> = mutableStateOf(def)
+        var value: T
+            get() = state.value
+            set(v) {
+                state.value = v
+                save(v)
+            }
+
+        operator fun getValue(thisRef: Any?, property: KProperty<*>): T = state.value
+        operator fun setValue(thisRef: Any?, property: KProperty<*>, v: T) {
+            value = v
+        }
+
+        abstract fun load()
+        protected abstract fun save(v: T)
+        fun reset() {
+            value = def
+        }
+
+        init {
+            @Suppress("LeakingThis")
+            all.add(this)
+        }
+    }
+
+    class B(key: String, def: Boolean) : Item<Boolean>(key, def) {
+        override fun load() { state.value = sp.getBoolean(key, def) }
+        override fun save(v: Boolean) { sp.edit().putBoolean(key, v).apply() }
+    }
+
+    class I(key: String, def: Int) : Item<Int>(key, def) {
+        override fun load() { state.value = sp.getInt(key, def) }
+        override fun save(v: Int) { sp.edit().putInt(key, v).apply() }
+    }
+
+    class F(key: String, def: Float) : Item<Float>(key, def) {
+        override fun load() { state.value = sp.getFloat(key, def) }
+        override fun save(v: Float) { sp.edit().putFloat(key, v).apply() }
+    }
+
+    class S(key: String, def: String) : Item<String>(key, def) {
+        override fun load() { state.value = sp.getString(key, def) ?: def }
+        override fun save(v: String) { sp.edit().putString(key, v).apply() }
+    }
+
+    // ---- theme & colour ----
+    val themeMode = S("theme_mode", "system")          // system | light | dark
+    val amoled = B("amoled", false)
+    val dynamicColor = B("dynamic_color", false)        // Android 12+ wallpaper colours
+    val seed = I("seed", 0xFF6750A4.toInt())
+    val paletteStyle = I("palette_style", 0)           // SeedScheme.VARIANT_*
+    val contrast = I("contrast", 0)
+
+    // ---- shapes ----
+    val avatarShape = S("avatar_shape", "circle")
+    val uiRound = I("ui_round", 1)                     // 0 small, 1 standard, 2 large
+
+    // ---- chat list ----
+    val listStyle = S("list_style", "flat")             // flat | cards
+    val density = I("density", 1)                       // 0 compact, 1 normal, 2 airy
+    val previewLines = I("preview_lines", 1)
+    val separators = B("separators", false)
+    val badgeStyle = S("badge_style", "filled")         // filled | tonal | dot
+    val showArchiveRow = B("archive_row", true)
+    val avatarSize = I("avatar_size", 54)
+    val topBar = S("top_bar", "title")                  // title | search
+    val titleText = S("title_text", "qwgram")           // qwgram | name | chats | folder
+
+    // ---- folders ----
+    val folderStyle = S("folder_style", "group")        // group | tabs | chips
+    val folderCounters = B("folder_counters", true)
+    val folderSwipe = B("folder_swipe", true)
+    val hideAllChats = B("hide_all_chats", false)
+
+    // ---- messages ----
+    val bubbleStyle = S("bubble_style", "tonal")        // tonal | filled | outlined
+    val bubbleRadius = I("bubble_radius", 18)
+    val textSize = I("text_size", 16)
+    val bubbleTail = B("bubble_tail", true)
+    val bubbleWidth = I("bubble_width", 82)
+    val wallpaper = S("wallpaper", "shapes")            // plain | tonal | shapes | dots
+    val messageEnter = S("message_enter", "spring")     // spring | fade | none
+    val bigEmoji = B("big_emoji", true)
+    val groupAvatars = B("group_avatars", true)
+    val doubleTap = S("double_tap", "react")            // react | reply | none
+    val doubleTapEmoji = S("double_tap_emoji", "❤️")
+    val sendByEnter = B("send_by_enter", false)
+    val swipeReply = B("swipe_reply", true)
+    val seconds = B("seconds", false)
+
+    // ---- navigation ----
+    val navStyle = S("nav_style", "standard")           // standard | floating
+    val navLabels = B("nav_labels", true)
+    val hideOnScroll = B("hide_on_scroll", true)
+    val fabStyle = S("fab_style", "extended")           // extended | icon | none
+    val showContactsTab = B("contacts_tab", true)
+    val drawer = B("drawer", true)
+
+    // ---- motion & text ----
+    val motion = S("motion", "expressive")             // expressive | standard | off
+    val motionSpeed = F("motion_speed", 1f)
+    val predictiveBack = B("predictive_back", true)
+    val uiScale = F("ui_scale", 1f)
+    val font = S("font", "system")                      // system | serif | mono
+    val haptics = B("haptics", true)
+
+    // ---- client features ----
+    val hidePhone = B("hide_phone", false)
+    val stripTracking = B("strip_tracking", true)
+    val silentByDefault = B("silent_default", false)
+    val confirmDelete = B("confirm_delete", true)
+    val keepAlive = B("keep_alive", true)
+    val notifyPreview = B("notify_preview", true)
+    val showOnlineDot = B("online_dot", true)
+    val markReadOnOpen = B("mark_read", true)
+
+    fun resetAppearance() {
+        all.filter { it.key !in setOf("hide_phone", "strip_tracking", "silent_default", "confirm_delete", "keep_alive", "notify_preview", "mark_read") }
+            .forEach { it.reset() }
+    }
+}
