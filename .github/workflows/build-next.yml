@@ -1,0 +1,114 @@
+name: Build qwgram Next
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'next/**'
+      - '.github/workflows/build-next.yml'
+  workflow_dispatch:
+
+env:
+  # TDLib — the official Telegram client library; the new app talks to Telegram only through it
+  TD_COMMIT: f10611ee1f03f91ddae8185483a1ccfd3d664668
+  TD_ABIS: arm64-v8a armeabi-v7a
+
+jobs:
+  tdlib:
+    name: TDLib (cached after the first run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    concurrency:
+      group: next-tdlib
+      cancel-in-progress: false
+    steps:
+      - name: Restore TDLib
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: tdlib-out
+          key: tdlib-${{ env.TD_COMMIT }}-arm64-armv7-v1
+
+      - name: Build TDLib for Android
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq gperf php-cli ninja-build
+          git clone -q https://github.com/tdlib/td.git
+          cd td && git checkout -q "$TD_COMMIT"
+          cd example/android
+          ./fetch-sdk.sh SDK
+          ./build-openssl.sh SDK
+          ./build-tdlib.sh SDK '' '' c++_static Java 21 "$TD_ABIS"
+          mkdir -p "$GITHUB_WORKSPACE/tdlib-out"
+          cp -r tdlib/java tdlib/libs "$GITHUB_WORKSPACE/tdlib-out/"
+          ls -R "$GITHUB_WORKSPACE/tdlib-out/libs"
+
+  app:
+    name: APK
+    needs: tdlib
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: next-app-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          TG_APP_ID: ${{ secrets.TG_APP_ID }}
+          TG_APP_HASH: ${{ secrets.TG_APP_HASH }}
+        run: |
+          [[ "$TG_APP_ID" =~ ^[0-9]+$ ]] || { echo "::error::Секрет TG_APP_ID не задан или не число"; exit 1; }
+          [[ -n "$TG_APP_HASH" ]] || { echo "::error::Секрет TG_APP_HASH не задан"; exit 1; }
+
+      - name: Restore TDLib
+        uses: actions/cache/restore@v4
+        with:
+          path: tdlib-out
+          key: tdlib-${{ env.TD_COMMIT }}-arm64-armv7-v1
+          fail-on-cache-miss: true
+
+      - name: Put TDLib into the project
+        run: |
+          mkdir -p next/app/src/tdlib/java next/app/src/main/jniLibs
+          cp -r tdlib-out/java/* next/app/src/tdlib/java/
+          cp -r tdlib-out/libs/* next/app/src/main/jniLibs/
+          find next/app/src/main/jniLibs -name '*.debug' -delete
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Signing key
+        env:
+          TG_APP_ID: ${{ secrets.TG_APP_ID }}
+          TG_APP_HASH: ${{ secrets.TG_APP_HASH }}
+        run: |
+          pip install -q cryptography
+          python3 next/scripts/make_keystore.py
+
+      - name: Build
+        env:
+          TG_APP_ID: ${{ secrets.TG_APP_ID }}
+          TG_APP_HASH: ${{ secrets.TG_APP_HASH }}
+        run: gradle -p next --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp next/app/build/outputs/apk/release/*.apk out/qwgram-next-${{ github.run_number }}.apk
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qwgram-next-apk
+          path: out/*.apk

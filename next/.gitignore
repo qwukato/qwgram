@@ -1,0 +1,7 @@
+build/
+.gradle/
+local.properties
+keystore.p12
+sign-cert.pem
+app/src/tdlib/
+app/src/main/jniLibs/
