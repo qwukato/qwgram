@@ -285,11 +285,11 @@ private fun ReplyQuote(reply: TdApi.Message?, m: TdApi.Message, fg: Color, modif
     val r = m.replyTo as? TdApi.MessageReplyToMessage
     val name = when {
         reply != null -> if (reply.isOutgoing) "Вы" else TdStore.senderName(reply.senderId)
-        r?.origin != null -> originName(r.origin)
+        r?.origin != null -> originName(r.origin!!)
         else -> ""
     }
     val text = when {
-        r?.quote != null -> r.quote.text.text
+        r?.quote != null -> r.quote!!.text.text
         reply != null -> Texts.preview(reply)
         r?.content != null -> "Сообщение"
         else -> "Сообщение"
