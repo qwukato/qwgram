@@ -82,6 +82,10 @@ import app.qwgram.next.td.Texts
 import app.qwgram.next.td.rememberFileBitmap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.runtime.getValue
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
@@ -94,6 +98,7 @@ fun ProfileScreen(chatId: Long) {
     val ctx = LocalContext.current
     var bio by remember { mutableStateOf("") }
     var media by remember { mutableStateOf<List<TdApi.Message>>(emptyList()) }
+    var tab by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(chatId) {
         if (user != null) Td.callOrNull(TdApi.GetUserFullInfo(user.id))?.let { bio = it.bio?.text.orEmpty() }
@@ -101,13 +106,22 @@ fun ProfileScreen(chatId: Long) {
             if (t is TdApi.ChatTypeSupergroup) Td.callOrNull(TdApi.GetSupergroupFullInfo(t.supergroupId))?.let { bio = it.description }
             if (t is TdApi.ChatTypeBasicGroup) Td.callOrNull(TdApi.GetBasicGroupFullInfo(t.basicGroupId))?.let { bio = it.description }
         }
+    }
+    LaunchedEffect(chatId, tab) {
         if (chat != null) {
+            val f: TdApi.SearchMessagesFilter = when (tab) {
+                1 -> TdApi.SearchMessagesFilterDocument()
+                2 -> TdApi.SearchMessagesFilterUrl()
+                3 -> TdApi.SearchMessagesFilterVoiceNote()
+                else -> TdApi.SearchMessagesFilterPhotoAndVideo()
+            }
             val r = Td.callOrNull(TdApi.SearchChatMessages().apply {
-                this.chatId = chat.id; query = ""; fromMessageId = 0; offset = 0; limit = 60; filter = TdApi.SearchMessagesFilterPhotoAndVideo()
+                this.chatId = chat.id; query = ""; fromMessageId = 0; offset = 0; limit = 90; filter = f
             })
             media = r?.messages?.toList().orEmpty()
         }
     }
+    val cleanBio = bio.replace(Regex("[\\u200B-\\u200F\\u2060-\\u2064\\uFEFF\\u3164\\u115F\\u1160\\u00AD]"), "").trim()
     val title = when {
         me -> user?.let { TdStore.fullName(it) } ?: ""
         chat != null && TdStore.isSaved(chat) -> "Избранное"
@@ -124,8 +138,7 @@ fun ProfileScreen(chatId: Long) {
         topBar = {
             TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = { Nav.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(),
+                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
             )
         },
     ) { pad ->
@@ -141,13 +154,15 @@ fun ProfileScreen(chatId: Long) {
                         val muted = TdStore.isMuted(chat)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ProfileAction(Icons.AutoMirrored.Outlined.Chat, "Сообщение", false, Modifier.weight(1f)) {
-                                if (Nav.stack.getOrNull(Nav.stack.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                                if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
                             }
                             ProfileAction(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Без звука" else "Звук", muted, Modifier.weight(1f)) { setMuted(chat, !muted) }
-                            ProfileAction(Icons.Outlined.Call, "Звонок", false, Modifier.weight(1f)) {
-                                Toast.makeText(ctx, "Звонки появятся в следующих версиях", Toast.LENGTH_SHORT).show()
+                            val un = (user?.usernames?.activeUsernames?.firstOrNull()
+                                ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
+                            if (un != null) ProfileAction(Icons.Outlined.Share, "Поделиться", false, Modifier.weight(1f)) {
+                                val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, "https://t.me/$un")
+                                ctx.startActivity(android.content.Intent.createChooser(i, null))
                             }
-                            ProfileAction(Icons.Outlined.Search, "Поиск", false, Modifier.weight(1f)) { Nav.push(Route.Search) }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
@@ -158,7 +173,7 @@ fun ProfileScreen(chatId: Long) {
                                 val un = user?.usernames?.activeUsernames?.firstOrNull()
                                     ?: (chat?.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() }
                                 if (un != null) add(Triple(Icons.Outlined.AlternateEmail, "@$un", "Имя пользователя"))
-                                if (bio.isNotBlank()) add(Triple(Icons.Outlined.Info, bio, if (user != null) "О себе" else "Описание"))
+                                if (cleanBio.isNotEmpty()) add(Triple(Icons.Outlined.Info, cleanBio, if (user != null) "О себе" else "Описание"))
                                 if (un != null) add(Triple(Icons.Outlined.Link, "t.me/$un", "Ссылка"))
                                 if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
                             }
@@ -176,19 +191,37 @@ fun ProfileScreen(chatId: Long) {
                                     headlineContent = { Text("Уведомления") },
                                     supportingContent = { Text(if (muted) "Выключены" else "Включены") },
                                     leadingContent = { Icon(Icons.Outlined.Notifications, null) },
-                                    trailingContent = { Switch(checked = !muted, onCheckedChange = { setMuted(chat, !it) }) },
+                                    trailingContent = { QSwitch(!muted) { setMuted(chat, !it) } },
                                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                                 )
                             }
                         }
                     }
-                    if (media.isNotEmpty()) {
-                        Spacer(Modifier.height(20.dp))
-                        Text("Медиа", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
+                    if (chat != null) {
+                        Spacer(Modifier.height(16.dp))
+                        androidx.compose.material3.PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = MaterialTheme.colorScheme.surface) {
+                            listOf("Медиа", "Файлы", "Ссылки", "Голосовые").forEachIndexed { i, t ->
+                                androidx.compose.material3.Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
+                            }
+                        }
+                        if (media.isEmpty()) Text("Пока ничего нет", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
                     }
                 }
             }
-            items(media, key = { it.id }) { m -> MediaTile(m) }
+            if (tab == 0) items(media, key = { it.id }) { m -> MediaTile(m) }
+            else items(media, key = { it.id }, span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) { m ->
+                ListItem(
+                    headlineContent = { Text(Texts.preview(m), maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = { Text(Texts.listDate(m.date)) },
+                    leadingContent = {
+                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                            Icon(when (tab) { 1 -> Icons.Outlined.Description; 2 -> Icons.Outlined.Link; else -> Icons.Outlined.Mic }, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+                    },
+                    modifier = Modifier.clickable { if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                )
+            }
         }
     }
 }
@@ -196,13 +229,10 @@ fun ProfileScreen(chatId: Long) {
 @Composable
 private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(if (active) 28.dp else 20.dp),
-        color = if (active) cs.secondaryContainer else cs.surfaceContainerHigh,
-        modifier = modifier,
-    ) {
-        Column(Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val rest by androidx.compose.animation.core.animateDpAsState(if (active) 32.dp else 20.dp, Springs.fastSpatial(), label = "pa")
+    val bg by androidx.compose.animation.animateColorAsState(if (active) cs.secondaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "pb")
+    MorphBox(onClick = onClick, modifier = modifier.height(72.dp), rest = rest, pressed = 12.dp, color = bg, contentColor = if (active) cs.onSecondaryContainer else cs.onSurface) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null, tint = if (active) cs.onSecondaryContainer else cs.primary)
             Spacer(Modifier.height(6.dp))
             Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
@@ -248,7 +278,7 @@ fun SearchScreen() {
     Column(Modifier.fillMaxSize()) {
         Surface(color = cs.surfaceContainer) {
             Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { Nav.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
                 BasicTextField(
                     value = q, onValueChange = { q = it }, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
@@ -256,7 +286,7 @@ fun SearchScreen() {
                     modifier = Modifier.weight(1f).focusRequester(focus),
                     decorationBox = { inner -> if (q.isEmpty()) Text("Поиск чатов и сообщений", color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge); inner() },
                 )
-                if (q.isNotEmpty()) IconButton(onClick = { q = "" }) { Icon(Icons.Filled.Close, "Очистить") }
+                if (q.isNotEmpty()) MorphIconButton(Icons.Filled.Close, "Очистить", { q = "" })
             }
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -326,7 +356,7 @@ fun ArchiveScreen() {
         topBar = {
             LargeTopAppBar(
                 title = { Text("Архив") },
-                navigationIcon = { IconButton(onClick = { Nav.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
                 scrollBehavior = scroll,
             )
         },
@@ -349,9 +379,9 @@ fun ContactsTab(pad: PaddingValues) {
     val users = ids.mapNotNull { TdStore.users[it] }
         .filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
         .sortedWith(compareByDescending<TdApi.User> { Texts.isOnline(it) }.thenByDescending { (it.status as? TdApi.UserStatusOffline)?.wasOnline ?: 0 })
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        LargeTopAppBar(title = { Text("Контакты") }, scrollBehavior = scroll)
+        androidx.compose.material3.TopAppBar(title = { Text("Контакты") }, scrollBehavior = scroll)
         LazyColumn(contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 24.dp)) {
             item {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(52.dp)) {

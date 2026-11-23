@@ -29,6 +29,8 @@ object Images {
         Td.send(TdApi.DownloadFile(f.id, priority, 0, 0, false))
     }
 
+    fun cached(path: String, maxSide: Int): Bitmap? = cache.get("$path#$maxSide")
+
     fun decode(path: String, maxSide: Int): Bitmap? {
         val key = "$path#$maxSide"
         cache.get(key)?.let { return it }
@@ -63,12 +65,12 @@ fun rememberFileBitmap(file: TdApi.File?, maxSide: Int = 512, autoDownload: Bool
     if (file == null) return null
     val live = TdStore.files[file.id] ?: file
     val path = if (live.local.isDownloadingCompleted) live.local.path else null
-    var bmp by remember(file.id, maxSide) { mutableStateOf<ImageBitmap?>(null) }
+    var bmp by remember(file.id, maxSide) { mutableStateOf(path?.let { Images.cached(it, maxSide)?.asImageBitmap() }) }
     LaunchedEffect(file.id, autoDownload) {
         if (autoDownload) Images.download(live)
     }
     LaunchedEffect(path, maxSide) {
-        if (path != null) {
+        if (path != null && bmp == null) {
             bmp = withContext(Dispatchers.IO) { Images.decode(path, maxSide)?.asImageBitmap() }
         }
     }

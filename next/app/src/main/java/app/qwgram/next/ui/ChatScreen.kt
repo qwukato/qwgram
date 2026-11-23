@@ -118,6 +118,18 @@ import app.qwgram.next.td.Texts
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.mutableStateListOf
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import kotlin.math.roundToInt
@@ -129,6 +141,40 @@ class ChatController(val chatId: Long) {
     var loading by mutableStateOf(false)
     var reachedEnd by mutableStateOf(false)
     var pinned by mutableStateOf<TdApi.Message?>(null)
+
+    /** true after jumping into older history: newer messages are not loaded yet */
+    var hasNewer by mutableStateOf(false)
+
+    /** loads history around [id] so it can be scrolled to; returns false if the message is gone */
+    suspend fun jumpTo(id: Long): Boolean {
+        if (messages.any { it.id == id }) return true
+        loading = true
+        val r = Td.callOrNull(TdApi.GetChatHistory(chatId, id, -20, 50, false))
+        loading = false
+        if (r == null || r.messages.isEmpty()) return false
+        messages.clear(); reachedEnd = false
+        addOlder(r.messages.toList())
+        hasNewer = TdStore.chats.peek(chatId)?.lastMessage?.id?.let { last -> messages.none { it.id == last } } ?: false
+        return messages.any { it.id == id }
+    }
+
+    suspend fun loadNewer() {
+        if (loading || !hasNewer || messages.isEmpty()) return
+        loading = true
+        val r = Td.callOrNull(TdApi.GetChatHistory(chatId, messages.first().id, -49, 50, false))
+        loading = false
+        val have = messages.mapTo(HashSet()) { it.id }
+        val newer = r?.messages?.filter { it.id !in have && it.id > messages.first().id }.orEmpty().sortedByDescending { it.id }
+        messages.addAll(0, newer)
+        newer.forEach { fetchReply(it) }
+        val last = TdStore.chats.peek(chatId)?.lastMessage?.id
+        if (newer.isEmpty() || messages.any { it.id == last }) hasNewer = false
+    }
+
+    suspend fun reset() {
+        messages.clear(); hasNewer = false; reachedEnd = false
+        loadInitial()
+    }
 
     suspend fun loadInitial() {
         loading = true
@@ -172,7 +218,7 @@ class ChatController(val chatId: Long) {
 
     fun onEvent(u: TdApi.Update) {
         when (u) {
-            is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && messages.none { it.id == u.message.id }) {
+            is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && !hasNewer && messages.none { it.id == u.message.id }) {
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -238,6 +284,7 @@ fun ChatScreen(chatId: Long) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val firstUnreadId = remember(chatId) { if (chat.unreadCount > 0) chat.lastReadInboxMessageId else 0L }
 
     var text by remember(chatId) { mutableStateOf((chat.draftMessage?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "") }
@@ -245,8 +292,13 @@ fun ChatScreen(chatId: Long) {
     var editing by remember(chatId) { mutableStateOf<TdApi.Message?>(null) }
     var menuFor by remember { mutableStateOf<TdApi.Message?>(null) }
     var forward by remember { mutableStateOf<List<TdApi.Message>?>(null) }
-    var deleteFor by remember { mutableStateOf<TdApi.Message?>(null) }
+    var deleteFor by remember { mutableStateOf<List<TdApi.Message>?>(null) }
     var viewer by remember { mutableStateOf<TdApi.Photo?>(null) }
+    val selected = remember { mutableStateListOf<Long>() }
+    var searching by remember { mutableStateOf(false) }
+    val search = remember(chatId) { ChatSearch(chatId) }
+    var panel by remember { mutableStateOf(false) }
+    var highlight by remember { mutableStateOf(0L) }
 
     DisposableEffect(chatId) {
         Td.send(TdApi.OpenChat(chatId))
@@ -272,11 +324,14 @@ fun ChatScreen(chatId: Long) {
         val idx = if (firstUnreadId != 0L) ctl.messages.indexOfFirst { it.id <= firstUnreadId } else -1
         if (idx > 2) listState.scrollToItem(idx)
     }
-    // load older history near the top
+    // load older history near the top, newer near the bottom (after a jump)
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
             if (last >= listState.layoutInfo.totalItemsCount - 8) ctl.loadOlder()
         }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }.collect { first -> if (first < 4) ctl.loadNewer() }
     }
     // mark visible messages read
     LaunchedEffect(listState) {
@@ -289,7 +344,7 @@ fun ChatScreen(chatId: Long) {
     // keep the newest message in view when something arrives and we are at the bottom
     val newest = ctl.messages.firstOrNull()?.id
     LaunchedEffect(newest) {
-        if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+        if (!ctl.hasNewer && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
 
     val entries by remember(ctl) {
@@ -319,18 +374,62 @@ fun ChatScreen(chatId: Long) {
         }
     }
 
+    /** scroll to a message, loading history around it if needed, and flash it */
+    fun jump(id: Long) {
+        scope.launch {
+            if (!ctl.jumpTo(id)) { Toast.makeText(ctx, "Сообщение не найдено", Toast.LENGTH_SHORT).show(); return@launch }
+            val i = entries.indexOfFirst { it is Entry.Msg && it.m.id == id }
+            if (i >= 0) listState.animateScrollToItem(i, -200)
+            highlight = id
+            delay(1400)
+            if (highlight == id) highlight = 0L
+        }
+    }
+
     val canSend = TdStore.canSend(chat)
     val group = TdStore.isGroup(chat)
+    val selecting = selected.isNotEmpty()
+
+    BackHandler(enabled = selecting || searching || panel) {
+        when {
+            selecting -> selected.clear()
+            panel -> panel = false
+            else -> { searching = false; search.query = ""; search.results = emptyList() }
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         ChatWallpaper()
-        Column(Modifier.fillMaxSize().imePadding()) {
-            ChatTopBar(chat)
+        Column(Modifier.fillMaxSize().then(if (panel) Modifier else Modifier.imePadding())) {
+            AnimatedContent(
+                targetState = when { selecting -> 2; searching -> 1; else -> 0 },
+                transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) },
+                label = "topbar",
+            ) { mode ->
+                when (mode) {
+                    2 -> SelectionBar(
+                        selected.size,
+                        onClose = { selected.clear() },
+                        onCopy = {
+                            val ms = ctl.messages.filter { it.id in selected }.sortedBy { it.id }
+                            copy(ctx, ms.joinToString("\n\n") { Texts.caption(it.content)?.text ?: Texts.preview(it) })
+                            Toast.makeText(ctx, "Скопировано", Toast.LENGTH_SHORT).show()
+                            selected.clear()
+                        },
+                        onForward = { forward = ctl.messages.filter { it.id in selected }.sortedBy { it.id }; selected.clear() },
+                        onDelete = { deleteFor = ctl.messages.filter { it.id in selected } },
+                    )
+                    1 -> ChatSearchBar(
+                        search,
+                        onClose = { searching = false; search.query = ""; search.results = emptyList() },
+                        onSubmit = { scope.launch { search.run(); search.current?.let { jump(it.id) } } },
+                        onStep = { d -> search.index = (search.index + d).coerceIn(0, search.results.size - 1); search.current?.let { jump(it.id) } },
+                    )
+                    else -> ChatTopBar(chat, onSearch = { searching = true })
+                }
+            }
             ctl.pinned?.let { p ->
-                PinnedBar(p, onClick = {
-                    val i = entries.indexOfFirst { it is Entry.Msg && it.m.id == p.id }
-                    if (i >= 0) scope.launch { listState.animateScrollToItem(i) }
-                }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
+                PinnedBar(p, onClick = { jump(p.id) }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
             }
             Box(Modifier.weight(1f)) {
                 LazyColumn(
@@ -343,60 +442,96 @@ fun ChatScreen(chatId: Long) {
                         when (e) {
                             is Entry.Day -> DayChip(Texts.dayHeader(e.date))
                             Entry.Unread -> UnreadDivider()
-                            is Entry.Msg -> MessageItem(
-                                m = e.m, grp = e.grp, chat = chat, group = group,
-                                reply = ctl.replies[e.m.id],
-                                modifier = Modifier.animateItem(),
-                                onLong = { haptic(HapticFeedbackType.LongPress); menuFor = e.m },
-                                onDouble = {
-                                    when (Prefs.doubleTap.value) {
-                                        "react" -> react(e.m, Prefs.doubleTapEmoji.value)
-                                        "reply" -> if (canSend) { replyTo = e.m; editing = null }
-                                    }
-                                },
-                                onSwipeReply = { if (canSend) { haptic(HapticFeedbackType.TextHandleMove); replyTo = e.m; editing = null } },
-                                onPhoto = { viewer = it },
-                            )
+                            is Entry.Msg -> {
+                                val id = e.m.id
+                                MessageItem(
+                                    m = e.m, grp = e.grp, chat = chat, group = group,
+                                    reply = ctl.replies[id],
+                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit()),
+                                    selection = if (selecting) (id in selected) else null,
+                                    highlighted = highlight == id,
+                                    onTap = {
+                                        if (selecting) { if (id in selected) selected.remove(id) else selected.add(id) }
+                                        else menuFor = e.m
+                                    },
+                                    onLong = {
+                                        haptic(HapticFeedbackType.LongPress)
+                                        if (id in selected) selected.remove(id) else selected.add(id)
+                                    },
+                                    onDouble = {
+                                        if (!selecting) when (Prefs.doubleTap.value) {
+                                            "react" -> react(e.m, Prefs.doubleTapEmoji.value)
+                                            "reply" -> if (canSend) { replyTo = e.m; editing = null }
+                                        }
+                                    },
+                                    onSwipeReply = { if (canSend && !selecting) { haptic(HapticFeedbackType.TextHandleMove); replyTo = e.m; editing = null } },
+                                    onPhoto = { viewer = it },
+                                    onReplyClick = { r -> jump(r) },
+                                )
+                            }
                         }
                     }
                     if (ctl.loading) item(key = "loading") {
                         Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) }
                     }
                 }
-                val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
+                val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 || ctl.hasNewer } }
                 androidx.compose.animation.AnimatedVisibility(
                     showDown, Modifier.align(Alignment.BottomEnd).padding(12.dp),
-                    enter = scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn(), exit = scaleOut() + fadeOut(),
+                    enter = scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects()), exit = scaleOut(Springs.exit()) + fadeOut(Springs.exit()),
                 ) {
                     Box {
-                        SmallFloatingActionButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                            Icon(Icons.Filled.KeyboardArrowDown, "Вниз")
-                        }
+                        MorphBox(
+                            onClick = { scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) } },
+                            modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh, elevation = 3.dp,
+                        ) { Icon(Icons.Filled.KeyboardArrowDown, "Вниз") }
                         if (chat.unreadCount > 0) Badge(Modifier.align(Alignment.TopEnd)) { Text(chat.unreadCount.toString()) }
                     }
                 }
             }
             if (canSend) {
+                fun send(silent: Boolean? = null, at: Int = 0) {
+                    val t = text.trim()
+                    if (t.isEmpty()) return
+                    val ed = editing
+                    if (ed != null) {
+                        Td.send(TdApi.EditMessageText(chatId, ed.id, null, inputText(t)))
+                        editing = null
+                    } else {
+                        sendContent(chatId, inputText(t), replyTo, silent, at)
+                        replyTo = null
+                        if (at > 0) Toast.makeText(ctx, "Сообщение запланировано", Toast.LENGTH_SHORT).show()
+                    }
+                    text = ""
+                    haptic(HapticFeedbackType.Confirm)
+                    if (at == 0) scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) }
+                }
                 Composer(
                     chat = chat, text = text, onText = { text = it; typing(chatId) },
                     replyTo = replyTo, editing = editing,
-                    onCancel = { if (editing != null) text = ""; replyTo = null; editing = null },
-                    onSend = {
-                        val t = text.trim()
-                        if (t.isEmpty()) return@Composer
-                        val e = editing
-                        if (e != null) {
-                            Td.send(TdApi.EditMessageText(chatId, e.id, null, inputText(t)))
-                            editing = null
-                        } else {
-                            sendContent(chatId, inputText(t), replyTo)
-                            replyTo = null
-                        }
-                        text = ""
-                        haptic(HapticFeedbackType.Confirm)
-                        scope.launch { listState.animateScrollToItem(0) }
+                    panelOpen = panel,
+                    onTogglePanel = {
+                        if (panel) { panel = false; keyboard?.show() } else { keyboard?.hide(); panel = true }
                     },
+                    onFocusText = { panel = false },
+                    onCancel = { if (editing != null) text = ""; replyTo = null; editing = null },
+                    onSend = { send() },
+                    onSendSilent = { send(silent = true) },
+                    onSchedule = { at -> send(at = at) },
                 )
+                androidx.compose.animation.AnimatedVisibility(
+                    panel,
+                    enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()),
+                    exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit()),
+                ) {
+                    StickerPanel(
+                        chatId, 300.dp,
+                        onEmoji = { text += it },
+                        onSticker = { s -> sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false },
+                        onGif = { a -> sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false },
+                    )
+                }
             } else ChannelBar(chat)
         }
     }
@@ -411,12 +546,22 @@ fun ChatScreen(chatId: Long) {
                 text = (m.content as? TdApi.MessageText)?.text?.text ?: Texts.caption(m.content)?.text.orEmpty()
             },
             onForward = { forward = listOf(m) },
-            onDelete = { deleteFor = m },
-            onCopy = { copy(ctx, Texts.caption(m.content)?.text.orEmpty()) },
+            onDelete = { deleteFor = listOf(m) },
+            onCopy = { copy(ctx, Texts.caption(m.content)?.text.orEmpty()); Toast.makeText(ctx, "Скопировано", Toast.LENGTH_SHORT).show() },
+            onSelect = { selected.add(m.id) },
+            onCopyLink = {
+                Td.send(TdApi.GetMessageLink(m.chatId, m.id, 0, 0, "", false, false)) { r ->
+                    if (r is TdApi.MessageLink) { copy(ctx, r.link); Toast.makeText(ctx, "Ссылка скопирована", Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onSave = {
+                TdStore.me?.let { me -> Td.send(TdApi.ForwardMessages(me.id, null, m.chatId, longArrayOf(m.id), null, false, false)) }
+                Toast.makeText(ctx, "Сохранено в Избранное", Toast.LENGTH_SHORT).show()
+            },
         )
     }
     forward?.let { list -> ForwardSheet(list, onDismiss = { forward = null }) }
-    deleteFor?.let { m -> DeleteDialog(m, chat) { deleteFor = null } }
+    deleteFor?.let { list -> DeleteDialog(list, chat) { deleteFor = null; selected.clear() } }
     viewer?.let { p -> PhotoViewer(p) { viewer = null } }
 }
 
@@ -425,11 +570,14 @@ fun inputText(t: String): TdApi.InputMessageText = TdApi.InputMessageText().appl
     clearDraft = true
 }
 
-fun sendContent(chatId: Long, content: TdApi.InputMessageContent, replyTo: TdApi.Message? = null) {
+fun sendContent(chatId: Long, content: TdApi.InputMessageContent, replyTo: TdApi.Message? = null, silent: Boolean? = null, scheduleAt: Int = 0) {
     Td.send(TdApi.SendMessage().apply {
         this.chatId = chatId
         this.replyTo = replyTo?.let { r -> TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
-        options = TdApi.MessageSendOptions().apply { disableNotification = Prefs.silentByDefault.value }
+        options = TdApi.MessageSendOptions().apply {
+            disableNotification = silent ?: Prefs.silentByDefault.value
+            if (scheduleAt > 0) schedulingState = TdApi.MessageSchedulingStateSendAtDate(scheduleAt, 0)
+        }
         inputMessageContent = content
     })
 }
@@ -503,43 +651,54 @@ private fun WallpaperShapes() {
 private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 
 @Composable
-private fun ChatTopBar(chat: TdApi.Chat) {
+private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
-    val ctx = LocalContext.current
+    var confirmBlock by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
     val status = Texts.chatStatus(chat)
     val typingNow = !TdStore.actions[chat.id].isNullOrEmpty()
+    val privateUser = TdStore.privateUserId(chat).takeIf { it != 0L && !TdStore.isSaved(chat) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { Nav.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+            MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
             Row(
-                Modifier.weight(1f).clip(CircleShape).clickable { Nav.push(Route.Profile(chat.id)) }.padding(vertical = 6.dp, horizontal = 4.dp),
+                Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable { Nav.push(Route.Profile(chat.id)) }.padding(vertical = 6.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChatAvatar(chat, 40.dp)
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (status.isNotBlank()) Text(
-                        status, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (typingNow || status == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    AnimatedContent(status, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "status") { st ->
+                        if (st.isNotBlank()) Text(
+                            st, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (typingNow || st == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
-            if (chat.type is TdApi.ChatTypePrivate && !TdStore.isSaved(chat) && !TdStore.isBot(chat)) {
-                IconButton(onClick = { Toast.makeText(ctx, "Звонки появятся в следующих версиях", Toast.LENGTH_SHORT).show() }) { Icon(Icons.Outlined.Call, "Звонок") }
-            }
+            MorphIconButton(Icons.Outlined.Search, "Поиск в чате", onSearch)
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Ещё") }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                MorphIconButton(Icons.Outlined.MoreVert, "Ещё", { menu = true })
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
                     val muted = TdStore.isMuted(chat)
                     DropdownMenuItem(
                         text = { Text(if (muted) "Включить звук" else "Без звука") },
                         leadingIcon = { Icon(if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, null) },
                         onClick = { menu = false; setMuted(chat, !muted) },
                     )
+                    DropdownMenuItem(text = { Text("Профиль") }, leadingIcon = { Icon(Icons.Outlined.Info, null) }, onClick = { menu = false; Nav.push(Route.Profile(chat.id)) })
                     DropdownMenuItem(text = { Text("Очистить историю") }, leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) }, onClick = { menu = false; confirmClear = true })
-                    DropdownMenuItem(
+                    if (privateUser != null && !TdStore.isBot(chat)) DropdownMenuItem(
+                        text = { Text("Заблокировать") }, leadingIcon = { Icon(Icons.Outlined.Block, null) },
+                        onClick = { menu = false; confirmBlock = true },
+                    )
+                    if (chat.type is TdApi.ChatTypeSupergroup || chat.type is TdApi.ChatTypeBasicGroup) DropdownMenuItem(
+                        text = { Text(if (TdStore.isChannel(chat)) "Покинуть канал" else "Покинуть группу", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { menu = false; confirmLeave = true },
+                    ) else DropdownMenuItem(
                         text = { Text("Удалить чат", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { menu = false; deleteChat(chat); Nav.pop() },
@@ -556,6 +715,27 @@ private fun ChatTopBar(chat: TdApi.Chat) {
         confirmButton = { TextButton(onClick = { Td.send(TdApi.DeleteChatHistory(chat.id, false, false)); confirmClear = false }) { Text("Очистить") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
     )
+    if (confirmBlock && privateUser != null) AlertDialog(
+        onDismissRequest = { confirmBlock = false },
+        icon = { Icon(Icons.Outlined.Block, null) },
+        title = { Text("Заблокировать ${chat.title}?") },
+        text = { Text("Пользователь не сможет писать вам и звонить.") },
+        confirmButton = {
+            TextButton(onClick = {
+                Td.send(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateUser), TdApi.BlockListMain())); confirmBlock = false
+            }) { Text("Заблокировать", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = { confirmBlock = false }) { Text("Отмена") } },
+    )
+    if (confirmLeave) AlertDialog(
+        onDismissRequest = { confirmLeave = false },
+        icon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) },
+        title = { Text(if (TdStore.isChannel(chat)) "Покинуть канал?" else "Покинуть группу?") },
+        confirmButton = {
+            TextButton(onClick = { Td.send(TdApi.LeaveChat(chat.id)); confirmLeave = false; Nav.pop() }) { Text("Покинуть", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Отмена") } },
+    )
 }
 
 @Composable
@@ -568,7 +748,7 @@ private fun PinnedBar(m: TdApi.Message, onClick: () -> Unit, onClose: () -> Unit
                 Text("Закреплённое сообщение", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Открепить") }
+            MorphIconButton(Icons.Filled.Close, "Открепить", onClose)
         }
     }
 }
@@ -612,9 +792,15 @@ private fun Composer(
     onText: (String) -> Unit,
     replyTo: TdApi.Message?,
     editing: TdApi.Message?,
+    panelOpen: Boolean,
+    onTogglePanel: () -> Unit,
+    onFocusText: () -> Unit,
     onCancel: () -> Unit,
     onSend: () -> Unit,
+    onSendSilent: () -> Unit,
+    onSchedule: (Int) -> Unit,
 ) {
+    var sendOptions by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val haptic = rememberHaptic()
@@ -638,9 +824,9 @@ private fun Composer(
     }
     val radius = Prefs.bubbleRadius.value.dp
 
-    Surface(color = if (Prefs.navStyle.value == "floating") cs.surface.copy(alpha = 0f) else cs.surfaceContainer) {
-        Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
-            AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+    Surface(color = cs.surfaceContainer) {
+        Column(Modifier.then(if (panelOpen) Modifier else Modifier.navigationBarsPadding()).padding(horizontal = 8.dp, vertical = 6.dp)) {
+            AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
                 val m = editing ?: replyTo
                 Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, modifier = Modifier.padding(bottom = 6.dp)) {
                     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -655,7 +841,7 @@ private fun Composer(
                             )
                             if (m != null) Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, "Отменить") }
+                        MorphIconButton(Icons.Filled.Close, "Отменить", onCancel)
                     }
                 }
             }
@@ -663,13 +849,16 @@ private fun Composer(
                 Surface(shape = RoundedCornerShape(26.dp), color = cs.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                     Box {
                         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp)) {
-                            IconButton(onClick = { attach = true }, modifier = Modifier.padding(bottom = 2.dp)) { Icon(Icons.Outlined.AttachFile, "Вложение", tint = cs.onSurfaceVariant) }
+                            AnimatedContent(panelOpen, transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) }, label = "emo", modifier = Modifier.padding(bottom = 2.dp)) { open ->
+                                MorphIconButton(if (open) Icons.Outlined.Keyboard else Icons.Outlined.EmojiEmotions, if (open) "Клавиатура" else "Эмодзи и стикеры", onTogglePanel, tint = cs.onSurfaceVariant)
+                            }
                             BasicTextField(
                                 value = text, onValueChange = onText,
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                                 cursorBrush = SolidColor(cs.primary),
                                 maxLines = 8,
-                                modifier = Modifier.weight(1f).padding(top = 14.dp, bottom = 14.dp, end = 12.dp),
+                                modifier = Modifier.weight(1f).padding(top = 14.dp, bottom = 14.dp, end = 4.dp)
+                                    .onFocusChanged { if (it.isFocused) onFocusText() },
                                 keyboardOptions = if (Prefs.sendByEnter.value) androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send) else androidx.compose.foundation.text.KeyboardOptions.Default,
                                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { onSend() }),
                                 decorationBox = { inner ->
@@ -677,6 +866,7 @@ private fun Composer(
                                     inner()
                                 },
                             )
+                            MorphIconButton(Icons.Outlined.AttachFile, "Вложение", { attach = true }, modifier = Modifier.padding(bottom = 2.dp), tint = cs.onSurfaceVariant)
                         }
                         androidx.compose.animation.AnimatedVisibility(recording, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
                             Row(
@@ -694,8 +884,8 @@ private fun Composer(
                 }
                 Spacer(Modifier.width(8.dp))
                 val ready = text.isNotBlank() || editing != null
-                val corner by animateDpAsState(if (ready) 16.dp else 26.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "send")
-                val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "rec")
+                val corner by animateDpAsState(if (ready) 16.dp else 26.dp, Springs.fastSpatial(), label = "send")
+                val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, Springs.fastSpatial(), label = "rec")
                 Surface(
                     shape = RoundedCornerShape(corner),
                     color = if (ready || recording) cs.primary else cs.primaryContainer,
@@ -704,7 +894,10 @@ private fun Composer(
                         .graphicsLayer { scaleX = scale; scaleY = scale; translationX = dragX.value }
                         .pointerInput(ready) {
                             if (ready) {
-                                detectTapGestures(onTap = { onSend() })
+                                detectTapGestures(
+                                    onTap = { onSend() },
+                                    onLongPress = { if (editing == null) { haptic(HapticFeedbackType.LongPress); sendOptions = true } },
+                                )
                             } else {
                                 detectTapGestures(
                                     onTap = { Toast.makeText(ctx, "Удерживайте, чтобы записать голосовое", Toast.LENGTH_SHORT).show() },
@@ -753,10 +946,9 @@ private fun Composer(
                         },
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        val motion = MaterialTheme.motionScheme
                         AnimatedContent(
                             targetState = when { editing != null -> 2; ready -> 1; else -> 0 },
-                            transitionSpec = { (scaleIn(motion.fastSpatialSpec()) + fadeIn()).togetherWith(scaleOut() + fadeOut()) },
+                            transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) },
                             label = "sendicon",
                         ) { s ->
                             when (s) {
@@ -771,6 +963,7 @@ private fun Composer(
         }
     }
 
+    if (sendOptions) SendOptionsSheet(onDismiss = { sendOptions = false }, onSilent = onSendSilent, onSchedule = onSchedule)
     if (attach) {
         ModalBottomSheet(onDismissRequest = { attach = false }) {
             Text("Отправить", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -792,8 +985,8 @@ private fun Composer(
 @Composable
 private fun AttachAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, shape: androidx.graphics.shapes.RoundedPolygon, tone: Int, onClick: () -> Unit) {
     val (bg, fg) = avatarColors(tone.toLong())
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(12.dp)) {
-        Box(Modifier.size(64.dp).clip(shape.asShape()).background(bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = fg) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
+        MorphBox(onClick = onClick, modifier = Modifier.size(64.dp), rest = 32.dp, pressed = 16.dp, color = bg, contentColor = fg) { Icon(icon, null) }
         Spacer(Modifier.height(8.dp))
         Text(title, style = MaterialTheme.typography.labelLarge)
     }
@@ -835,26 +1028,26 @@ private fun sendVoice(chatId: Long, f: File, secs: Int, replyTo: TdApi.Message?)
 private fun MessageMenu(
     m: TdApi.Message, chat: TdApi.Chat, onDismiss: () -> Unit,
     onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit, onCopy: () -> Unit,
+    onSelect: () -> Unit, onCopyLink: () -> Unit, onSave: () -> Unit,
 ) {
     var props by remember { mutableStateOf<TdApi.MessageProperties?>(null) }
     var reactions by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(m.id) {
         props = Td.callOrNull(TdApi.GetMessageProperties(m.chatId, m.id))
         val av = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 8))
-        reactions = av?.let { (it.topReactions + it.recentReactions + it.popularReactions).mapNotNull { r -> (r.type as? TdApi.ReactionTypeEmoji)?.emoji }.distinct().take(16) }.orEmpty()
+        reactions = av?.let { (it.topReactions + it.recentReactions + it.popularReactions).mapNotNull { r -> (r.type as? TdApi.ReactionTypeEmoji)?.emoji }.distinct().take(24) }.orEmpty()
     }
     val canSend = TdStore.canSend(chat)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         if (reactions.isNotEmpty()) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                reactions.forEach { e ->
-                    Surface(onClick = { react(m, e); onDismiss() }, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                        Text(e, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(10.dp))
-                    }
-                }
-            }
+            ReactionStrip(reactions) { e -> react(m, e); onDismiss() }
             Spacer(Modifier.height(8.dp))
         }
+        Text(
+            Texts.time(m.date) + if (m.editDate > 0) " · изменено" else "",
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        )
         val p = props
         val row: @Composable (String, androidx.compose.ui.graphics.vector.ImageVector, Boolean, () -> Unit) -> Unit = { t, icon, danger, action ->
             ListItem(
@@ -864,33 +1057,46 @@ private fun MessageMenu(
             )
         }
         if (canSend && (p == null || p.canBeReplied)) row("Ответить", Icons.AutoMirrored.Filled.Reply, false, onReply)
-        if (Texts.caption(m.content)?.text?.isNotEmpty() == true) row("Копировать", Icons.Outlined.ContentCopy, false, onCopy)
+        if (Texts.caption(m.content)?.text?.isNotEmpty() == true) row("Копировать текст", Icons.Outlined.ContentCopy, false, onCopy)
+        if (p?.canGetLink == true) row("Копировать ссылку", Icons.Outlined.Link, false, onCopyLink)
         if (p?.canBeForwarded != false) row("Переслать", Icons.Outlined.Shortcut, false, onForward)
+        if (p?.canBeForwarded != false && !TdStore.isSaved(chat)) row("В Избранное", Icons.Outlined.BookmarkBorder, false, onSave)
         if (p?.canBePinned == true) row(if (m.isPinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, false) {
             if (m.isPinned) Td.send(TdApi.UnpinChatMessage(m.chatId, m.id)) else Td.send(TdApi.PinChatMessage(m.chatId, m.id, true, false))
         }
-        if (p?.canBeEdited == true && Texts.caption(m.content) != null && m.content is TdApi.MessageText) row("Изменить", Icons.Outlined.Edit, false, onEdit)
+        if (p?.canBeEdited == true && m.content is TdApi.MessageText) row("Изменить", Icons.Outlined.Edit, false, onEdit)
+        row("Выбрать", Icons.Outlined.CheckCircle, false, onSelect)
         if (p == null || p.canBeDeletedOnlyForSelf || p.canBeDeletedForAllUsers) row("Удалить", Icons.Outlined.Delete, true, onDelete)
         Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun DeleteDialog(m: TdApi.Message, chat: TdApi.Chat, onDone: () -> Unit) {
-    var props by remember { mutableStateOf<TdApi.MessageProperties?>(null) }
-    LaunchedEffect(m.id) { props = Td.callOrNull(TdApi.GetMessageProperties(m.chatId, m.id)) }
-    val forAll = props?.canBeDeletedForAllUsers == true
+private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: () -> Unit) {
+    var forAll by remember { mutableStateOf(false) }
+    var canAll by remember { mutableStateOf(false) }
+    LaunchedEffect(list) {
+        canAll = list.all { m -> Td.callOrNull(TdApi.GetMessageProperties(m.chatId, m.id))?.canBeDeletedForAllUsers == true }
+        forAll = canAll && chat.type is TdApi.ChatTypePrivate
+    }
+    val n = list.size
+    val other = if (chat.type is TdApi.ChatTypePrivate && !TdStore.isSaved(chat)) "у собеседника" else "у всех участников"
     AlertDialog(
         onDismissRequest = onDone,
         icon = { Icon(Icons.Outlined.Delete, null) },
-        title = { Text("Удалить сообщение?") },
-        text = { Text(if (forAll) "Можно удалить только у себя или у всех участников." else "Сообщение будет удалено у вас.") },
+        title = { Text(if (n == 1) "Удалить сообщение?" else "Удалить $n " + Texts.plural(n, "сообщение", "сообщения", "сообщений") + "?") },
+        text = {
+            if (canAll) Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { forAll = !forAll }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Checkbox(forAll, { forAll = it })
+                Text("Также удалить $other")
+            } else Text("Сообщения будут удалены у вас.")
+        },
         confirmButton = {
-            Row {
-                if (forAll) TextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, longArrayOf(m.id), true)); onDone() }) {
-                    Text("У всех", color = MaterialTheme.colorScheme.error)
-                }
-                TextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, longArrayOf(m.id), false)); onDone() }) { Text(if (forAll) "Только у меня" else "Удалить") }
+            TextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, list.map { it.id }.toLongArray(), forAll)); onDone() }) {
+                Text("Удалить", color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = { TextButton(onClick = onDone) { Text("Отмена") } },

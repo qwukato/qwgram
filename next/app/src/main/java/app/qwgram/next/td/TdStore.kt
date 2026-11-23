@@ -3,7 +3,6 @@ package app.qwgram.next.td
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.qwgram.next.Notifier
@@ -16,11 +15,23 @@ object TdStore {
     var connection by mutableStateOf<TdApi.ConnectionState>(TdApi.ConnectionStateConnecting())
     var me by mutableStateOf<TdApi.User?>(null)
 
-    val chats = mutableStateMapOf<Long, TdApi.Chat>()
-    val users = mutableStateMapOf<Long, TdApi.User>()
-    val basicGroups = mutableStateMapOf<Long, TdApi.BasicGroup>()
-    val supergroups = mutableStateMapOf<Long, TdApi.Supergroup>()
-    val files = mutableStateMapOf<Int, TdApi.File>()
+    val chats = KeyedMap<Long, TdApi.Chat>()
+    val users = KeyedMap<Long, TdApi.User>()
+    val basicGroups = KeyedMap<Long, TdApi.BasicGroup>()
+    val supergroups = KeyedMap<Long, TdApi.Supergroup>()
+    val files = KeyedMap<Int, TdApi.File>()
+
+    /** unread unmuted chats per chat list (folder), straight from TDLib */
+    val unreadByList = KeyedMap<String, Int>()
+    fun listKey(l: TdApi.ChatList): String = when (l) {
+        is TdApi.ChatListFolder -> "f" + l.chatFolderId
+        is TdApi.ChatListArchive -> "a"
+        else -> "m"
+    }
+    fun unreadIn(l: TdApi.ChatList): Int = unreadByList[listKey(l)] ?: 0
+
+    /** unread (unmuted) chats in the main list, straight from TDLib */
+    var unreadChats by mutableIntStateOf(0)
     val folders = mutableStateListOf<TdApi.ChatFolderInfo>()
     var mainListPosition by mutableIntStateOf(0)
 
@@ -28,7 +39,7 @@ object TdStore {
     var listVersion by mutableIntStateOf(0)
 
     /** chat id -> user ids currently typing (or other action) */
-    val actions = mutableStateMapOf<Long, Map<Long, TdApi.ChatAction>>()
+    val actions = KeyedMap<Long, Map<Long, TdApi.ChatAction>>()
 
     /** message-level events for open chat screens */
     val messageEvents = MutableSharedFlow<TdApi.Update>(extraBufferCapacity = 256)
@@ -41,7 +52,7 @@ object TdStore {
                 users[obj.user.id] = obj.user
                 if (me?.id == obj.user.id) me = obj.user
             }
-            is TdApi.UpdateUserStatus -> users[obj.userId]?.let { u -> u.status = obj.status; users[obj.userId] = copyUser(u) }
+            is TdApi.UpdateUserStatus -> users.peek(obj.userId)?.let { u -> u.status = obj.status; users[obj.userId] = copyUser(u) }
             is TdApi.UpdateBasicGroup -> basicGroups[obj.basicGroup.id] = obj.basicGroup
             is TdApi.UpdateSupergroup -> supergroups[obj.supergroup.id] = obj.supergroup
             is TdApi.UpdateNewChat -> {
@@ -86,6 +97,13 @@ object TdStore {
                 mainListPosition = obj.mainChatListPosition
             }
             is TdApi.UpdateFile -> files[obj.file.id] = obj.file
+            is TdApi.UpdateUnreadChatCount -> {
+                unreadByList[listKey(obj.chatList)] = obj.unreadUnmutedCount + obj.markedAsUnreadUnmutedCount
+                if (obj.chatList is TdApi.ChatListMain) unreadChats = obj.unreadUnmutedCount + obj.markedAsUnreadUnmutedCount
+            }
+            is TdApi.UpdateChatAvailableReactions -> edit(obj.chatId) { it.availableReactions = obj.availableReactions }
+            is TdApi.UpdateChatPermissions -> edit(obj.chatId) { it.permissions = obj.permissions }
+            is TdApi.UpdateChatEmojiStatus -> edit(obj.chatId) { it.emojiStatus = obj.emojiStatus }
             is TdApi.UpdateChatAction -> {
                 val sender = obj.senderId
                 val uid = when (sender) {
@@ -93,7 +111,7 @@ object TdStore {
                     is TdApi.MessageSenderChat -> sender.chatId
                     else -> 0L
                 }
-                val cur = actions[obj.chatId].orEmpty().toMutableMap()
+                val cur = actions.peek(obj.chatId).orEmpty().toMutableMap()
                 if (obj.action is TdApi.ChatActionCancel) cur.remove(uid) else cur[uid] = obj.action
                 if (cur.isEmpty()) actions.remove(obj.chatId) else actions[obj.chatId] = cur
             }
@@ -119,7 +137,7 @@ object TdStore {
 
     /** chats are mutable TDLib objects; re-putting a shallow copy makes Compose notice the change */
     private inline fun edit(chatId: Long, block: (TdApi.Chat) -> Unit) {
-        val c = chats[chatId] ?: return
+        val c = chats.peek(chatId) ?: return
         block(c)
         chats[chatId] = shallow(c)
     }

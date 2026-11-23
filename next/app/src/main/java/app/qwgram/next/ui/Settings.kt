@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Interests
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
@@ -89,18 +90,18 @@ import org.drinkless.tdlib.TdApi
 fun SettingsHome(pad: PaddingValues) {
     val me = TdStore.me
     var logout by remember { mutableStateOf(false) }
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        LargeTopAppBar(title = { Text("Настройки") }, scrollBehavior = scroll)
+        androidx.compose.material3.TopAppBar(title = { Text("Настройки") }, scrollBehavior = scroll)
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item {
-                Surface(onClick = { Nav.push(Route.Me) }, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                MorphBox(onClick = { Nav.push(Route.Me) }, rest = 28.dp, pressed = 16.dp, squish = 0.98f, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        UserAvatar(me, 72.dp)
+                        UserAvatar(me, 64.dp)
                         Spacer(Modifier.width(16.dp))
                         Column {
                             Text(me?.let { TdStore.fullName(it) } ?: "", style = MaterialTheme.typography.titleLarge)
@@ -116,11 +117,11 @@ fun SettingsHome(pad: PaddingValues) {
                 }
             }
             group {
-                nav("Внешний вид", "Цвета, формы, пузыри, панели, анимации", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("appearance")) }
-                nav("Функции qwgram", "Приватность, ссылки, поведение", Icons.Outlined.AutoAwesome, 2) { Nav.push(Route.Page("features")) }
+                nav("Внешний вид", "Тема, формы, пузыри, анимации", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("appearance")) }
+                nav("Функции qwgram", "Приватность и поведение", Icons.Outlined.AutoAwesome, 2) { Nav.push(Route.Page("features")) }
             }
             group("Telegram") {
-                nav("Мой аккаунт", "Имя, о себе, имя пользователя", Icons.Outlined.Person) { Nav.push(Route.Page("account")) }
+                nav("Мой аккаунт", "Имя, о себе, @username", Icons.Outlined.Person) { Nav.push(Route.Page("account")) }
                 nav("Уведомления и звуки", null, Icons.Outlined.Notifications) { Nav.push(Route.Page("notifications")) }
                 nav("Конфиденциальность", null, Icons.Outlined.Lock) { Nav.push(Route.Page("privacy")) }
                 nav("Данные и память", null, Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
@@ -165,6 +166,8 @@ fun SettingsPage(id: String) {
         "sessions" -> SessionsPage()
         "folders" -> FoldersPage()
         "about" -> AboutPage()
+        "compose" -> NewMessagePage()
+        "blocked" -> BlockedPage()
         else -> PageScaffold("Настройки") {}
     }
 }
@@ -172,7 +175,7 @@ fun SettingsPage(id: String) {
 @Composable
 private fun ResetAction() {
     var ask by remember { mutableStateOf(false) }
-    IconButton(onClick = { ask = true }) { Icon(Icons.Outlined.RestartAlt, "Сбросить") }
+    MorphIconButton(Icons.Outlined.RestartAlt, "Сбросить", { ask = true })
     if (ask) AlertDialog(
         onDismissRequest = { ask = false },
         icon = { Icon(Icons.Outlined.RestartAlt, null) },
@@ -264,7 +267,7 @@ private fun Swatches(enabled: Boolean, onCustom: () -> Unit) {
         SEEDS.forEach { seed ->
             val p = remember(seed, variant) { SeedScheme.palettes(seed, variant) }
             val sel = Prefs.seed.value == seed && enabled
-            val radius by androidx.compose.animation.core.animateDpAsState(if (sel) 14.dp else 24.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "sw")
+            val radius by androidx.compose.animation.core.animateDpAsState(if (sel) 14.dp else 24.dp, Springs.fastSpatial(), label = "sw")
             Box(
                 Modifier.size(48.dp).clip(RoundedCornerShape(radius)).clickable(enabled = enabled) { Prefs.seed.value = seed; Prefs.dynamicColor.value = false },
             ) {
@@ -370,6 +373,9 @@ private fun ListPage() = PageScaffold("Список чатов", actions = { Res
         segmented("Вид", Prefs.topBar, listOf("title" to "Заголовок", "search" to "Строка поиска"))
         pick("Текст заголовка", Prefs.titleText, listOf("qwgram" to "qwgram", "name" to "Ваше имя", "chats" to "Чаты", "folder" to "Название папки"))
     }
+    group("Жесты", footer = "Если выбрать действия, папки переключаются только нажатием на вкладку.") {
+        segmented("Свайп по списку", Prefs.listSwipe, listOf("folders" to "Папки", "actions" to "Архив / прочитано"))
+    }
     group("Элементы") {
         switch("Архив в списке чатов", Prefs.showArchiveRow, "Иначе он в боковом меню")
     }
@@ -418,7 +424,6 @@ private fun NavPage() = PageScaffold("Панели и навигация", actio
     group("Нижняя панель") {
         segmented("Вид", Prefs.navStyle, listOf("standard" to "Обычная", "floating" to "Плавающая"))
         switch("Подписи", Prefs.navLabels)
-        switch("Прятать при прокрутке", Prefs.hideOnScroll, "Панель и кнопка «Написать» уходят вниз вместе")
         switch("Вкладка «Контакты»", Prefs.showContactsTab)
     }
     group("Кнопка «Написать»") {
@@ -489,20 +494,28 @@ private fun AccountPage() {
     val me = TdStore.me
     var editName by remember { mutableStateOf(false) }
     var editBio by remember { mutableStateOf(false) }
+    var editUser by remember { mutableStateOf(false) }
     var bio by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
     LaunchedEffect(me?.id) { me?.let { Td.callOrNull(TdApi.GetUserFullInfo(it.id))?.let { f -> bio = f.bio?.text.orEmpty() } } }
     PageScaffold("Мой аккаунт") {
         group {
             value("Имя", me?.let { TdStore.fullName(it) } ?: "", onClick = { editName = true })
             value("О себе", bio.ifBlank { "Не указано" }, onClick = { editBio = true })
             value("Телефон", if (Prefs.hidePhone.value) "Скрыт" else "+" + (me?.phoneNumber ?: ""))
-            value("Имя пользователя", me?.usernames?.activeUsernames?.firstOrNull()?.let { "@$it" } ?: "Нет")
+            value("Имя пользователя", me?.usernames?.editableUsername?.takeIf { it.isNotBlank() }?.let { "@$it" } ?: "Нет", onClick = { editUser = true })
             value("ID", me?.id?.toString() ?: "")
         }
     }
     if (editName) TextDialog("Имя", listOf("Имя" to (me?.firstName ?: ""), "Фамилия" to (me?.lastName ?: ""))) { v ->
         editName = false
         if (v != null) Td.send(TdApi.SetName(v[0], v[1]))
+    }
+    if (editUser) TextDialog("Имя пользователя", listOf("username, без @" to (me?.usernames?.editableUsername ?: ""))) { v ->
+        editUser = false
+        if (v != null) Td.send(TdApi.SetUsername(v[0].removePrefix("@"))) { r ->
+            if (r is TdApi.Error) Toast.makeText(ctx, if (r.message.contains("OCCUPIED")) "Имя занято" else "Не удалось: ${r.message}", Toast.LENGTH_SHORT).show()
+        }
     }
     if (editBio) TextDialog("О себе", listOf("О себе" to bio)) { v ->
         editBio = false
@@ -592,6 +605,7 @@ private fun PrivacyPage() {
             }
         }
         group("Безопасность") {
+            nav("Заблокированные", null, Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
         }
     }
@@ -618,6 +632,10 @@ private fun DataPage() {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { stats = Td.callOrNull(TdApi.GetStorageStatisticsFast()) }
     PageScaffold("Данные и память") {
+        group("Автозагрузка медиа", footer = "Фото и небольшие файлы скачиваются сами, когда вы открываете чат.") {
+            switch("Через мобильную сеть", Prefs.autoDlMobile) { on -> applyAutoDownload(TdApi.NetworkTypeMobile(), on, 1) }
+            switch("Через Wi-Fi", Prefs.autoDlWifi) { on -> applyAutoDownload(TdApi.NetworkTypeWiFi(), on, 2) }
+        }
         group("Память устройства") {
             val s = stats
             value("Файлы и медиа", s?.let { Texts.size(it.filesSize) } ?: "…")
@@ -693,5 +711,39 @@ private fun AboutPage() = PageScaffold("О qwgram") {
     group(footer = "qwgram — неофициальный клиент Telegram на Jetpack Compose и Material 3 Expressive. Работает через официальную библиотеку TDLib на серверах Telegram.") {
         value("Библиотека", "TDLib")
         value("Интерфейс", "Material 3 Expressive")
+    }
+}
+
+private fun applyAutoDownload(type: TdApi.NetworkType, on: Boolean, preset: Int) {
+    Td.send(TdApi.GetAutoDownloadSettingsPresets()) { r ->
+        if (r !is TdApi.AutoDownloadSettingsPresets) return@send
+        val s = if (preset == 2) r.high else r.medium
+        s.isAutoDownloadEnabled = on
+        Td.send(TdApi.SetAutoDownloadSettings(s, type))
+    }
+}
+
+@Composable
+private fun BlockedPage() {
+    var list by remember { mutableStateOf<List<TdApi.MessageSender>?>(null) }
+    val scope = rememberCoroutineScope()
+    suspend fun reload() { list = Td.callOrNull(TdApi.GetBlockedMessageSenders(TdApi.BlockListMain(), 0, 100))?.senders?.toList().orEmpty() }
+    LaunchedEffect(Unit) { reload() }
+    PageScaffold("Заблокированные") {
+        val l = list
+        if (l == null) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { LoadingIndicator() } }
+        else group(footer = "Заблокированные не могут писать вам, звонить и видеть ваш статус.") {
+            if (l.isEmpty()) row { BaseRow("Список пуст") }
+            l.forEach { s ->
+                row {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SenderAvatar(s, 40.dp)
+                        Spacer(Modifier.width(16.dp))
+                        Text(TdStore.senderName(s).ifBlank { "Пользователь" }, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { scope.launch { Td.callOrNull(TdApi.SetMessageSenderBlockList(s, null)); reload() } }) { Text("Разблокировать") }
+                    }
+                }
+            }
+        }
     }
 }

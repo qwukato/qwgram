@@ -61,7 +61,8 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -100,6 +101,7 @@ import app.qwgram.next.Prefs
 import app.qwgram.next.td.Td
 import app.qwgram.next.td.TdStore
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -112,54 +114,47 @@ object HomeState {
 fun HomeScreen() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var chromeVisible by remember { mutableStateOf(true) }
-    val hideConn = remember {
+    // the bottom bar never moves; only the extended FAB folds into an icon while scrolling down (M3 spec)
+    var fabExpanded by remember { mutableStateOf(true) }
+    val fabConn = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (!Prefs.hideOnScroll.value) return Offset.Zero
-                if (available.y < -6f) chromeVisible = false else if (available.y > 6f) chromeVisible = true
+                if (available.y < -4f) fabExpanded = false else if (available.y > 4f) fabExpanded = true
                 return Offset.Zero
             }
         }
     }
-    LaunchedEffect(HomeState.tab) { chromeVisible = true }
+    LaunchedEffect(HomeState.tab) { fabExpanded = true }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = Prefs.drawer.value && HomeState.tab == HomeTab.Chats,
         drawerContent = { AppDrawer { scope.launch { drawerState.close() } } },
     ) {
-        val navOffset by animateFloatAsState(if (chromeVisible) 0f else 1f, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "chrome")
         Scaffold(
-            bottomBar = {
-                BottomNav(Modifier.graphicsLayer { translationY = size.height * navOffset; alpha = 1f - navOffset * 0.3f })
-            },
+            bottomBar = { BottomNav(Modifier) },
             floatingActionButton = {
-                if (HomeState.tab == HomeTab.Chats && Prefs.fabStyle.value != "none") {
-                    val ctx = LocalContext.current
-                    Box(Modifier.graphicsLayer { translationY = (size.height + 120.dp.toPx()) * navOffset }) {
-                        if (Prefs.fabStyle.value == "extended") {
-                            ExtendedFloatingActionButton(
-                                onClick = { HomeState.tab = HomeTab.Contacts },
-                                icon = { Icon(Icons.Filled.Edit, null) },
-                                text = { Text("Написать") },
-                            )
-                        } else {
-                            FloatingActionButton(onClick = { HomeState.tab = HomeTab.Contacts }) { Icon(Icons.Filled.Edit, "Написать") }
-                        }
-                    }
+                androidx.compose.animation.AnimatedVisibility(
+                    HomeState.tab == HomeTab.Chats && Prefs.fabStyle.value != "none",
+                    enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()),
+                    exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()),
+                ) {
+                    MorphFab(
+                        icon = Icons.Filled.Edit, text = "Написать",
+                        expanded = fabExpanded && Prefs.fabStyle.value == "extended",
+                        onClick = { Nav.push(Route.Page("compose")) },
+                    )
                 }
             },
             contentWindowInsets = WindowInsets(0),
         ) { pad ->
-            Box(Modifier.fillMaxSize().nestedScroll(hideConn)) {
-                val motion = MaterialTheme.motionScheme
+            Box(Modifier.fillMaxSize().nestedScroll(fabConn)) {
                 AnimatedContent(
                     targetState = HomeState.tab,
                     transitionSpec = {
                         // M3 fade-through between top-level destinations
-                        (fadeIn(motion.defaultEffectsSpec()) + androidx.compose.animation.scaleIn(motion.defaultSpatialSpec(), initialScale = 0.94f))
-                            .togetherWith(fadeOut(motion.fastEffectsSpec()))
+                        (fadeIn(Springs.smooth()) + androidx.compose.animation.scaleIn(Springs.smooth(), initialScale = 0.96f))
+                            .togetherWith(fadeOut(Springs.exit()))
                     },
                     label = "tabs",
                 ) { t ->
@@ -176,7 +171,7 @@ fun HomeScreen() {
 
 @Composable
 private fun BottomNav(modifier: Modifier) {
-    val unread = TdStore.chatsIn(TdApi.ChatListMain()).count { (it.unreadCount > 0 || it.isMarkedAsUnread) && !TdStore.isMuted(it) }
+    val unread = TdStore.unreadChats
     val tabs = buildList {
         add(Triple(HomeTab.Chats, "Чаты", Icons.Filled.Chat to Icons.AutoMirrored.Outlined.Chat))
         if (Prefs.showContactsTab.value) add(Triple(HomeTab.Contacts, "Контакты", Icons.Filled.Person to Icons.Outlined.Person))
@@ -189,7 +184,7 @@ private fun BottomNav(modifier: Modifier) {
                 Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     tabs.forEach { (t, title, icons) ->
                         val sel = HomeState.tab == t
-                        val w by animateDpAsState(if (sel && labels) 120.dp else 56.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "w")
+                        val w by animateDpAsState(if (sel && labels) 120.dp else 56.dp, Springs.fastSpatial(), label = "w")
                         Surface(
                             onClick = { HomeState.tab = t },
                             shape = CircleShape,
@@ -209,15 +204,14 @@ private fun BottomNav(modifier: Modifier) {
             }
         }
     } else {
-        NavigationBar(modifier) {
+        ShortNavigationBar(modifier) {
             tabs.forEach { (t, title, icons) ->
                 val sel = HomeState.tab == t
-                NavigationBarItem(
+                ShortNavigationBarItem(
                     selected = sel,
                     onClick = { HomeState.tab = t },
                     icon = { NavIcon(t, unread, if (sel) icons.first else icons.second, title) },
-                    label = if (labels) ({ Text(title) }) else null,
-                    alwaysShowLabel = labels,
+                    label = { if (labels) Text(title) },
                 )
             }
         }
@@ -266,8 +260,8 @@ private fun ChatsTab(pad: PaddingValues, openDrawer: () -> Unit) {
             } else {
                 TopAppBar(
                     title = { ConnectionTitle(tabs.getOrNull(pager.currentPage)?.title) },
-                    navigationIcon = { if (Prefs.drawer.value) IconButton(onClick = openDrawer) { Icon(Icons.Outlined.Menu, "Меню") } },
-                    actions = { IconButton(onClick = { Nav.push(Route.Search) }) { Icon(Icons.Outlined.Search, "Поиск") } },
+                    navigationIcon = { if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) },
+                    actions = { MorphIconButton(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) }) },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor, scrolledContainerColor = headerColor),
                     scrollBehavior = scrollBehavior,
                 )
@@ -276,7 +270,7 @@ private fun ChatsTab(pad: PaddingValues, openDrawer: () -> Unit) {
         }
         HorizontalPager(
             state = pager,
-            userScrollEnabled = Prefs.folderSwipe.value,
+            userScrollEnabled = Prefs.folderSwipe.value && Prefs.listSwipe.value != "actions",
             modifier = Modifier.fillMaxSize(),
             key = { tabs.getOrNull(it)?.title ?: it },
             beyondViewportPageCount = 1,
@@ -301,7 +295,7 @@ private fun SearchBarHeader(openDrawer: () -> Unit) {
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
-                if (Prefs.drawer.value) IconButton(onClick = openDrawer) { Icon(Icons.Outlined.Menu, "Меню") } else Spacer(Modifier.width(16.dp))
+                if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(16.dp))
                 Text("Поиск в qwgram", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 UserAvatar(me, 32.dp, Modifier.clickable { HomeState.tab = HomeTab.Settings })
                 Spacer(Modifier.width(12.dp))
@@ -319,8 +313,7 @@ fun ConnectionTitle(folderTitle: String?) {
         is TdApi.ConnectionStateUpdating -> "Обновление…"
         else -> null
     }
-    val motion = MaterialTheme.motionScheme
-    AnimatedContent(text, transitionSpec = { fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec()) }, label = "conn") { t ->
+    AnimatedContent(text, transitionSpec = { fadeIn(Springs.effects()) togetherWith fadeOut(Springs.exit()) }, label = "conn") { t ->
         if (t != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LoadingIndicator(Modifier.size(28.dp))
@@ -345,31 +338,38 @@ fun ConnectionTitle(folderTitle: String?) {
  */
 @Composable
 private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> Unit) {
-    val counts = tabs.map { t -> TdStore.chatsIn(t.list).count { (it.unreadCount > 0 || it.isMarkedAsUnread) && !TdStore.isMuted(it) } }
+    val counts = tabs.map { t -> TdStore.unreadIn(t.list) }
+    val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(selected) { rowState.animateScrollToItem((selected - 1).coerceAtLeast(0)) }
     when (Prefs.folderStyle.value) {
         "tabs" -> PrimaryScrollableTabRow(selectedTabIndex = selected, edgePadding = 8.dp, containerColor = androidx.compose.ui.graphics.Color.Transparent, divider = {}) {
             tabs.forEachIndexed { i, t ->
                 Tab(selected = i == selected, onClick = { onSelect(i) }, text = { FolderLabel(t.title, counts[i], i == selected) })
             }
         }
-        "chips" -> Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tabs.forEachIndexed { i, t ->
+        "chips" -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.foundation.lazy.itemsIndexed(tabs) { i, t ->
                 FilterChip(selected = i == selected, onClick = { onSelect(i) }, label = { FolderLabel(t.title, counts[i], i == selected) })
             }
         }
-        else -> Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            tabs.forEachIndexed { i, t ->
+        else -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            androidx.compose.foundation.lazy.itemsIndexed(tabs) { i, t ->
                 val sel = i == selected
                 val outer = 20.dp
-                val inner by animateDpAsState(if (sel) outer else 8.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "r")
+                val inner by animateDpAsState(if (sel) outer else 8.dp, Springs.fastSpatial(), label = "r")
                 val start = if (i == 0 || sel) outer else inner
                 val end = if (i == tabs.lastIndex || sel) outer else inner
+                val bg by androidx.compose.animation.animateColorAsState(if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, Springs.effects(), label = "fb")
+                val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val squeeze by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.94f else 1f, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "fs")
                 Surface(
                     onClick = { onSelect(i) },
                     shape = RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end),
-                    color = if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = bg,
                     contentColor = if (sel) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.height(40.dp),
+                    interactionSource = interaction,
+                    modifier = Modifier.height(40.dp).graphicsLayer { scaleX = squeeze; scaleY = squeeze },
                 ) {
                     Box(Modifier.padding(horizontal = if (sel) 20.dp else 16.dp), contentAlignment = Alignment.Center) {
                         FolderLabel(t.title, counts[i], sel)
@@ -401,8 +401,8 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 @Composable
 fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
-    val chats = TdStore.chatsIn(list)
-    val archived = if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList()
+    val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
+    val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
     LaunchedEffect(state, list) {
         snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
             if (last >= state.layoutInfo.totalItemsCount - 10) TdStore.loadMore(list)
@@ -421,8 +421,12 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
         if (archived.isNotEmpty()) {
             item(key = "archive") { ArchiveRow(archived) }
         }
-        items(chats, key = { it.id }) { c ->
-            ChatRow(c, list, Modifier.animateItem(), onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
+        items(chats, key = { it.id }, contentType = { 0 }) { c0 ->
+            // read the live chat by key: only this row recomposes when its counters change
+            val c = TdStore.chats[c0.id] ?: c0
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+                ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
+            }
         }
         if (chats.isEmpty()) {
             item {

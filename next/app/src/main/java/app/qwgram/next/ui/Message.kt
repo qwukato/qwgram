@@ -84,6 +84,11 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import app.qwgram.next.td.rememberFileBitmap
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.blur
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.getValue
 import org.drinkless.tdlib.TdApi
 import kotlin.math.roundToInt
 
@@ -97,10 +102,14 @@ fun MessageItem(
     group: Boolean,
     reply: TdApi.Message?,
     modifier: Modifier = Modifier,
+    selection: Boolean? = null,
+    highlighted: Boolean = false,
+    onTap: () -> Unit = {},
     onLong: () -> Unit,
     onDouble: () -> Unit,
     onSwipeReply: () -> Unit,
     onPhoto: (TdApi.Photo) -> Unit,
+    onReplyClick: (Long) -> Unit = {},
 ) {
     val service = Texts.service(m)
     if (service != null) {
@@ -119,9 +128,13 @@ fun MessageItem(
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     var armed by remember { mutableStateOf(false) }
+    val cs = MaterialTheme.colorScheme
+    val tintBg by androidx.compose.animation.animateColorAsState(
+        if (selection == true || highlighted) cs.primary.copy(alpha = 0.14f) else Color.Transparent, Springs.effects(), label = "sel",
+    )
 
     Row(
-        modifier.fillMaxWidth().padding(top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
+        modifier.fillMaxWidth().background(tintBg).padding(top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
             .pointerInput(m.id) {
                 if (!Prefs.swipeReply.value) return@pointerInput
                 detectHorizontalDragGestures(
@@ -143,13 +156,31 @@ fun MessageItem(
         horizontalArrangement = if (out) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
+        androidx.compose.animation.AnimatedVisibility(
+            selection != null, Modifier.align(Alignment.CenterVertically),
+            enter = androidx.compose.animation.expandHorizontally(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()),
+            exit = androidx.compose.animation.shrinkHorizontally(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()),
+        ) {
+            val on = selection == true
+            val sc by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, Springs.fastSpatial(), label = "chk")
+            Box(
+                Modifier.padding(start = 4.dp, end = 10.dp).size(24.dp).clip(CircleShape)
+                    .border(2.dp, if (on) cs.primary else cs.outline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(24.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = cs.onPrimary)
+                }
+            }
+        }
+        if (out) Spacer(Modifier.weight(1f))
         if (showAvatar) {
             if (lastInRun) SenderAvatar(m.senderId, 34.dp, Modifier.clickable { senderChatOrUser(m)?.let { Nav.push(Route.Profile(it)) } })
             else Spacer(Modifier.width(34.dp))
             Spacer(Modifier.width(6.dp))
         }
         Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }) {
-            Bubble(m, grp, chat, group && !out, reply, onLong, onDouble, onPhoto)
+            Bubble(m, grp, chat, group && !out, reply, onTap, onLong, onDouble, onPhoto, onReplyClick)
         }
         if (swipe.value < -8f) {
             val p = (-swipe.value / 56.dp.value / 3f).coerceIn(0f, 1f)
@@ -172,7 +203,7 @@ private fun senderChatOrUser(m: TdApi.Message): Long? = when (val s = m.senderId
 @Composable
 private fun Bubble(
     m: TdApi.Message, grp: Grp, chat: TdApi.Chat, showName: Boolean, reply: TdApi.Message?,
-    onLong: () -> Unit, onDouble: () -> Unit, onPhoto: (TdApi.Photo) -> Unit,
+    onTap: () -> Unit, onLong: () -> Unit, onDouble: () -> Unit, onPhoto: (TdApi.Photo) -> Unit, onReplyClick: (Long) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val out = m.isOutgoing && !m.isChannelPost
@@ -199,7 +230,7 @@ private fun Bubble(
     val media = c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
     val maxW = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * Prefs.bubbleWidth.value / 100f).dp
     val gestures = Modifier.pointerInput(m.id) {
-        detectTapGestures(onLongPress = { onLong() }, onDoubleTap = { onDouble() })
+        detectTapGestures(onTap = { onTap() }, onLongPress = { onLong() }, onDoubleTap = { onDouble() })
     }
 
     if (bare) {
@@ -231,7 +262,13 @@ private fun Bubble(
                 Text("Переслано от " + originName(fi.origin), style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = pad.padding(top = 6.dp))
             }
-            if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) ReplyQuote(reply, m, fg, pad.padding(top = 6.dp))
+            if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) ReplyQuote(reply, m, fg, pad.padding(top = 6.dp).clickable {
+                (m.replyTo as? TdApi.MessageReplyToMessage)?.let { r -> if (r.chatId == m.chatId || r.chatId == 0L) onReplyClick(r.messageId) }
+            })
+            val cap = Texts.caption(c)
+            val hasCap = cap != null && cap.text.isNotEmpty()
+            val hasReactions = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true
+            Box {
             when (c) {
                 is TdApi.MessagePhoto -> PhotoView(c.photo, shapeTop = r - 3.dp, onClick = { onPhoto(c.photo) })
                 is TdApi.MessageVideo -> VideoThumb(c.video.thumbnail?.file, c.video.minithumbnail, c.video.width, c.video.height, Texts.duration(c.video.duration)) {
@@ -255,18 +292,33 @@ private fun Bubble(
                 }
                 else -> Unit
             }
-            val cap = Texts.caption(c)
-            if (cap != null && cap.text.isNotEmpty()) {
-                Box(pad.padding(top = if (textOnly && !showName && m.forwardInfo == null && m.replyTo == null) 8.dp else 6.dp)) {
-                    RichText(cap, fg)
+            // time over the picture when there is nothing below it (Telegram style)
+            if (media && !hasCap && !hasReactions) {
+                Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.45f), modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+                    Meta(m, chat, Color.White, Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
+                }
+            }
+            }
+            val metaColor = fg.copy(alpha = 0.7f)
+            if (hasCap) {
+                Box(pad.padding(top = if (textOnly && !showName && m.forwardInfo == null && m.replyTo == null) 8.dp else 6.dp, bottom = if (hasReactions) 0.dp else 6.dp)) {
+                    if (hasReactions) RichText(cap!!, fg)
+                    else TextWithMeta(cap!!, fg) { Meta(m, chat, metaColor, Modifier) }
                 }
             } else if (!textOnly && c !is TdApi.MessagePhoto && c !is TdApi.MessageVideo && c !is TdApi.MessageAnimation && c !is TdApi.MessageVideoNote &&
                 c !is TdApi.MessageVoiceNote && c !is TdApi.MessageAudio && c !is TdApi.MessageDocument && c !is TdApi.MessageLocation &&
                 c !is TdApi.MessageContact && c !is TdApi.MessagePoll && c !is TdApi.MessageCall) {
                 Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, modifier = pad.padding(top = 8.dp), color = fg.copy(alpha = 0.8f))
             }
-            Reactions(m, out, pad)
-            Meta(m, chat, fg.copy(alpha = 0.72f), Modifier.align(Alignment.End).padding(start = 12.dp, end = if (media) 8.dp else 10.dp, bottom = 6.dp, top = 2.dp))
+            if (hasReactions) {
+                Row(pad.padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                    Reactions(m, out, Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(10.dp))
+                    Meta(m, chat, metaColor, Modifier.padding(bottom = 2.dp))
+                }
+            } else if (!hasCap && !media) {
+                Meta(m, chat, metaColor, Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
+            }
         }
     }
 }
@@ -345,22 +397,69 @@ private fun Reactions(m: TdApi.Message, out: Boolean, modifier: Modifier = Modif
             Surface(
                 onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) },
                 shape = CircleShape,
-                color = if (r.isChosen) cs.primary else if (out) cs.surface.copy(alpha = 0.55f) else cs.secondaryContainer,
-                contentColor = if (r.isChosen) cs.onPrimary else cs.onSecondaryContainer,
+                color = if (r.isChosen) cs.primary.copy(alpha = 0.22f) else cs.onSurface.copy(alpha = 0.07f),
+                contentColor = if (r.isChosen) cs.primary else cs.onSurfaceVariant,
+                border = if (r.isChosen) androidx.compose.foundation.BorderStroke(1.5.dp, cs.primary.copy(alpha = 0.6f)) else null,
             ) {
-                Text("$emoji ${r.totalCount}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
+                Row(Modifier.padding(start = 7.dp, end = 9.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(emoji, fontSize = 15.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(compact(r.totalCount), style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
     }
 }
 
 @Composable
-fun RichText(ft: TdApi.FormattedText, color: Color) {
+fun RichText(ft: TdApi.FormattedText, color: Color, onLayout: ((androidx.compose.ui.text.TextLayoutResult) -> Unit)? = null) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val linkColor = if (color == cs.onPrimary) cs.onPrimary else cs.primary
     val annotated = remember(ft, linkColor) { formatted(ft, linkColor, ctx) }
-    Text(annotated, style = MaterialTheme.typography.bodyLarge.copy(fontSize = Prefs.textSize.value.sp, lineHeight = (Prefs.textSize.value * 1.35f).sp), color = color)
+    Text(
+        annotated, style = MaterialTheme.typography.bodyLarge.copy(fontSize = Prefs.textSize.value.sp, lineHeight = (Prefs.textSize.value * 1.35f).sp), color = color,
+        onTextLayout = { r -> onLayout?.invoke(r) },
+    )
+}
+
+/**
+ * Text with the time/ticks tucked into the end of the last line when they fit (Telegram layout),
+ * otherwise on their own line at the bottom-right.
+ */
+@Composable
+fun TextWithMeta(ft: TdApi.FormattedText, color: Color, meta: @Composable () -> Unit) {
+    val holder = remember { arrayOfNulls<androidx.compose.ui.text.TextLayoutResult>(1) }
+    androidx.compose.ui.layout.Layout(
+        content = {
+            RichText(ft, color) { holder[0] = it }
+            meta()
+        },
+    ) { ms, c ->
+        val gap = 8.dp.roundToPx()
+        val text = ms[0].measure(c.copy(minWidth = 0))
+        val metaP = ms[1].measure(androidx.compose.ui.unit.Constraints())
+        val lay = holder[0]
+        val lastW = if (lay != null && lay.lineCount > 0) {
+            val l = lay.lineCount - 1
+            kotlin.math.ceil(lay.getLineRight(l) - lay.getLineLeft(l)).toInt()
+        } else text.width
+        val rtl = lay != null && lay.lineCount > 0 && lay.getParagraphDirection(lay.getLineStart(lay.lineCount - 1)) == androidx.compose.ui.text.style.ResolvedTextDirection.Rtl
+        val fitsInline = !rtl && lastW + gap + metaP.width <= c.maxWidth
+        val w: Int
+        val h: Int
+        if (fitsInline) {
+            w = maxOf(text.width, lastW + gap + metaP.width).coerceAtMost(c.maxWidth)
+            h = maxOf(text.height, metaP.height)
+        } else {
+            w = maxOf(text.width, metaP.width).coerceAtMost(c.maxWidth)
+            h = text.height + metaP.height
+        }
+        layout(w, h) {
+            text.placeRelative(0, 0)
+            metaP.placeRelative(w - metaP.width, h - metaP.height + if (fitsInline) 2 else 0)
+        }
+    }
 }
 
 private fun formatted(ft: TdApi.FormattedText, link: Color, ctx: android.content.Context): AnnotatedString = buildAnnotatedString {
@@ -410,8 +509,10 @@ private fun PhotoView(p: TdApi.Photo, shapeTop: androidx.compose.ui.unit.Dp, onC
         Modifier.fillMaxWidth().widthIn(min = 160.dp).aspectRatio(ratio).clip(RoundedCornerShape(topStart = shapeTop, topEnd = shapeTop, bottomStart = 6.dp, bottomEnd = 6.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable(onClick = onClick),
     ) {
-        val img = bmp ?: mini
-        if (img != null) Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (bmp == null && mini != null) Image(mini, null, Modifier.fillMaxSize().blur(14.dp), contentScale = ContentScale.Crop)
+        androidx.compose.animation.AnimatedVisibility(bmp != null, enter = androidx.compose.animation.fadeIn(Springs.effects()), exit = androidx.compose.animation.fadeOut(snap())) {
+            bmp?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        }
         if (bmp == null) DownloadProgress(size.photo, Modifier.align(Alignment.Center))
     }
 }

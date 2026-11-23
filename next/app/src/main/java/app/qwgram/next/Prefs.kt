@@ -111,7 +111,9 @@ object Prefs {
     // ---- navigation ----
     val navStyle = S("nav_style", "standard")           // standard | floating
     val navLabels = B("nav_labels", true)
-    val hideOnScroll = B("hide_on_scroll", true)
+    val listSwipe = S("list_swipe", "folders")            // folders | actions (archive / read)
+    val autoDlMobile = B("autodl_mobile", true)
+    val autoDlWifi = B("autodl_wifi", true)
     val fabStyle = S("fab_style", "extended")           // extended | icon | none
     val showContactsTab = B("contacts_tab", true)
     val drawer = B("drawer", true)

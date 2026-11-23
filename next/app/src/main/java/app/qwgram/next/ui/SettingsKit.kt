@@ -60,13 +60,13 @@ import app.qwgram.next.Prefs
 /** Settings page frame: large collapsing app bar + lazy content. */
 @Composable
 fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: LazyListScope.() -> Unit) {
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            androidx.compose.material3.TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = { Nav.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
                 actions = { actions() },
                 scrollBehavior = scroll,
             )
@@ -134,7 +134,7 @@ fun BaseRow(title: String, sub: String? = null, icon: ImageVector? = null, tone:
         if (icon != null) { RowIcon(icon, if (danger) 3 else tone); Spacer(Modifier.width(16.dp)) }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-            if (!sub.isNullOrBlank()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!sub.isNullOrBlank()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         trailing()
     }
@@ -155,12 +155,12 @@ fun GroupScope.value(title: String, value: String, icon: ImageVector? = null, on
 fun GroupScope.switch(title: String, pref: Prefs.B, sub: String? = null, icon: ImageVector? = null, onChange: (Boolean) -> Unit = {}) = row {
     val v = pref.state.value
     BaseRow(title, sub, icon, onClick = { pref.value = !v; onChange(!v) }) {
-        Switch(checked = v, onCheckedChange = { pref.value = it; onChange(it) })
+        QSwitch(v) { pref.value = it; onChange(it) }
     }
 }
 
 fun GroupScope.switchState(title: String, checked: Boolean, sub: String? = null, icon: ImageVector? = null, onChange: (Boolean) -> Unit) = row {
-    BaseRow(title, sub, icon, onClick = { onChange(!checked) }) { Switch(checked = checked, onCheckedChange = onChange) }
+    BaseRow(title, sub, icon, onClick = { onChange(!checked) }) { QSwitch(checked, onChange) }
 }
 
 /** segmented button row (≤ 4 options) */
@@ -245,3 +245,12 @@ fun GroupScope.custom(content: @Composable ColumnScope.() -> Unit) = row {
 
 @Composable
 fun BottomSpacer() = Spacer(Modifier.navigationBarsPadding().height(16.dp))
+
+/** M3 switch with the check icon in the thumb (Expressive style) */
+@Composable
+fun QSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Switch(
+        checked = checked, onCheckedChange = onChange,
+        thumbContent = if (checked) ({ Icon(androidx.compose.material.icons.Icons.Filled.Check, null, Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)) }) else null,
+    )
+}

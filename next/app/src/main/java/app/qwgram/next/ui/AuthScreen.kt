@@ -59,7 +59,6 @@ import org.drinkless.tdlib.TdApi
 @Composable
 fun AppRoot() {
     val auth = TdStore.auth
-    val motion = MaterialTheme.motionScheme
     AnimatedContent(
         targetState = when (auth) {
             null, is TdApi.AuthorizationStateWaitTdlibParameters, is TdApi.AuthorizationStateClosed, is TdApi.AuthorizationStateClosing -> 0
@@ -67,7 +66,7 @@ fun AppRoot() {
             is TdApi.AuthorizationStateLoggingOut -> 0
             else -> 1
         },
-        transitionSpec = { fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec()) },
+        transitionSpec = { fadeIn(Springs.effects()) togetherWith fadeOut(Springs.exit()) },
         label = "root",
     ) { s ->
         when (s) {
@@ -97,7 +96,6 @@ private fun AuthScreen() {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val motion = MaterialTheme.motionScheme
     fun submit(f: TdApi.Function<*>) {
         busy = true
         error = null
@@ -131,8 +129,8 @@ private fun AuthScreen() {
                 targetState = state,
                 contentKey = { it?.javaClass },
                 transitionSpec = {
-                    (slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()))
-                        .togetherWith(slideOutHorizontally(motion.defaultSpatialSpec()) { -it / 4 } + fadeOut(motion.fastEffectsSpec()))
+                    (slideInHorizontally(Springs.smooth()) { it / 4 } + fadeIn(Springs.effects()))
+                        .togetherWith(slideOutHorizontally(Springs.smooth()) { -it / 4 } + fadeOut(Springs.exit()))
                 },
                 label = "auth",
             ) { st ->

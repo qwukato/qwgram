@@ -55,6 +55,11 @@ import app.qwgram.next.Prefs
 import app.qwgram.next.td.Td
 import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 
 @Composable
@@ -112,18 +117,21 @@ fun ChatRow(chat: TdApi.Chat, list: TdApi.ChatList?, modifier: Modifier = Modifi
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (TdStore.isSaved(chat)) "Избранное" else chat.title,
-                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (user?.verificationStatus?.isVerified == true) {
-                    Spacer(Modifier.width(4.dp)); Icon(Icons.Filled.Verified, null, Modifier.size(16.dp), tint = cs.primary)
+                // name takes all free space (icons stick to it), the time keeps its natural width
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (TdStore.isSaved(chat)) "Избранное" else chat.title,
+                        style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (user?.verificationStatus?.isVerified == true) {
+                        Spacer(Modifier.width(4.dp)); Icon(Icons.Filled.Verified, null, Modifier.size(16.dp), tint = cs.primary)
+                    }
+                    if (muted) {
+                        Spacer(Modifier.width(4.dp)); Icon(Icons.Outlined.VolumeOff, null, Modifier.size(15.dp), tint = cs.outline)
+                    }
                 }
-                if (muted) {
-                    Spacer(Modifier.width(4.dp)); Icon(Icons.Outlined.VolumeOff, null, Modifier.size(16.dp), tint = cs.outline)
-                }
-                Spacer(Modifier.weight(1f).width(8.dp))
+                Spacer(Modifier.width(8.dp))
                 if (last != null && last.isOutgoing && draft == null) {
                     val read = last.id <= chat.lastReadOutboxMessageId
                     Icon(if (read) Icons.Rounded.DoneAll else Icons.Rounded.Check, null, Modifier.size(16.dp), tint = cs.primary)
@@ -258,5 +266,68 @@ fun deleteChat(chat: TdApi.Chat) {
             Td.send(TdApi.DeleteChatHistory(chat.id, true, false))
         }
         else -> Td.send(TdApi.DeleteChatHistory(chat.id, true, t is TdApi.ChatTypePrivate && chat.canBeDeletedForAllUsers))
+    }
+}
+
+/**
+ * Telegram-style swipe actions on a chat row: swipe left → archive / unarchive, swipe right → read / unread.
+ * The coloured layer and icon grow with the drag; release past 30% to act, the row springs back.
+ */
+@Composable
+fun SwipeChatRow(chat: TdApi.Chat, list: TdApi.ChatList?, enabled: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    if (!enabled) { Box(modifier) { content() }; return }
+    val cs = MaterialTheme.colorScheme
+    val dx = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptic = rememberHaptic()
+    var widthPx by remember { mutableStateOf(1f) }
+    var armed by remember { mutableStateOf(false) }
+    val archived = list is TdApi.ChatListArchive
+    val unread = chat.unreadCount > 0 || chat.isMarkedAsUnread
+    Box(
+        modifier
+            .fillMaxWidth()
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(chat.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (armed) {
+                            if (dx.value < 0) Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive()))
+                            else if (unread) markRead(chat) else Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true))
+                        }
+                        armed = false
+                        scope.launch { dx.animateTo(0f, Springs.fastSpatial()) }
+                    },
+                    onDragCancel = { armed = false; scope.launch { dx.animateTo(0f, Springs.fastSpatial()) } },
+                ) { change, delta ->
+                    change.consume()
+                    val v = (dx.value + delta).coerceIn(-widthPx * 0.6f, widthPx * 0.6f)
+                    scope.launch { dx.snapTo(v) }
+                    val now = kotlin.math.abs(v) > widthPx * 0.3f
+                    if (now != armed) { armed = now; if (now) haptic(HapticFeedbackType.TextHandleMove) }
+                }
+            },
+    ) {
+        val v = dx.value
+        if (v != 0f) {
+            val left = v < 0
+            val bg = if (left) cs.tertiaryContainer else cs.primaryContainer
+            val fg = if (left) cs.onTertiaryContainer else cs.onPrimaryContainer
+            val icon = when {
+                left && archived -> Icons.Outlined.Unarchive
+                left -> Icons.Outlined.Archive
+                unread -> Icons.Outlined.DoneAll
+                else -> Icons.Outlined.MarkChatUnread
+            }
+            val p = (kotlin.math.abs(v) / (widthPx * 0.3f)).coerceIn(0f, 1f)
+            Box(
+                Modifier.matchParentSize().background(bg.copy(alpha = 0.4f + 0.6f * p)).padding(horizontal = 28.dp),
+                contentAlignment = if (left) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                val sc by androidx.compose.animation.core.animateFloatAsState(if (armed) 1.25f else 0.8f + 0.2f * p, Springs.fastSpatial(), label = "ic")
+                Icon(icon, null, tint = fg, modifier = Modifier.graphicsLayer { scaleX = sc; scaleY = sc })
+            }
+        }
+        Box(Modifier.graphicsLayer { translationX = dx.value }.background(cs.surface)) { content() }
     }
 }
