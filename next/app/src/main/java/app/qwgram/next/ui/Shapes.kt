@@ -2,7 +2,6 @@ package app.qwgram.next.ui
 
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Size
@@ -56,7 +55,7 @@ object AvatarShapes {
 
 private val shapeCache = HashMap<String, Shape>()
 
-fun shapeFor(key: String): Shape = if (key == "circle") CircleShape else shapeCache.getOrPut(key) { AvatarShapes.polygon(key).toShape() }
+fun shapeFor(key: String): Shape = if (key == "circle") CircleShape else shapeCache.getOrPut(key) { AvatarShapes.polygon(key).asShape() }
 
 @Composable
 fun avatarShape(): Shape {
@@ -78,3 +77,19 @@ class MorphShape(private val morph: Morph, private val progress: Float) : Shape 
         return Outline.Generic(p)
     }
 }
+
+/** non-composable RoundedPolygon → Shape, scaled to fill the layout bounds */
+class PolygonShape(private val polygon: RoundedPolygon) : Shape {
+    private val base = polygon.toPath().asComposePath()
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val p = androidx.compose.ui.graphics.Path().apply { addPath(base) }
+        val b = p.getBounds()
+        val m = Matrix()
+        m.scale(if (b.width > 0f) size.width / b.width else 1f, if (b.height > 0f) size.height / b.height else 1f)
+        m.translate(-b.left, -b.top)
+        p.transform(m)
+        return Outline.Generic(p)
+    }
+}
+
+fun RoundedPolygon.asShape(): Shape = PolygonShape(this)

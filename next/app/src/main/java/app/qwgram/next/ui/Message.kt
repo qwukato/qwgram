@@ -47,7 +47,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -545,7 +544,7 @@ private fun DocumentView(d: TdApi.Document, fg: Color, modifier: Modifier) {
 private fun LocationView(l: TdApi.Location, fg: Color, modifier: Modifier) {
     val ctx = LocalContext.current
     Row(modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(12.dp)).clickable { Opener.location(ctx, l.latitude, l.longitude) }, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(46.dp).clip(androidx.compose.material3.MaterialShapes.Sunny.toShape()).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(46.dp).clip(androidx.compose.material3.MaterialShapes.Sunny.asShape()).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.LocationOn, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
         }
         Spacer(Modifier.width(12.dp))

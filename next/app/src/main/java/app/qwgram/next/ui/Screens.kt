@@ -53,7 +53,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -299,7 +298,7 @@ fun SearchScreen() {
             }
             if (q.isNotBlank() && !busy && local.isEmpty() && global.isEmpty() && messages.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.toShape()).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.Search, null, tint = cs.onSecondaryContainer)
                     }
                     Spacer(Modifier.height(16.dp))

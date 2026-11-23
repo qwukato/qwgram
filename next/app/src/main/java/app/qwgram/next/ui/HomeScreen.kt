@@ -69,7 +69,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.DrawerValue
@@ -428,7 +427,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
         if (chats.isEmpty()) {
             item {
                 Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.toShape()).background(MaterialTheme.colorScheme.secondaryContainer))
+                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(MaterialTheme.colorScheme.secondaryContainer))
                     Spacer(Modifier.height(16.dp))
                     Text("Здесь пока пусто", style = MaterialTheme.typography.titleMedium)
                 }

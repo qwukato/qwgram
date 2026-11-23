@@ -33,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,7 +121,7 @@ private fun AuthScreen() {
         ) {
             Spacer(Modifier.height(48.dp))
             Box(
-                Modifier.size(112.dp).clip(MaterialShapes.Cookie9Sided.toShape()).background(Color(0xFF6750A4)),
+                Modifier.size(112.dp).clip(MaterialShapes.Cookie9Sided.asShape()).background(Color(0xFF6750A4)),
                 contentAlignment = Alignment.Center,
             ) {
                 Image(painterResource(R.drawable.ic_splash), null, Modifier.size(150.dp))

@@ -682,7 +682,7 @@ private fun FoldersPage() = PageScaffold("Папки с чатами") {
 private fun AboutPage() = PageScaffold("О qwgram") {
     item {
         Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()).background(Color(0xFF6750A4)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.asShape()).background(Color(0xFF6750A4)), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.qwgram.next.R.drawable.ic_splash), null, Modifier.size(130.dp))
             }
             Spacer(Modifier.height(12.dp))

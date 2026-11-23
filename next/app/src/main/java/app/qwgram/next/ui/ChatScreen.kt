@@ -85,7 +85,6 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -501,7 +500,7 @@ private fun WallpaperShapes() {
     }
 }
 
-private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.toShape()
+private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 
 @Composable
 private fun ChatTopBar(chat: TdApi.Chat) {
@@ -794,7 +793,7 @@ private fun Composer(
 private fun AttachAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, shape: androidx.graphics.shapes.RoundedPolygon, tone: Int, onClick: () -> Unit) {
     val (bg, fg) = avatarColors(tone.toLong())
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(12.dp)) {
-        Box(Modifier.size(64.dp).clip(shape.toShape()).background(bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = fg) }
+        Box(Modifier.size(64.dp).clip(shape.asShape()).background(bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = fg) }
         Spacer(Modifier.height(8.dp))
         Text(title, style = MaterialTheme.typography.labelLarge)
     }
