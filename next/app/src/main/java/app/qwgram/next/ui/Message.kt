@@ -194,6 +194,9 @@ fun MessageItem(
     }
 }
 
+/** width available to message bubbles (the preview in settings is narrower than the screen) */
+val LocalBubbleArea = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.unit.Dp?> { null }
+
 private fun senderChatOrUser(m: TdApi.Message): Long? = when (val s = m.senderId) {
     is TdApi.MessageSenderChat -> s.chatId
     is TdApi.MessageSenderUser -> TdStore.chats.values.firstOrNull { TdStore.privateUserId(it) == s.userId }?.id
@@ -228,10 +231,17 @@ private fun Bubble(
     val bigEmoji = Prefs.bigEmoji.value && ((c is TdApi.MessageText && c.text.entities.isEmpty() && emojiOnly.matches(c.text.text.trim())) || c is TdApi.MessageAnimatedEmoji)
     val bare = c is TdApi.MessageSticker || bigEmoji
     val media = c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
-    val maxW = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * Prefs.bubbleWidth.value / 100f).dp
-    val gestures = Modifier.pointerInput(m.id) {
-        detectTapGestures(onTap = { onTap() }, onLongPress = { onLong() }, onDoubleTap = { onDouble() })
-    }
+    val maxW = ((LocalBubbleArea.current ?: androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp) * (Prefs.bubbleWidth.value / 100f))
+    var pressed by remember { mutableStateOf(false) }
+    val squish by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.965f else 1f, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "bp")
+    val gestures = Modifier
+        .graphicsLayer { scaleX = squish; scaleY = squish; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (out) 1f else 0f, 0.5f) }
+        .pointerInput(m.id) {
+            detectTapGestures(
+                onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                onTap = { onTap() }, onLongPress = { onLong() }, onDoubleTap = { onDouble() },
+            )
+        }
 
     if (bare) {
         Column(gestures.widthIn(max = maxW), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
@@ -246,12 +256,14 @@ private fun Bubble(
         return
     }
 
+    Column(horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
     Surface(
         shape = shape, color = bg, contentColor = fg,
         border = if (style == "outlined") androidx.compose.foundation.BorderStroke(if (out) 1.5.dp else 1.dp, if (out) cs.primary else cs.outlineVariant) else null,
         modifier = gestures.widthIn(max = maxW),
     ) {
-        Column(Modifier.padding(if (media) 3.dp else 0.dp)) {
+        val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true
+        Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if (hasReactionsOuter && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
             val pad = if (media) Modifier.padding(horizontal = 8.dp) else Modifier.padding(horizontal = 12.dp)
             if (showName && (grp == Grp.Single || grp == Grp.Top)) {
                 val id = TdStore.senderId(m.senderId)
@@ -267,6 +279,7 @@ private fun Bubble(
             })
             val cap = Texts.caption(c)
             val hasCap = cap != null && cap.text.isNotEmpty()
+            val preview = (c as? TdApi.MessageText)?.linkPreview
             val hasReactions = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true
             Box {
             when (c) {
@@ -302,24 +315,27 @@ private fun Bubble(
             val metaColor = fg.copy(alpha = 0.7f)
             if (hasCap) {
                 Box(pad.padding(top = if (textOnly && !showName && m.forwardInfo == null && m.replyTo == null) 8.dp else 6.dp, bottom = if (hasReactions) 0.dp else 6.dp)) {
-                    if (hasReactions) RichText(cap!!, fg)
+                    if (hasReactions || preview != null) RichText(cap!!, fg)
                     else TextWithMeta(cap!!, fg) { Meta(m, chat, metaColor, Modifier) }
                 }
+                if (preview != null) LinkPreviewCard(preview, fg, pad.padding(top = 6.dp, bottom = if (hasReactions) 0.dp else 2.dp))
             } else if (!textOnly && c !is TdApi.MessagePhoto && c !is TdApi.MessageVideo && c !is TdApi.MessageAnimation && c !is TdApi.MessageVideoNote &&
                 c !is TdApi.MessageVoiceNote && c !is TdApi.MessageAudio && c !is TdApi.MessageDocument && c !is TdApi.MessageLocation &&
                 c !is TdApi.MessageContact && c !is TdApi.MessagePoll && c !is TdApi.MessageCall) {
                 Text(Texts.preview(m), style = MaterialTheme.typography.bodyMedium, modifier = pad.padding(top = 8.dp), color = fg.copy(alpha = 0.8f))
             }
             if (hasReactions) {
-                Row(pad.padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.fillMaxWidth().then(pad).padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                     Reactions(m, out, Modifier.weight(1f, fill = false))
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.weight(1f).widthIn(min = 10.dp))
                     Meta(m, chat, metaColor, Modifier.padding(bottom = 2.dp))
                 }
-            } else if (!hasCap && !media) {
+            } else if ((!hasCap && !media) || (hasCap && preview != null)) {
                 Meta(m, chat, metaColor, Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
             }
         }
+    }
+    InlineKeyboard(m, maxW)
     }
 }
 

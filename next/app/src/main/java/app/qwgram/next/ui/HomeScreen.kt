@@ -103,6 +103,17 @@ import app.qwgram.next.td.TdStore
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.outlined.GroupAdd
+import androidx.compose.material.icons.outlined.Contacts
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -130,6 +141,7 @@ fun HomeScreen() {
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = Prefs.drawer.value && HomeState.tab == HomeTab.Chats,
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         drawerContent = { AppDrawer { scope.launch { drawerState.close() } } },
     ) {
         Scaffold(
@@ -252,7 +264,11 @@ private fun ChatsTab(pad: PaddingValues, openDrawer: () -> Unit) {
         tabs.getOrNull(pager.currentPage)?.let { Td.send(TdApi.LoadChats(it.list, 100)) }
     }
 
-    Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+    val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || pager.currentPage == 0)
+    Column(
+        Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
+            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = Prefs.listSwipe.value == "actions", onOpen = openDrawer),
+    ) {
         val scrolled = scrollBehavior.state.overlappedFraction > 0.01f
         val headerColor = if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface
         Column(Modifier.background(headerColor)) {
@@ -465,37 +481,125 @@ private fun AppDrawer(close: () -> Unit) {
     val me = TdStore.me
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    ModalDrawerSheet {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                UserAvatar(me, 64.dp)
-                Spacer(Modifier.weight(1f))
-                val dark = isAppDark()
-                IconButton(onClick = { Prefs.themeMode.value = if (dark) "light" else "dark" }) {
-                    Icon(if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "Ночной режим")
+    val cs = MaterialTheme.colorScheme
+    ModalDrawerSheet(drawerContainerColor = cs.surfaceContainerLow, drawerShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            item {
+                // account card
+                MorphBox(
+                    onClick = { close(); Nav.push(Route.Me) }, rest = 28.dp, pressed = 16.dp, squish = 0.98f,
+                    color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.Top) {
+                            UserAvatar(me, 64.dp)
+                            Spacer(Modifier.weight(1f))
+                            val dark = isAppDark()
+                            AnimatedContent(dark, transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) }, label = "theme") { d ->
+                                MorphIconButton(
+                                    if (d) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "Ночной режим",
+                                    { Prefs.themeMode.value = if (d) "light" else "dark" },
+                                    color = cs.surface.copy(alpha = 0.35f),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text(me?.let { TdStore.fullName(it) } ?: "", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            if (Prefs.hidePhone.value) "Номер скрыт" else "+" + (me?.phoneNumber ?: ""),
+                            style = MaterialTheme.typography.bodyMedium, color = cs.onPrimaryContainer.copy(alpha = 0.75f),
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text(me?.let { TdStore.fullName(it) } ?: "", style = MaterialTheme.typography.titleMedium)
-            Text(if (Prefs.hidePhone.value) "Номер скрыт" else "+" + (me?.phoneNumber ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
-        val item: @Composable (String, androidx.compose.ui.graphics.vector.ImageVector, () -> Unit) -> Unit = { label, icon, action ->
-            NavigationDrawerItem(label = { Text(label) }, icon = { Icon(icon, null) }, selected = false, onClick = { close(); action() }, modifier = Modifier.padding(horizontal = 12.dp))
-        }
-        item("Мой профиль", Icons.Outlined.Person) { Nav.push(Route.Me) }
-        item("Контакты", Icons.Outlined.Person) { HomeState.tab = HomeTab.Contacts }
-        item("Избранное", Icons.Outlined.Bookmark) {
-            val id = me?.id ?: return@item
-            scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id, false))?.let { Nav.push(Route.Chat(it.id)) } }
-        }
-        item("Архив", Icons.Outlined.Archive) { Nav.push(Route.Archive) }
-        item("Настройки", Icons.Outlined.Settings) { HomeState.tab = HomeTab.Settings }
-        HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
-        item("Внешний вид", Icons.Outlined.Palette) { Nav.push(Route.Page("appearance")) }
-        item("Функции qwgram", Icons.Outlined.AutoAwesome) { Nav.push(Route.Page("features")) }
-        item("Пригласить друзей", Icons.Outlined.Person) {
-            Toast.makeText(ctx, "Ссылка t.me скопирована", Toast.LENGTH_SHORT).show()
+            drawerGroup(
+                listOf(
+                    DrawerEntry("Мой профиль", Icons.Outlined.Person) { Nav.push(Route.Me) },
+                    DrawerEntry("Новая группа", Icons.Outlined.GroupAdd) { Nav.push(Route.Page("compose")) },
+                    DrawerEntry("Контакты", Icons.Outlined.Contacts) { HomeState.tab = HomeTab.Contacts },
+                    DrawerEntry("Избранное", Icons.Outlined.Bookmark) {
+                        val id = me?.id ?: return@DrawerEntry
+                        scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id, false))?.let { Nav.push(Route.Chat(it.id)) } }
+                    },
+                    DrawerEntry("Архив", Icons.Outlined.Archive) { Nav.push(Route.Archive) },
+                ), close,
+            )
+            drawerGroup(
+                listOf(
+                    DrawerEntry("Настройки", Icons.Outlined.Settings) { HomeState.tab = HomeTab.Settings },
+                    DrawerEntry("Внешний вид", Icons.Outlined.Palette) { Nav.push(Route.Page("appearance")) },
+                    DrawerEntry("Функции qwgram", Icons.Outlined.AutoAwesome) { Nav.push(Route.Page("features")) },
+                    DrawerEntry("Папки", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) },
+                ), close,
+            )
+            drawerGroup(
+                listOf(
+                    DrawerEntry("Пригласить друзей", Icons.Outlined.Share) {
+                        val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(android.content.Intent.EXTRA_TEXT, "Пиши мне в Telegram" + (me?.usernames?.activeUsernames?.firstOrNull()?.let { ": https://t.me/$it" } ?: ""))
+                        ctx.startActivity(android.content.Intent.createChooser(i, null))
+                    },
+                ), close,
+            )
         }
     }
 }
+
+private class DrawerEntry(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: () -> Unit)
+
+/** segmented group like in settings: one tonal card per section, 2dp gaps, big outer corners */
+private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: List<DrawerEntry>, close: () -> Unit) {
+    item { Spacer(Modifier.height(10.dp)) }
+    items.forEachIndexed { i, e ->
+        item {
+            val top = if (i == 0) 20.dp else 4.dp
+            val bottom = if (i == items.lastIndex) 20.dp else 4.dp
+            val cs = MaterialTheme.colorScheme
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(cs.surfaceContainerHigh)
+                    .clickable { close(); e.action() }.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(e.icon, null, tint = cs.onSurfaceVariant)
+                Spacer(Modifier.width(16.dp))
+                Text(e.title, style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+    }
+}
+
+/**
+ * Swipe right over the chat list opens the side menu (Telegram behaviour): on the first folder from anywhere,
+ * or only from the left edge when list rows use swipe actions. Vertical scrolls and left swipes are untouched.
+ */
+private fun Modifier.drawerSwipe(enabled: Boolean, edgeOnly: Boolean, onOpen: () -> Unit): Modifier =
+    if (!enabled) this else pointerInput(edgeOnly) {
+        val slop = viewConfiguration.touchSlop
+        val edge = 48.dp.toPx()
+        val trigger = 56.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (edgeOnly && down.position.x > edge) return@awaitEachGesture
+            var dx = 0f
+            var dy = 0f
+            var dragging = false
+            while (true) {
+                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                if (!ch.pressed) break
+                val d = ch.positionChange()
+                dx += d.x; dy += d.y
+                if (!dragging) {
+                    if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
+                    if (dx < -slop) return@awaitEachGesture
+                    if (dx > slop && dx > kotlin.math.abs(dy) * 1.2f) dragging = true else continue
+                }
+                ch.consume()
+                if (dx > trigger) { onOpen(); return@awaitEachGesture }
+            }
+        }
+    }

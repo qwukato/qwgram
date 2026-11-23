@@ -130,6 +130,10 @@ import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.MarkChatUnread
+import androidx.compose.material.icons.outlined.Poll
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import kotlin.math.roundToInt
@@ -386,6 +390,21 @@ fun ChatScreen(chatId: Long) {
         }
     }
 
+    // opened from search / media: scroll to that message once history is there
+    val hasHistory = ctl.messages.isNotEmpty()
+    val routeOnTop = Nav.top == Route.Chat(chatId)
+    LaunchedEffect(chatId, hasHistory, routeOnTop) {
+        val j = Nav.jumpTo
+        if (hasHistory && routeOnTop && j != null && j.first == chatId) { Nav.jumpTo = null; jump(j.second) }
+    }
+    // live in-chat search
+    LaunchedEffect(search.query) {
+        if (!searching) return@LaunchedEffect
+        delay(350)
+        search.run()
+        search.current?.let { jump(it.id) }
+    }
+
     val canSend = TdStore.canSend(chat)
     val group = TdStore.isGroup(chat)
     val selecting = selected.isNotEmpty()
@@ -475,6 +494,33 @@ fun ChatScreen(chatId: Long) {
                         Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) }
                     }
                 }
+                // "@" and "♥" jump to the next unread mention / reaction (Telegram)
+                Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 72.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(
+                        Triple(chat.unreadMentionCount, "@", TdApi.SearchMessagesFilterUnreadMention() as TdApi.SearchMessagesFilter),
+                        Triple(chat.unreadReactionCount, "❤", TdApi.SearchMessagesFilterUnreadReaction()),
+                    ).forEach { (count, label, filter) ->
+                        androidx.compose.animation.AnimatedVisibility(
+                            count > 0, enter = scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects()), exit = scaleOut(Springs.exit()) + fadeOut(Springs.exit()),
+                        ) {
+                            Box {
+                                MorphBox(
+                                    onClick = {
+                                        scope.launch {
+                                            val r = Td.callOrNull(TdApi.SearchChatMessages(chatId, null, "", null, 0, 0, 100, filter))
+                                            val target = r?.messages?.lastOrNull() ?: return@launch
+                                            jump(target.id)
+                                            Td.send(TdApi.ViewMessages(chatId, longArrayOf(target.id), TdApi.MessageSourceChatHistory(), true))
+                                        }
+                                    },
+                                    modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
+                                    color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, elevation = 3.dp,
+                                ) { Text(label, style = MaterialTheme.typography.titleMedium) }
+                                Badge(Modifier.align(Alignment.TopEnd)) { Text(count.toString()) }
+                            }
+                        }
+                    }
+                }
                 val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 || ctl.hasNewer } }
                 androidx.compose.animation.AnimatedVisibility(
                     showDown, Modifier.align(Alignment.BottomEnd).padding(12.dp),
@@ -526,7 +572,7 @@ fun ChatScreen(chatId: Long) {
                     exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit()),
                 ) {
                     StickerPanel(
-                        chatId, 300.dp,
+                        chatId, 340.dp,
                         onEmoji = { text += it },
                         onSticker = { s -> sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false },
                         onGif = { a -> sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false },
@@ -659,8 +705,14 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
     val status = Texts.chatStatus(chat)
     val typingNow = !TdStore.actions[chat.id].isNullOrEmpty()
     val privateUser = TdStore.privateUserId(chat).takeIf { it != 0L && !TdStore.isSaved(chat) }
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    val floating = Prefs.floatingBars.value
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = if (floating) RoundedCornerShape(28.dp) else androidx.compose.ui.graphics.RectangleShape,
+        shadowElevation = if (floating) 3.dp else 0.dp,
+        modifier = if (floating) Modifier.statusBarsPadding().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp) else Modifier,
+    ) {
+        Row(Modifier.then(if (floating) Modifier else Modifier.statusBarsPadding()).height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
             Row(
                 Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable { Nav.push(Route.Profile(chat.id)) }.padding(vertical = 6.dp, horizontal = 4.dp),
@@ -689,6 +741,12 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
                         onClick = { menu = false; setMuted(chat, !muted) },
                     )
                     DropdownMenuItem(text = { Text("Профиль") }, leadingIcon = { Icon(Icons.Outlined.Info, null) }, onClick = { menu = false; Nav.push(Route.Profile(chat.id)) })
+                    DropdownMenuItem(text = { Text("Отложенные") }, leadingIcon = { Icon(Icons.Outlined.Schedule, null) }, onClick = { menu = false; Nav.push(Route.Page("sched:${chat.id}")) })
+                    DropdownMenuItem(
+                        text = { Text(if (chat.isMarkedAsUnread) "Прочитано" else "Отметить непрочитанным") },
+                        leadingIcon = { Icon(Icons.Outlined.MarkChatUnread, null) },
+                        onClick = { menu = false; Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, !chat.isMarkedAsUnread)) },
+                    )
                     DropdownMenuItem(text = { Text("Очистить историю") }, leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) }, onClick = { menu = false; confirmClear = true })
                     if (privateUser != null && !TdStore.isBot(chat)) DropdownMenuItem(
                         text = { Text("Заблокировать") }, leadingIcon = { Icon(Icons.Outlined.Block, null) },
@@ -712,8 +770,8 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
         icon = { Icon(Icons.Outlined.DeleteSweep, null) },
         title = { Text("Очистить историю?") },
         text = { Text("Все сообщения в этом чате будут удалены у вас.") },
-        confirmButton = { TextButton(onClick = { Td.send(TdApi.DeleteChatHistory(chat.id, false, false)); confirmClear = false }) { Text("Очистить") } },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
+        confirmButton = { QTextButton(onClick = { Td.send(TdApi.DeleteChatHistory(chat.id, false, false)); confirmClear = false }) { Text("Очистить") } },
+        dismissButton = { QTextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
     )
     if (confirmBlock && privateUser != null) AlertDialog(
         onDismissRequest = { confirmBlock = false },
@@ -721,20 +779,20 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
         title = { Text("Заблокировать ${chat.title}?") },
         text = { Text("Пользователь не сможет писать вам и звонить.") },
         confirmButton = {
-            TextButton(onClick = {
+            QTextButton(onClick = {
                 Td.send(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateUser), TdApi.BlockListMain())); confirmBlock = false
             }) { Text("Заблокировать", color = MaterialTheme.colorScheme.error) }
         },
-        dismissButton = { TextButton(onClick = { confirmBlock = false }) { Text("Отмена") } },
+        dismissButton = { QTextButton(onClick = { confirmBlock = false }) { Text("Отмена") } },
     )
     if (confirmLeave) AlertDialog(
         onDismissRequest = { confirmLeave = false },
         icon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) },
         title = { Text(if (TdStore.isChannel(chat)) "Покинуть канал?" else "Покинуть группу?") },
         confirmButton = {
-            TextButton(onClick = { Td.send(TdApi.LeaveChat(chat.id)); confirmLeave = false; Nav.pop() }) { Text("Покинуть", color = MaterialTheme.colorScheme.error) }
+            QTextButton(onClick = { Td.send(TdApi.LeaveChat(chat.id)); confirmLeave = false; Nav.pop() }) { Text("Покинуть", color = MaterialTheme.colorScheme.error) }
         },
-        dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Отмена") } },
+        dismissButton = { QTextButton(onClick = { confirmLeave = false }) { Text("Отмена") } },
     )
 }
 
@@ -774,7 +832,7 @@ private fun ChannelBar(chat: TdApi.Chat) {
     val muted = TdStore.isMuted(chat)
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), contentAlignment = Alignment.Center) {
-            FilledTonalButton(onClick = { setMuted(chat, !muted) }, modifier = Modifier.fillMaxWidth(0.7f).height(48.dp)) {
+            QButton(onClick = { setMuted(chat, !muted) }, tonal = true, modifier = Modifier.fillMaxWidth(0.7f).height(48.dp)) {
                 Icon(if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (muted) "Включить звук" else "Выключить звук")
@@ -801,6 +859,7 @@ private fun Composer(
     onSchedule: (Int) -> Unit,
 ) {
     var sendOptions by remember { mutableStateOf(false) }
+    var poll by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val haptic = rememberHaptic()
@@ -824,11 +883,12 @@ private fun Composer(
     }
     val radius = Prefs.bubbleRadius.value.dp
 
-    Surface(color = cs.surfaceContainer) {
+    val floating = Prefs.floatingBars.value
+    Surface(color = if (floating) Color.Transparent else cs.surfaceContainer) {
         Column(Modifier.then(if (panelOpen) Modifier else Modifier.navigationBarsPadding()).padding(horizontal = 8.dp, vertical = 6.dp)) {
             AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
                 val m = editing ?: replyTo
-                Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, modifier = Modifier.padding(bottom = 6.dp)) {
+                Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, shadowElevation = if (floating) 2.dp else 0.dp, modifier = Modifier.padding(bottom = 6.dp)) {
                     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (editing != null) Icons.Outlined.Edit else Icons.AutoMirrored.Filled.Reply, null, tint = cs.primary)
                         Spacer(Modifier.width(12.dp))
@@ -846,7 +906,11 @@ private fun Composer(
                 }
             }
             Row(verticalAlignment = Alignment.Bottom) {
-                Surface(shape = RoundedCornerShape(26.dp), color = cs.surfaceContainerHigh, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(26.dp), color = if (floating) cs.surfaceContainerHigh else cs.surfaceContainerHigh,
+                    shadowElevation = if (floating) 3.dp else 0.dp,
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                ) {
                     Box {
                         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp)) {
                             AnimatedContent(panelOpen, transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) }, label = "emo", modifier = Modifier.padding(bottom = 2.dp)) { open ->
@@ -888,6 +952,7 @@ private fun Composer(
                 val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, Springs.fastSpatial(), label = "rec")
                 Surface(
                     shape = RoundedCornerShape(corner),
+                    shadowElevation = if (floating) 3.dp else 0.dp,
                     color = if (ready || recording) cs.primary else cs.primaryContainer,
                     contentColor = if (ready || recording) cs.onPrimary else cs.onPrimaryContainer,
                     modifier = Modifier.size(52.dp)
@@ -963,6 +1028,7 @@ private fun Composer(
         }
     }
 
+    if (poll) PollDialog(onDismiss = { poll = false }) { content -> sendContent(chat.id, content, replyTo); poll = false; onCancel() }
     if (sendOptions) SendOptionsSheet(onDismiss = { sendOptions = false }, onSilent = onSendSilent, onSchedule = onSchedule)
     if (attach) {
         ModalBottomSheet(onDismissRequest = { attach = false }) {
@@ -975,6 +1041,10 @@ private fun Composer(
                 AttachAction("Файл", Icons.Outlined.Description, androidx.compose.material3.MaterialShapes.Flower, 1) {
                     attach = false
                     pickFile.launch(arrayOf("*/*"))
+                }
+                if (chat.type !is TdApi.ChatTypeSecret) AttachAction("Опрос", Icons.Outlined.Poll, androidx.compose.material3.MaterialShapes.Flower, 2) {
+                    attach = false
+                    poll = true
                 }
             }
             Spacer(Modifier.height(32.dp))
@@ -1095,11 +1165,11 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
             } else Text("Сообщения будут удалены у вас.")
         },
         confirmButton = {
-            TextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, list.map { it.id }.toLongArray(), forAll)); onDone() }) {
+            QTextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, list.map { it.id }.toLongArray(), forAll)); onDone() }) {
                 Text("Удалить", color = MaterialTheme.colorScheme.error)
             }
         },
-        dismissButton = { TextButton(onClick = onDone) { Text("Отмена") } },
+        dismissButton = { QTextButton(onClick = onDone) { Text("Отмена") } },
     )
 }
 

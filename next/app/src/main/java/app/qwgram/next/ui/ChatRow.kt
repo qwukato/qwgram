@@ -226,11 +226,11 @@ fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
             title = { Text("Удалить чат?") },
             text = { Text("«${chat.title}» исчезнет из списка чатов. Историю нельзя будет вернуть.") },
             confirmButton = {
-                TextButton(onClick = {
+                QTextButton(onClick = {
                     deleteChat(chat); confirmDelete = false; onDismiss()
                 }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+            dismissButton = { QTextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
         )
     }
 }

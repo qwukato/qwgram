@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Interests
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
@@ -82,6 +83,7 @@ import app.qwgram.next.td.Td
 import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
+import androidx.compose.ui.input.pointer.pointerInput
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ settings tab
@@ -127,6 +129,7 @@ fun SettingsHome(pad: PaddingValues) {
                 nav("Данные и память", null, Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
                 nav("Устройства", null, Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
                 nav("Папки с чатами", null, Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
+                nav("Прокси", null, Icons.Outlined.VpnKey) { Nav.push(Route.Page("proxy")) }
             }
             group {
                 nav("О qwgram", "Версия ${BuildConfig.VERSION_NAME}", Icons.Outlined.Info) { Nav.push(Route.Page("about")) }
@@ -139,8 +142,8 @@ fun SettingsHome(pad: PaddingValues) {
         icon = { Icon(Icons.Outlined.Logout, null) },
         title = { Text("Выйти из аккаунта?") },
         text = { Text("Чаты останутся в облаке Telegram. Чтобы вернуться, понадобится код подтверждения.") },
-        confirmButton = { TextButton(onClick = { logout = false; Td.send(TdApi.LogOut()) }) { Text("Выйти", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(onClick = { logout = false }) { Text("Отмена") } },
+        confirmButton = { QTextButton(onClick = { logout = false; Td.send(TdApi.LogOut()) }) { Text("Выйти", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { QTextButton(onClick = { logout = false }) { Text("Отмена") } },
     )
 }
 
@@ -148,6 +151,10 @@ fun SettingsHome(pad: PaddingValues) {
 
 @Composable
 fun SettingsPage(id: String) {
+    when {
+        id.startsWith("folder:") -> { FolderEditPage(id.removePrefix("folder:").toIntOrNull()); return }
+        id.startsWith("sched:") -> { ScheduledPage(id.removePrefix("sched:").toLong()); return }
+    }
     when (id) {
         "appearance" -> AppearanceHub()
         "ap-theme" -> ThemePage()
@@ -164,7 +171,8 @@ fun SettingsPage(id: String) {
         "privacy" -> PrivacyPage()
         "data" -> DataPage()
         "sessions" -> SessionsPage()
-        "folders" -> FoldersPage()
+        "folders" -> FoldersListPage()
+        "proxy" -> ProxyPage()
         "about" -> AboutPage()
         "compose" -> NewMessagePage()
         "blocked" -> BlockedPage()
@@ -181,14 +189,13 @@ private fun ResetAction() {
         icon = { Icon(Icons.Outlined.RestartAlt, null) },
         title = { Text("Сбросить оформление?") },
         text = { Text("Цвета, формы, панели и анимации вернутся к стандартным.") },
-        confirmButton = { TextButton(onClick = { Prefs.resetAppearance(); ask = false }) { Text("Сбросить") } },
-        dismissButton = { TextButton(onClick = { ask = false }) { Text("Отмена") } },
+        confirmButton = { QTextButton(onClick = { Prefs.resetAppearance(); ask = false }) { Text("Сбросить") } },
+        dismissButton = { QTextButton(onClick = { ask = false }) { Text("Отмена") } },
     )
 }
 
 @Composable
 private fun AppearanceHub() = PageScaffold("Внешний вид", actions = { ResetAction() }) {
-    item { Preview() }
     group {
         nav("Тема и цвета", "Светлая, тёмная, AMOLED, акцент, палитра, контраст", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("ap-theme")) }
         nav("Формы и аватарки", "26 форм Material 3 Expressive, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
@@ -203,36 +210,60 @@ private fun AppearanceHub() = PageScaffold("Внешний вид", actions = { 
     }
 }
 
-/** live preview built from the real components */
+/**
+ * Live preview built from the real components, framed like a small phone screen.
+ * Bubbles are sized to the frame (LocalBubbleArea), so nothing spills out; touches are ignored.
+ */
 @Composable
-fun Preview() {
-    val chat = remember {
+fun Preview(list: Boolean = true, chat: Boolean = true) {
+    val cs = MaterialTheme.colorScheme
+    val now = remember { (System.currentTimeMillis() / 1000).toInt() }
+    val demo = remember {
         TdApi.Chat().apply {
             id = 1; title = "Аня"; type = TdApi.ChatTypePrivate(0); positions = arrayOf(); unreadCount = 2
             notificationSettings = TdApi.ChatNotificationSettings()
-            lastMessage = TdApi.Message().apply { id = 3; date = (System.currentTimeMillis() / 1000).toInt(); content = TdApi.MessageText().apply { text = TdApi.FormattedText("Смотри, как теперь выглядят настройки ✨", arrayOf()) }; senderId = TdApi.MessageSenderUser(0) }
+            lastMessage = TdApi.Message().apply { id = 3; date = now; content = TdApi.MessageText().apply { text = TdApi.FormattedText("Как тебе новый вид?", arrayOf()) }; senderId = TdApi.MessageSenderUser(0) }
         }
     }
     fun msg(id: Long, out: Boolean, t: String) = TdApi.Message().apply {
-        this.id = id; isOutgoing = out; date = (System.currentTimeMillis() / 1000).toInt(); senderId = TdApi.MessageSenderUser(0); chatId = 1
+        this.id = id; isOutgoing = out; date = now; senderId = TdApi.MessageSenderUser(0); chatId = 1
         content = TdApi.MessageText().apply { text = TdApi.FormattedText(t, arrayOf()) }
     }
-    val m1 = remember { msg(1, false, "Привет! Поменяла форму аватарок 😄") }
-    val m2 = remember { msg(2, false, "Смотри, как пружинят пузыри") }
-    val m3 = remember { msg(3, true, "Выглядит дорого 🔥") }
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
-        Column {
-            ChatRow(chat, null) {}
-            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(8.dp)) {
-                Column {
-                    MessageItem(m1, Grp.Top, chat, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {})
-                    MessageItem(m2, Grp.Bottom, chat, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {})
-                    MessageItem(m3, Grp.Single, chat, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {})
+    val msgs = remember { listOf(msg(1, false, "Привет! 👋") to Grp.Top, msg(2, false, "Как тебе новый вид?") to Grp.Bottom, msg(3, true, "Очень плавно ✨") to Grp.Single) }
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
+        Text("Предпросмотр", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+        Surface(
+            shape = RoundedCornerShape(28.dp), color = cs.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, cs.outlineVariant),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val area = maxWidth - 16.dp
+                Column(Modifier.androidx_blockTouches()) {
+                    if (list) Box(Modifier.padding(vertical = 4.dp)) { ChatRow(demo, null) {} }
+                    if (chat) Box(Modifier.fillMaxWidth().background(cs.surfaceContainerLow).padding(horizontal = 8.dp, vertical = 10.dp)) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalBubbleArea provides area) {
+                            Column {
+                                msgs.forEach { (m, g) -> MessageItem(m, g, demo, false, null, onLong = {}, onDouble = {}, onSwipeReply = {}, onPhoto = {}) }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/** preview is display-only: swallow every touch before the real components see it */
+private fun Modifier.androidx_blockTouches(): Modifier = this.then(
+    Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() }
+            }
+        }
+    },
+)
 
 private val SEEDS = listOf(0xFF6750A4, 0xFF3D6CB5, 0xFF0B6B5E, 0xFF3F6B2A, 0xFF6B7A10, 0xFF8C5A00, 0xFFB4502C, 0xFFB3261E, 0xFF984061, 0xFF4A55A2, 0xFF006874, 0xFF5B6170).map { it.toInt() }
 
@@ -297,11 +328,11 @@ private fun HexDialog(onDismiss: () -> Unit) {
         title = { Text("Свой цвет") },
         text = { OutlinedTextField(v, { v = it.take(7) }, label = { Text("HEX, например #6750A4") }, isError = !ok, singleLine = true) },
         confirmButton = {
-            TextButton(enabled = ok, onClick = {
+            QTextButton(enabled = ok, onClick = {
                 Prefs.seed.value = (0xFF000000 or v.trim().removePrefix("#").toLong(16)).toInt(); Prefs.dynamicColor.value = false; onDismiss()
             }) { Text("Применить") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        dismissButton = { QTextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }
 
@@ -359,7 +390,7 @@ private fun ShapePicker() {
 
 @Composable
 private fun ListPage() = PageScaffold("Список чатов", actions = { ResetAction() }) {
-    item { Preview() }
+    item { Preview(list = true, chat = false) }
     group("Вид") {
         segmented("Стиль списка", Prefs.listStyle, listOf("flat" to "Сплошной", "cards" to "Карточки"))
         segmented("Плотность", Prefs.density, listOf(0 to "Плотно", 1 to "Обычно", 2 to "Свободно"))
@@ -395,7 +426,7 @@ private fun FoldersStylePage() = PageScaffold("Папки") {
 
 @Composable
 private fun ChatStylePage() = PageScaffold("Чат и сообщения", actions = { ResetAction() }) {
-    item { Preview() }
+    item { Preview(list = false, chat = true) }
     group("Пузыри") {
         segmented("Стиль", Prefs.bubbleStyle, listOf("tonal" to "Тональный", "filled" to "Заливка", "outlined" to "Контур"))
         sliderInt("Скругление", Prefs.bubbleRadius, 4..28, 2) { "$it dp" }
@@ -425,6 +456,9 @@ private fun NavPage() = PageScaffold("Панели и навигация", actio
         segmented("Вид", Prefs.navStyle, listOf("standard" to "Обычная", "floating" to "Плавающая"))
         switch("Подписи", Prefs.navLabels)
         switch("Вкладка «Контакты»", Prefs.showContactsTab)
+    }
+    group("Плавающие панели", footer = "Шапка чата и панель ввода парят над фоном чата со скруглением и мягкой тенью.") {
+        switch("Плавающие шапка и поле ввода", Prefs.floatingBars)
     }
     group("Кнопка «Написать»") {
         segmented("Вид", Prefs.fabStyle, listOf("extended" to "С текстом", "icon" to "Значок", "none" to "Скрыть"))
@@ -534,8 +568,8 @@ private fun TextDialog(title: String, fields: List<Pair<String, String>>, onDone
                 fields.forEachIndexed { i, (label, _) -> OutlinedTextField(values[i].value, { values[i].value = it }, label = { Text(label) }) }
             }
         },
-        confirmButton = { TextButton(onClick = { onDone(values.map { it.value.trim() }) }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Отмена") } },
+        confirmButton = { QTextButton(onClick = { onDone(values.map { it.value.trim() }) }) { Text("Сохранить") } },
+        dismissButton = { QTextButton(onClick = { onDone(null) }) { Text("Отмена") } },
     )
 }
 
@@ -676,7 +710,7 @@ private fun SessionsPage() {
                 others.forEach { s ->
                     row {
                         BaseRow(s.applicationName + " " + s.applicationVersion, "${s.deviceModel} · ${s.location} · ${Texts.listDate(s.lastActiveDate)}", Icons.Outlined.Devices) {
-                            TextButton(onClick = { scope.launch { Td.callOrNull(TdApi.TerminateSession(s.id)); reload() } }) { Text("Завершить", color = MaterialTheme.colorScheme.error) }
+                            QTextButton(onClick = { scope.launch { Td.callOrNull(TdApi.TerminateSession(s.id)); reload() } }) { Text("Завершить", color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -700,9 +734,7 @@ private fun FoldersPage() = PageScaffold("Папки с чатами") {
 private fun AboutPage() = PageScaffold("О qwgram") {
     item {
         Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.asShape()).background(Color(0xFF6750A4)), contentAlignment = Alignment.Center) {
-                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.qwgram.next.R.drawable.ic_splash), null, Modifier.size(130.dp))
-            }
+            QwLogo(220.dp)
             Spacer(Modifier.height(12.dp))
             Text("qwgram", style = MaterialTheme.typography.headlineMedium)
             Text("Версия ${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -740,7 +772,7 @@ private fun BlockedPage() {
                         SenderAvatar(s, 40.dp)
                         Spacer(Modifier.width(16.dp))
                         Text(TdStore.senderName(s).ifBlank { "Пользователь" }, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { scope.launch { Td.callOrNull(TdApi.SetMessageSenderBlockList(s, null)); reload() } }) { Text("Разблокировать") }
+                        QTextButton(onClick = { scope.launch { Td.callOrNull(TdApi.SetMessageSenderBlockList(s, null)); reload() } }) { Text("Разблокировать") }
                     }
                 }
             }

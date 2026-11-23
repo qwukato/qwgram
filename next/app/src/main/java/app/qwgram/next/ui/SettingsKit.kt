@@ -56,6 +56,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Check
 
 /** Settings page frame: large collapsing app bar + lazy content. */
@@ -164,20 +167,55 @@ fun GroupScope.switchState(title: String, checked: Boolean, sub: String? = null,
     BaseRow(title, sub, icon, onClick = { onChange(!checked) }) { QSwitch(checked, onChange) }
 }
 
-/** segmented button row (≤ 4 options) */
+/** connected button group (M3 Expressive): selected one morphs into a pill and widens, labels never get cut */
 fun <T> GroupScope.segmented(title: String, pref: Prefs.Item<T>, options: List<Pair<T, String>>, sub: String? = null) = row {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         if (sub != null) Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { i, (v, label) ->
-                SegmentedButton(
-                    selected = pref.state.value == v,
-                    onClick = { pref.value = v },
-                    shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                    label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
+        Spacer(Modifier.height(12.dp))
+        ConnectedGroup(options, pref.state.value) { pref.value = it }
+    }
+}
+
+@Composable
+fun <T> ConnectedGroup(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val haptic = rememberHaptic()
+    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        options.forEachIndexed { i, (v, label) ->
+            val sel = v == selected
+            val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val weight by androidx.compose.animation.core.animateFloatAsState(
+                when { pressed -> 1.18f; sel -> 1.12f; else -> 1f }, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "w",
+            )
+            val inner by androidx.compose.animation.core.animateDpAsState(when { sel -> 24.dp; pressed -> 4.dp; else -> 8.dp }, Springs.fastSpatial(), label = "r")
+            val start = if (i == 0) 24.dp else inner
+            val end = if (i == options.lastIndex) 24.dp else inner
+            val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHighest, Springs.effects(), label = "bg")
+            val fg = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant
+            Box(
+                Modifier.weight(weight).fillMaxHeight()
+                    .clip(RoundedCornerShape(topStart = start, topEnd = end, bottomEnd = end, bottomStart = start))
+                    .background(bg)
+                    .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple()) { haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick); onSelect(v) }
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        sel,
+                        enter = androidx.compose.animation.expandHorizontally(Springs.fastSpatial()) + androidx.compose.animation.scaleIn(Springs.fastSpatial()),
+                        exit = androidx.compose.animation.shrinkHorizontally(Springs.exit()) + androidx.compose.animation.scaleOut(Springs.exit()),
+                    ) {
+                        Row { Icon(Icons.Filled.Check, null, Modifier.size(18.dp), tint = fg); Spacer(Modifier.width(4.dp)) }
+                    }
+                    androidx.compose.foundation.text.BasicText(
+                        label, maxLines = 1,
+                        style = MaterialTheme.typography.labelLarge.copy(color = fg),
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 14.sp, stepSize = 0.5.sp),
+                    )
+                }
             }
         }
     }
@@ -210,7 +248,7 @@ fun <T> RadioDialog(title: String, options: List<Pair<T, String>>, selected: T, 
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+        confirmButton = { QTextButton(onClick = onDismiss) { Text("Закрыть") } },
     )
 }
 
@@ -222,9 +260,12 @@ fun GroupScope.sliderInt(title: String, pref: Prefs.I, range: IntRange, step: In
             Text(format(local.toInt()), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         Slider(
-            value = local, onValueChange = { local = it; pref.value = it.toInt() },
+            value = local,
+            onValueChange = { v ->
+                val snapped = (range.first + Math.round((v - range.first) / step) * step).coerceIn(range.first, range.last)
+                local = snapped.toFloat(); pref.value = snapped
+            },
             valueRange = range.first.toFloat()..range.last.toFloat(),
-            steps = ((range.last - range.first) / step - 1).coerceAtLeast(0),
         )
     }
 }
@@ -236,7 +277,12 @@ fun GroupScope.sliderFloat(title: String, pref: Prefs.F, range: ClosedFloatingPo
             Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Text(format(local), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
-        Slider(value = local, onValueChange = { local = it }, onValueChangeFinished = { pref.value = local }, valueRange = range, steps = steps)
+        val stepSize = (range.endInclusive - range.start) / (steps + 1)
+        Slider(
+            value = local,
+            onValueChange = { v -> local = (range.start + Math.round((v - range.start) / stepSize) * stepSize).coerceIn(range.start, range.endInclusive) },
+            onValueChangeFinished = { pref.value = local }, valueRange = range,
+        )
     }
 }
 

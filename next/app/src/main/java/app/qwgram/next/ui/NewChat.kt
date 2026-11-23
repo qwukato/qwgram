@@ -209,7 +209,7 @@ fun NameDialog(title: String, label: String, withDescription: Boolean, onDismiss
                 if (withDescription) OutlinedTextField(desc, { desc = it }, label = { Text("Описание (необязательно)") })
             }
         },
-        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onDone(name.trim(), desc.trim()) }) { Text("Создать") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        confirmButton = { QTextButton(enabled = name.isNotBlank(), onClick = { onDone(name.trim(), desc.trim()) }) { Text("Создать") } },
+        dismissButton = { QTextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }

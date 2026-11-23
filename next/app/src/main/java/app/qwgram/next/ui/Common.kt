@@ -15,6 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -117,4 +122,20 @@ fun nameColor(id: Long): Color {
 @Composable
 fun Dot(color: Color, size: Dp = 8.dp, modifier: Modifier = Modifier) {
     Box(modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(color))
+}
+
+/** The full qwgram logo (never cropped), tinted with the theme; springs in when first shown. */
+@Composable
+fun QwLogo(width: Dp, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    val scale = remember { androidx.compose.animation.core.Animatable(0.7f) }
+    val rot = remember { androidx.compose.animation.core.Animatable(-30f) }
+    LaunchedEffect(Unit) {
+        launch { scale.animateTo(1f, Springs.spatial()) }
+        rot.animateTo(0f, Springs.spatial())
+    }
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(app.qwgram.next.R.drawable.qw_logo), "qwgram",
+        modifier.width(width).aspectRatio(160f / 99.74f).graphicsLayer { scaleX = scale.value; scaleY = scale.value; rotationZ = rot.value },
+        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color),
+    )
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -186,4 +187,38 @@ fun MorphIconButton(
         modifier = modifier.size(size), rest = size / 2, pressed = size / 4,
         color = color, contentColor = tint, squish = 0.92f,
     ) { Icon(icon, desc, Modifier.size(24.dp)) }
+}
+
+/** Text button with the expressive press morph (pill → squarer while pressed, springs back) */
+@Composable
+fun QTextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    MorphBox(
+        onClick = onClick, enabled = enabled, modifier = modifier.defaultMinSize(minHeight = 40.dp),
+        rest = 20.dp, pressed = 8.dp, color = Color.Transparent,
+        contentColor = if (enabled) cs.primary else cs.onSurface.copy(alpha = 0.38f), squish = 0.95f,
+    ) {
+        androidx.compose.material3.ProvideTextStyle(MaterialTheme.typography.labelLarge) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+        }
+    }
+}
+
+/** Filled / tonal button (56dp or 48dp) with the press morph */
+@Composable
+fun QButton(
+    onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, tonal: Boolean = false,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val bg = when { !enabled -> cs.onSurface.copy(alpha = 0.12f); tonal -> cs.secondaryContainer; else -> cs.primary }
+    val fg = when { !enabled -> cs.onSurface.copy(alpha = 0.38f); tonal -> cs.onSecondaryContainer; else -> cs.onPrimary }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val h = if (maxHeight != Dp.Infinity) maxHeight else 48.dp
+        MorphBox(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxSize(), rest = h / 2, pressed = 12.dp, color = bg, contentColor = fg, squish = 0.97f) {
+            androidx.compose.material3.ProvideTextStyle(MaterialTheme.typography.labelLarge) {
+                Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center, content = content)
+            }
+        }
+    }
 }

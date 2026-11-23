@@ -52,6 +52,9 @@ object Nav {
 
     internal var scope: CoroutineScope? = null
 
+    /** (chatId, messageId) to scroll to when that chat screen is shown (search results, media, profile) */
+    var jumpTo: Pair<Long, Long>? = null
+
     fun push(r: Route) {
         if (stack.last().route == r) return
         // reopening a screen that is already in the stack returns to it instead of stacking a copy
@@ -126,7 +129,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                             }
                         }
                         .background(MaterialTheme.colorScheme.surface)
-                        .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope, fullWidth = e.route is Route.Chat) else Modifier),
+                        .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope, fullWidth = e.route !is Route.Page) else Modifier),
                 ) {
                     holder.SaveableStateProvider(e.id) { content(e.route) }
                 }
@@ -138,7 +141,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
 /** horizontal drag to the right closes the screen; vertical or leftward drags are left to the content */
 private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope, fullWidth: Boolean): Modifier = pointerInput(e.id, fullWidth) {
     val w = size.width.toFloat().coerceAtLeast(1f)
-    val edge = 32.dp.toPx()
+    val edge = 48.dp.toPx()
     val slop = viewConfiguration.touchSlop
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -158,7 +161,7 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope, fullWidth: B
                 dx += d.x; dy += d.y
                 if (abs(dy) > slop && abs(dy) > abs(dx)) return@awaitEachGesture
                 if (dx < -slop) return@awaitEachGesture
-                if (dx > slop * 1.4f && dx > abs(dy) * 1.7f) dragging = true else continue
+                if (dx > slop && dx > abs(dy) * 1.2f) dragging = true else continue
             }
             ch.consume()
             val v = (e.offset.value + d.x / w).coerceIn(0f, 1f)
@@ -166,7 +169,7 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope, fullWidth: B
         }
         if (dragging) {
             val vx = tracker.calculateVelocity().x
-            if (e.offset.value > 0.33f || vx > 1200f) Nav.pop()
+            if (e.offset.value > 0.22f || vx > 600f) Nav.pop()
             else scope.launch { e.offset.animateTo(0f, Springs.smooth()) }
         }
     }

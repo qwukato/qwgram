@@ -118,12 +118,7 @@ private fun AuthScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            Box(
-                Modifier.size(112.dp).clip(MaterialShapes.Cookie9Sided.asShape()).background(Color(0xFF6750A4)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(painterResource(R.drawable.ic_splash), null, Modifier.size(150.dp))
-            }
+            QwLogo(200.dp)
             Spacer(Modifier.height(28.dp))
             AnimatedContent(
                 targetState = state,
@@ -193,7 +188,7 @@ private fun Title(title: String, sub: String) {
 
 @Composable
 private fun PrimaryButton(text: String, busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled && !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+    QButton(onClick = onClick, enabled = enabled && !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
         if (busy) LoadingIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.onPrimary) else Text(text, style = MaterialTheme.typography.titleMedium)
     }
 }
@@ -246,8 +241,8 @@ private fun CodeStep(st: TdApi.AuthorizationStateWaitCode, busy: Boolean, onBack
     PrimaryButton("Войти", busy, code.length >= 4) { onSubmit(code) }
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = onBack) { Text("Другой номер") }
-        if (info.nextType != null) TextButton(onClick = { Td.send(TdApi.ResendAuthenticationCode(null)) }) { Text("Отправить иначе") }
+        QTextButton(onClick = onBack) { Text("Другой номер") }
+        if (info.nextType != null) QTextButton(onClick = { Td.send(TdApi.ResendAuthenticationCode(null)) }) { Text("Отправить иначе") }
     }
 }
 

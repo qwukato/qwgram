@@ -111,6 +111,7 @@ object Prefs {
     // ---- navigation ----
     val navStyle = S("nav_style", "standard")           // standard | floating
     val navLabels = B("nav_labels", true)
+    val floatingBars = B("floating_bars", true)           // floating composer & chat header
     val listSwipe = S("list_swipe", "folders")            // folders | actions (archive / read)
     val autoDlMobile = B("autodl_mobile", true)
     val autoDlWifi = B("autodl_wifi", true)

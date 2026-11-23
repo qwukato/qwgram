@@ -86,6 +86,10 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.ui.unit.sp
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
@@ -99,6 +103,14 @@ fun ProfileScreen(chatId: Long) {
     var bio by remember { mutableStateOf("") }
     var media by remember { mutableStateOf<List<TdApi.Message>>(emptyList()) }
     var tab by remember { mutableStateOf(0) }
+    val pickPhoto = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val f = uriToCacheFile(ctx, uri)
+            if (f != null) Td.send(TdApi.SetProfilePhoto(TdApi.InputChatPhotoStatic(TdApi.InputFileLocal(f.absolutePath)), false)) { r ->
+                Toast.makeText(ctx, if (r is TdApi.Error) "Не удалось: ${r.message}" else "Фото обновляется…", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val scope = rememberCoroutineScope()
     LaunchedEffect(chatId) {
         if (user != null) Td.callOrNull(TdApi.GetUserFullInfo(user.id))?.let { bio = it.bio?.text.orEmpty() }
@@ -132,20 +144,28 @@ fun ProfileScreen(chatId: Long) {
         chat != null -> Texts.chatStatus(chat)
         else -> ""
     }
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }) },
+                scrollBehavior = scroll,
             )
         },
     ) { pad ->
         LazyVerticalGrid(GridCells.Fixed(3), contentPadding = PaddingValues(top = pad.calculateTopPadding(), bottom = 32.dp), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (me || chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp)
+                    if (me) {
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            UserAvatar(user, 120.dp, Modifier.clip(CircleShape).clickable { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                            Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.PhotoCamera, "Сменить фото", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            }
+                        }
+                    } else if (chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp)
                     Spacer(Modifier.height(16.dp))
                     Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                     if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium, color = if (status == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -159,6 +179,10 @@ fun ProfileScreen(chatId: Long) {
                             ProfileAction(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Без звука" else "Звук", muted, Modifier.weight(1f)) { setMuted(chat, !muted) }
                             val un = (user?.usernames?.activeUsernames?.firstOrNull()
                                 ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
+                            val uid = TdStore.privateUserId(chat)
+                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) ProfileAction(Icons.Outlined.Lock, "Секретный", false, Modifier.weight(1f)) {
+                                scope.launch { Td.callOrNull(TdApi.CreateNewSecretChat(uid))?.let { Nav.push(Route.Chat(it.id)) } ?: Toast.makeText(ctx, "Не удалось начать секретный чат", Toast.LENGTH_SHORT).show() }
+                            }
                             if (un != null) ProfileAction(Icons.Outlined.Share, "Поделиться", false, Modifier.weight(1f)) {
                                 val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, "https://t.me/$un")
                                 ctx.startActivity(android.content.Intent.createChooser(i, null))
@@ -197,6 +221,10 @@ fun ProfileScreen(chatId: Long) {
                             }
                         }
                     }
+                    if (chat != null && (TdStore.isGroup(chat) || TdStore.isChannel(chat))) {
+                        Spacer(Modifier.height(12.dp))
+                        GroupInfo(chat)
+                    }
                     if (chat != null) {
                         Spacer(Modifier.height(16.dp))
                         androidx.compose.material3.PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = MaterialTheme.colorScheme.surface) {
@@ -218,7 +246,7 @@ fun ProfileScreen(chatId: Long) {
                             Icon(when (tab) { 1 -> Icons.Outlined.Description; 2 -> Icons.Outlined.Link; else -> Icons.Outlined.Mic }, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                         }
                     },
-                    modifier = Modifier.clickable { if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
+                    modifier = Modifier.clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
                 )
             }
@@ -235,7 +263,11 @@ private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector,
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null, tint = if (active) cs.onSecondaryContainer else cs.primary)
             Spacer(Modifier.height(6.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            androidx.compose.foundation.text.BasicText(
+                label, maxLines = 1, style = MaterialTheme.typography.labelMedium.copy(color = if (active) cs.onSecondaryContainer else cs.onSurface),
+                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 12.sp, stepSize = 0.5.sp),
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
     }
 }
@@ -248,7 +280,7 @@ private fun MediaTile(m: TdApi.Message) {
         else -> null
     }
     val bmp = rememberFileBitmap(file, maxSide = 320)
-    Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable { Nav.push(Route.Chat(m.chatId)) }) {
+    Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) }) {
         bmp?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
     }
 }
@@ -262,6 +294,8 @@ fun SearchScreen() {
     val global = remember { mutableStateListOf<Long>() }
     var messages by remember { mutableStateOf<List<TdApi.Message>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    var recent by remember { mutableStateOf<List<Long>>(emptyList()) }
+    LaunchedEffect(Unit) { recent = Td.callOrNull(TdApi.SearchRecentlyFoundChats("", null, 20))?.chatIds?.toList().orEmpty() }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(250); try { focus.requestFocus() } catch (_: Exception) {} }
     LaunchedEffect(q) {
@@ -269,9 +303,17 @@ fun SearchScreen() {
         if (query.isEmpty()) { local.clear(); global.clear(); messages = emptyList(); return@LaunchedEffect }
         delay(250)
         busy = true
+        val q2 = query.removePrefix("@")
         Td.callOrNull(TdApi.SearchChats(query, null, 30))?.let { local.clear(); local.addAll(it.chatIds.toList()) }
-        Td.callOrNull(TdApi.SearchChatsOnServer(query, null, 30))?.let { r -> global.clear(); global.addAll(r.chatIds.filter { it !in local }) }
-        Td.callOrNull(TdApi.SearchMessages().apply { this.query = query; offset = ""; limit = 40; chatList = null })?.let { messages = it.messages.toList() }
+        // contacts by name, then public chats / bots / channels by @username, then server-side chat search
+        Td.callOrNull(TdApi.SearchContacts(q2, 20))?.userIds?.forEach { uid ->
+            Td.callOrNull(TdApi.CreatePrivateChat(uid, true))?.let { c -> if (c.id !in local) local.add(c.id) }
+        }
+        val g = LinkedHashSet<Long>()
+        if (q2.length >= 3) Td.callOrNull(TdApi.SearchPublicChats(q2, null))?.chatIds?.forEach { g.add(it) }
+        Td.callOrNull(TdApi.SearchChatsOnServer(query, null, 30))?.chatIds?.forEach { g.add(it) }
+        global.clear(); global.addAll(g.filter { it !in local })
+        Td.callOrNull(TdApi.SearchMessages().apply { this.query = query; offset = ""; limit = 50; chatList = null })?.let { messages = it.messages.toList() }
         busy = false
     }
     val cs = MaterialTheme.colorScheme
@@ -294,7 +336,7 @@ fun SearchScreen() {
                 item { SectionHeader("Недавние чаты") }
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TdStore.chatsIn(TdApi.ChatListMain()).take(12).forEach { c ->
+                        (recent.mapNotNull { TdStore.chats[it] } + TdStore.chatsIn(TdApi.ChatListMain())).distinctBy { it.id }.take(16).forEach { c ->
                             Column(Modifier.width(68.dp).clip(RoundedCornerShape(16.dp)).clickable { Nav.push(Route.Chat(c.id)) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 ChatAvatar(c, 56.dp)
                                 Spacer(Modifier.height(6.dp))
@@ -307,11 +349,11 @@ fun SearchScreen() {
             if (busy) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) } }
             if (local.isNotEmpty()) {
                 item { SectionHeader("Чаты и контакты") }
-                items(local.toList(), key = { "l$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Nav.push(Route.Chat(c.id)) } } }
+                items(local.toList(), key = { "l$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) } } }
             }
             if (global.isNotEmpty()) {
                 item { SectionHeader("Глобальный поиск") }
-                items(global.toList(), key = { "g$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Nav.push(Route.Chat(c.id)) } } }
+                items(global.toList(), key = { "g$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) } } }
             }
             if (messages.isNotEmpty()) {
                 item { SectionHeader("Сообщения") }
@@ -322,7 +364,7 @@ fun SearchScreen() {
                         supportingContent = { Text(Texts.preview(m), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         leadingContent = { ChatAvatar(c, 48.dp) },
                         trailingContent = { Text(Texts.listDate(m.date), style = MaterialTheme.typography.labelMedium) },
-                        modifier = Modifier.clickable { Nav.push(Route.Chat(c.id)) },
+                        modifier = Modifier.clickable { Nav.jumpTo = c.id to m.id; Nav.push(Route.Chat(c.id)) },
                     )
                 }
             }
@@ -393,6 +435,21 @@ fun ContactsTab(pad: PaddingValues) {
                             decorationBox = { inner -> if (q.isEmpty()) Text("Поиск контактов", color = MaterialTheme.colorScheme.onSurfaceVariant); inner() })
                     }
                 }
+            }
+            item {
+                var addContact by remember { mutableStateOf(false) }
+                MorphBox(
+                    onClick = { addContact = true }, rest = 20.dp, pressed = 12.dp, squish = 0.98f,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow, contentAlignment = Alignment.CenterStart,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RowIcon(Icons.Outlined.PersonAdd, 0)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Добавить контакт", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                if (addContact) AddContactDialog { addContact = false }
             }
             item { SectionHeader("Сортировка по времени захода") }
             items(users, key = { it.id }) { u ->
