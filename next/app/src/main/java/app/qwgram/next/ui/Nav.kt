@@ -11,6 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -41,7 +43,11 @@ sealed interface Route {
 object Nav {
     /** one screen in the stack; [offset] is how far it is pushed off to the right (0 = in place, 1 = gone) */
     class Entry(val route: Route, val id: Long, entering: Boolean) {
-        val offset = Animatable(if (entering) 1f else 0f)
+        // tiny visibility threshold: the default (0.01 of the width ≈ 10 px) made the end of every slide "jump"
+        val offset = Animatable(if (entering) 1f else 0f, visibilityThreshold = 0.0002f)
+        /** finger position while dragging (-1 = not dragging); updated synchronously, no coroutine lag */
+        var drag by androidx.compose.runtime.mutableFloatStateOf(-1f)
+        val shown: Float get() = if (drag >= 0f) drag else offset.value
         var closing = false
         /** moved by a finger / back gesture at least once: from then on it always slides */
         var dragged = false
@@ -74,6 +80,7 @@ object Nav {
         val s = scope
         if (s == null) { stack.remove(e); return true }
         s.launch {
+            if (e.drag >= 0f) { e.offset.snapTo(e.drag); e.drag = -1f }
             e.offset.animateTo(1f, Springs.smooth())
             stack.remove(e)
         }
@@ -101,16 +108,19 @@ fun NavHost(content: @Composable (Route) -> Unit) {
     PredictiveBackHandler(enabled = entries.size > 1) { events ->
         val e = Nav.stack.last()
         try {
-            events.collect { ev -> if (Prefs.predictiveBack.value) { e.dragged = true; e.offset.snapTo(ev.progress * 0.4f) } }
+            events.collect { ev -> if (Prefs.predictiveBack.value) { e.dragged = true; e.drag = ev.progress * 0.4f } }
             Nav.pop()
         } catch (c: CancellationException) {
-            scope.launch { e.offset.animateTo(0f, Springs.smooth()) }
+            scope.launch { if (e.drag >= 0f) { e.offset.snapTo(e.drag); e.drag = -1f }; e.offset.animateTo(0f, Springs.smooth()) }
             throw c
         }
     }
 
     val corner = screenCornerRadius()
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    val surface = MaterialTheme.colorScheme.surface
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    // surface (not black) behind the stack: fade/scale transitions never flash a dark half-screen
+    Box(Modifier.fillMaxSize().background(surface)) {
         entries.takeLast(2).forEach { e ->
             key(e.id) {
                 val isTop = e === top
@@ -121,30 +131,40 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                         .fillMaxSize()
                         .graphicsLayer {
                             val w = size.width
+                            val mode = Prefs.screenAnim.value
                             if (isTop) {
-                                val o = e.offset.value
-                                val moving = o > 0.001f && entries.size > 1
-                                when (Prefs.screenAnim.value) {
-                                    // scale: the screen grows in from 92% with a fade (Material "zoom")
-                                    "scale" -> if (!e.closing && o > 0f && !e.dragged) { translationX = o * w * 0.25f; val sc = 1f - 0.08f * o; scaleX = sc; scaleY = sc; alpha = 1f - o } else translationX = o * w
-                                    "fade" -> if (!e.closing && o > 0f && !e.dragged) { alpha = 1f - o; translationX = o * w * 0.08f } else translationX = o * w
-                                    else -> translationX = o * w
+                                val o = e.shown
+                                val moving = o > 0.0005f && entries.size > 1
+                                val faded = mode != "slide" && !e.closing && !e.dragged
+                                if (faded) {
+                                    // fade-through: the new screen appears once the old one has faded out
+                                    alpha = ((0.65f - o) / 0.65f).coerceIn(0f, 1f)
+                                    if (mode == "scale") { val sc = 0.92f + 0.08f * (1f - o); scaleX = sc; scaleY = sc }
+                                } else {
+                                    translationX = o * w
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(if (moving) corner else 0.dp)
+                                    clip = moving
+                                    shadowElevation = if (moving) 24.dp.toPx() else 0f
                                 }
-                                // the moving screen rounds its corners exactly like the display
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(if (moving) corner else 0.dp)
-                                clip = moving
-                                shadowElevation = if (moving) 24.dp.toPx() else 0f
                             } else {
-                                // parallax of the screen underneath (Material shared-axis feel)
-                                val t = top.offset.value
-                                translationX = -0.28f * w * (1f - t)
-                                alpha = 0.85f + 0.15f * t
+                                val t = top.shown
+                                val topFaded = mode != "slide" && !top.closing && !top.dragged
+                                if (topFaded) {
+                                    alpha = ((t - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                                    if (mode == "scale") { val sc = 1f + 0.04f * (1f - t); scaleX = sc; scaleY = sc }
+                                } else {
+                                    // parallax of the screen underneath (shared-axis feel)
+                                    translationX = -0.28f * w * (1f - t)
+                                }
                             }
                         }
-                        .background(MaterialTheme.colorScheme.surface)
+                        .background(surface)
                         .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
-                    holder.SaveableStateProvider(e.id) { content(e.route) }
+                    // text/icons get the right colour everywhere, even on screens without a Surface
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides onSurface) {
+                        holder.SaveableStateProvider(e.id) { content(e.route) }
+                    }
                 }
             }
         }
@@ -161,6 +181,7 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope): Modifier = 
     val slop = viewConfiguration.touchSlop
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
+        if (SwipeGuard.blocked) return@awaitEachGesture                 // slider / pager owns this finger
         val tracker = VelocityTracker()
         tracker.addPosition(down.uptimeMillis, down.position)
         var dx = 0f
@@ -177,16 +198,16 @@ private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope): Modifier = 
                 dx += d.x; dy += d.y
                 if (abs(dy) > slop && abs(dy) > abs(dx)) return@awaitEachGesture
                 if (dx < -slop) return@awaitEachGesture
-                if (dx > slop * 0.6f && dx > abs(dy)) { dragging = true; e.dragged = true } else continue
+                if (dx > slop * 0.5f && dx > abs(dy) * 0.9f) { dragging = true; e.dragged = true } else continue
             }
             ch.consume()
-            val v = (e.offset.value + d.x / w).coerceIn(0f, 1f)
-            scope.launch { e.offset.snapTo(v) }
+            if (e.drag < 0f) e.drag = e.offset.value
+            e.drag = (e.drag + d.x / w).coerceIn(0f, 1f)
         }
         if (dragging) {
             val vx = tracker.calculateVelocity().x
-            if (e.offset.value > 0.2f || vx > 350f) Nav.pop()
-            else scope.launch { e.offset.animateTo(0f, Springs.smooth()) }
+            if (e.drag > 0.16f || vx > 250f) Nav.pop()
+            else scope.launch { e.offset.snapTo(e.drag); e.drag = -1f; e.offset.animateTo(0f, Springs.smooth()) }
         }
     }
 }

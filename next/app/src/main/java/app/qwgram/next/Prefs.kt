@@ -112,6 +112,8 @@ object Prefs {
     val navStyle = S("nav_style", "floating")           // standard | floating
     val navLabels = B("nav_labels", true)
     val floatingBars = B("floating_bars", true)
+    val centerTitle = B("center_title", false)            // centred titles in every header
+    val emojiStyle = S("emoji_style", "system")           // system | noto (bundled Google emoji)
     val pressMorph = S("press_morph", "normal")          // off | soft | normal | strong
     val outBubble = S("out_bubble", "primary")            // primary | secondary | tertiary
     val fabShape = S("fab_shape", "cookie")               // cookie | sunny | circle | square

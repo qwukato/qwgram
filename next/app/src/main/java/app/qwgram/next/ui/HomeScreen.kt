@@ -128,6 +128,8 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.ui.layout.onSizeChanged
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -166,8 +168,8 @@ fun HomeScreen() {
         val fab: @Composable () -> Unit = {
             androidx.compose.animation.AnimatedVisibility(
                 showFab,
-                enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()) + androidx.compose.animation.expandHorizontally(Springs.spatial()),
-                exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()) + androidx.compose.animation.shrinkHorizontally(Springs.exit()),
+                enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()),
+                exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()),
             ) {
                 if (HomeState.tab == HomeTab.Contacts) FabMenu(false, { addContact = true }, Icons.Outlined.PersonAdd, emptyList())
                 else FabMenu(fabOpen, { fabOpen = it }, Icons.Outlined.Edit, fabActions)
@@ -248,13 +250,20 @@ private fun FloatingNavPill() {
                 MorphBox(
                     onClick = { HomeState.tab = t }, rest = 26.dp, pressed = 14.dp, color = bg,
                     contentColor = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant,
-                    modifier = Modifier.fillMaxHeight().animateContentSize(Springs.spatial()).widthIn(min = 56.dp),
+                    modifier = Modifier.fillMaxHeight().widthIn(min = 56.dp),
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         NavIcon(t, unread, if (sel) icons.first else icons.second, title)
-                        if (sel && labels) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        // the label (and with it the indicator) grows on a smooth spring, never past its item
+                        androidx.compose.animation.AnimatedVisibility(
+                            sel && labels,
+                            enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), expandFrom = Alignment.Start) + fadeIn(Springs.effects()),
+                            exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), shrinkTowards = Alignment.Start) + fadeOut(Springs.exit()),
+                        ) {
+                            Row {
+                                Spacer(Modifier.width(8.dp))
+                                Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            }
                         }
                     }
                 }
@@ -347,26 +356,18 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     }
 
     val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || pager.currentPage == 0)
-    Column(
+    val exDensity = androidx.compose.ui.platform.LocalDensity.current
+    val exW = with(exDensity) { 40.dp.toPx() }
+    val exH = with(exDensity) { 200.dp.toPx() }
+    val floating = Prefs.floatingBars.value
+    val hd = androidx.compose.ui.platform.LocalDensity.current
+    var headerH by remember { mutableStateOf(120.dp) }
+    Box(
         Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
-            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = Prefs.listSwipe.value == "actions", drawer = drawer),
+            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = Prefs.listSwipe.value == "actions", drawer = drawer)
+            .then(if (canOpenDrawer) Modifier.systemGestureExclusion { c -> androidx.compose.ui.geometry.Rect(0f, c.size.height * 0.3f, exW, c.size.height * 0.3f + exH) } else Modifier),
     ) {
-        val scrolled = scrollBehavior.state.overlappedFraction > 0.01f
-        val headerColor by androidx.compose.animation.animateColorAsState(if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface, Springs.effects(), label = "hc")
-        Column(Modifier.background(headerColor)) {
-            if (Prefs.topBar.value == "search") {
-                SearchBarHeader(openDrawer)
-            } else {
-                TopAppBar(
-                    title = { ConnectionTitle(tabs.getOrNull(pager.currentPage)?.title) },
-                    navigationIcon = { if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) },
-                    actions = { MorphIconButton(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) }) },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor, scrolledContainerColor = headerColor),
-                    scrollBehavior = scrollBehavior,
-                )
-            }
-            if (tabs.size > 1) FolderBar(tabs, pager.currentPage) { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = MaterialTheme_springPager()) } }
-        }
+        // the list scrolls under the header (floating: over a fade; classic: under a solid bar)
         HorizontalPager(
             state = pager,
             userScrollEnabled = Prefs.folderSwipe.value && Prefs.listSwipe.value != "actions",
@@ -375,7 +376,29 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             beyondViewportPageCount = 1,
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
-            ChatList(tab.list, pad, showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, onLong = { actionChat = it })
+            ChatList(tab.list, PaddingValues(top = headerH - if (floating) 14.dp else 0.dp, bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, onLong = { actionChat = it })
+        }
+        val cs = MaterialTheme.colorScheme
+        Column(
+            Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
+                .then(
+                    if (floating) Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.7f to cs.surface.copy(alpha = 0.9f), 1f to cs.surface.copy(alpha = 0f)))
+                    else Modifier.background(cs.surfaceContainer),
+                ),
+        ) {
+            if (Prefs.topBar.value == "search") {
+                SearchBarHeader(openDrawer)
+            } else {
+                Row(Modifier.statusBarsPadding().fillMaxWidth().height(64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (Prefs.drawer.value) HeaderIcon(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(48.dp))
+                    Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) {
+                        ConnectionTitle(tabs.getOrNull(pager.currentPage)?.title)
+                    }
+                    HeaderIcon(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
+                }
+            }
+            if (tabs.size > 1) FolderBar(tabs, pager.currentPage) { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = MaterialTheme_springPager()) } }
+            if (floating) Spacer(Modifier.height(14.dp))
         }
     }
     actionChat?.let { c -> ChatActionsSheet(c) { actionChat = null } }
@@ -460,26 +483,43 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
                 FilterChip(selected = i == selected, onClick = { onSelect(i) }, label = { FolderLabel(t.title, counts[i], i == selected) })
             }
         }
-        else -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        else -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(if (Prefs.floatingBars.value) 4.dp else 2.dp)) {
             itemsIndexed(tabs) { i, t ->
                 val sel = i == selected
+                val cs = MaterialTheme.colorScheme
+                val floating = Prefs.floatingBars.value
+                // springy morph: corners swell into a pill with a small bounce, padding grows, a light pop on select
+                val bouncy = androidx.compose.animation.core.spring<androidx.compose.ui.unit.Dp>(dampingRatio = 0.5f, stiffness = 420f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)
                 val outer = 20.dp
-                val inner by animateDpAsState(if (sel) outer else 8.dp, Springs.fastSpatial(), label = "r")
-                val start = if (i == 0 || sel) outer else inner
-                val end = if (i == tabs.lastIndex || sel) outer else inner
-                val bg by androidx.compose.animation.animateColorAsState(if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, Springs.effects(), label = "fb")
+                val inner by animateDpAsState(if (sel) outer else 8.dp, if (Prefs.motion.value == "off") androidx.compose.animation.core.snap() else bouncy, label = "r")
+                val padH by animateDpAsState(if (sel) 22.dp else 16.dp, if (Prefs.motion.value == "off") androidx.compose.animation.core.snap() else bouncy, label = "p")
+                val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+                var first by remember { mutableStateOf(true) }
+                LaunchedEffect(sel) {
+                    if (!first && sel) { pop.snapTo(0.9f); pop.animateTo(1f, androidx.compose.animation.core.spring(0.42f, 500f)) }
+                    first = false
+                }
+                val start = (if (i == 0 || sel) outer else inner).coerceAtLeast(0.dp)
+                val end = (if (i == tabs.lastIndex || sel) outer else inner).coerceAtLeast(0.dp)
+                val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "fb")
                 val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
-                val squeeze by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.94f else 1f, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "fs")
-                Surface(
-                    onClick = { onSelect(i) },
-                    shape = RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end),
-                    color = bg,
-                    contentColor = if (sel) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    interactionSource = interaction,
-                    modifier = Modifier.height(40.dp).graphicsLayer { scaleX = squeeze; scaleY = squeeze },
+                val squeeze by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.94f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "fs")
+                Box(
+                    Modifier.height(40.dp)
+                        .graphicsLayer {
+                            val sc = squeeze * pop.value
+                            scaleX = sc; scaleY = sc
+                            shape = RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end)
+                            clip = true
+                            shadowElevation = if (floating) 2.dp.toPx() else 0f
+                        }
+                        .background(bg)
+                        .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple()) { onSelect(i) }
+                        .padding(horizontal = padH),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(Modifier.padding(horizontal = if (sel) 20.dp else 16.dp), contentAlignment = Alignment.Center) {
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) {
                         FolderLabel(t.title, counts[i], sel)
                     }
                 }
@@ -561,8 +601,9 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
             item(key = "archive") {
                 androidx.compose.animation.AnimatedVisibility(
                     !hidden || revealed,
-                    enter = androidx.compose.animation.expandVertically(Springs.spatial()) + fadeIn(Springs.effects()),
-                    exit = androidx.compose.animation.shrinkVertically(Springs.smooth()) + fadeOut(Springs.exit()),
+                    enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(520, easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))) +
+                        fadeIn(androidx.compose.animation.core.tween(420, 80)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(520), initialScale = 0.92f),
+                    exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f))) + fadeOut(androidx.compose.animation.core.tween(240)),
                 ) {
                     ArchiveRow(archived, hidden, onToggleHidden = {
                         val nowHidden = !Prefs.archiveHidden.value
@@ -727,17 +768,41 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
 /** state of the push drawer: 0 = closed, 1 = open; driven by fingers or springs */
 class DrawerControl(val progress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, val scope: kotlinx.coroutines.CoroutineScope) {
     var widthPx = 1f
-    fun open() { scope.launch { progress.animateTo(1f, Springs.smoothSlow()) } }
-    fun close() { scope.launch { progress.animateTo(0f, Springs.smoothSlow()) } }
-    fun drag(deltaPx: Float) { scope.launch { progress.snapTo((progress.value + deltaPx / widthPx).coerceIn(0f, 1f)) } }
-    /** a light flick in either direction decides; otherwise the nearer side wins */
-    fun settle(velocityX: Float) { if (velocityX > 180f || (velocityX > -180f && progress.value > 0.5f)) open() else close() }
+    /** finger-driven value (-1 = not dragging): written synchronously, so the drawer sticks to the finger */
+    var dragV by androidx.compose.runtime.mutableFloatStateOf(-1f)
+    val value: Float get() = if (dragV >= 0f) dragV else progress.value
+    private var lastDir = 0f
+    private fun go(target: Float) {
+        scope.launch {
+            if (dragV >= 0f) { progress.snapTo(dragV); dragV = -1f }
+            progress.animateTo(target, Springs.smoothSlow())
+        }
+    }
+    fun open() = go(1f)
+    fun close() = go(0f)
+    fun drag(deltaPx: Float) {
+        if (dragV < 0f) dragV = progress.value
+        dragV = (dragV + deltaPx / widthPx).coerceIn(0f, 1f)
+        if (deltaPx != 0f) lastDir = deltaPx
+    }
+    /** the direction of the last movement wins after a short pull; a flick always wins */
+    fun settle(velocityX: Float) {
+        val v = value
+        val openIt = when {
+            velocityX > 120f -> true
+            velocityX < -120f -> false
+            lastDir > 0f -> v > 0.25f
+            lastDir < 0f -> v > 0.75f
+            else -> v > 0.5f
+        }
+        if (openIt) open() else close()
+    }
 }
 
 @Composable
 fun rememberDrawerControl(): DrawerControl {
     val scope = rememberCoroutineScope()
-    return remember { DrawerControl(androidx.compose.animation.core.Animatable(0f), scope) }
+    return remember { DrawerControl(androidx.compose.animation.core.Animatable(0f, visibilityThreshold = 0.0002f), scope) }
 }
 
 /**
@@ -747,7 +812,7 @@ fun rememberDrawerControl(): DrawerControl {
 @Composable
 fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, content: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val open by remember { derivedStateOf { drawer.progress.value > 0.001f } }
+    val open by remember { derivedStateOf { drawer.value > 0.001f } }
     androidx.activity.compose.BackHandler(enabled = open) { drawer.close() }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(cs.surfaceContainerLow)) {
         val w = minOf(maxWidth * 0.8f, 320.dp)
@@ -756,7 +821,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
         drawer.widthPx = with(density) { w.toPx() }
         Box(
             Modifier.width(w).fillMaxSize().graphicsLayer {
-                val p = drawer.progress.value
+                val p = drawer.value
                 translationX = -(1f - p) * drawer.widthPx * 0.35f
                 alpha = 0.3f + 0.7f * p
             }
@@ -788,10 +853,10 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                         if (dragging) drawer.settle(tracker.calculateVelocity().x)
                     }
                 },
-        ) { if (open) drawerContent() }
+        ) { if (open) androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) { drawerContent() } }
         Box(
             Modifier.fillMaxSize().graphicsLayer {
-                val p = drawer.progress.value
+                val p = drawer.value
                 translationX = p * drawer.widthPx
                 val sc = 1f - 0.07f * p
                 scaleX = sc; scaleY = sc
@@ -804,7 +869,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
             content()
             if (open) Box(
                 Modifier.matchParentSize()
-                    .graphicsLayer { alpha = drawer.progress.value }
+                    .graphicsLayer { alpha = drawer.value }
                     .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.10f))
                     .pointerInput(Unit) {
                         val slop = viewConfiguration.touchSlop
@@ -822,7 +887,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                                 val dx = ch.positionChange().x
                                 moved += kotlin.math.abs(dx)
                                 ch.consume()
-                                if (moved > slop) drawer.drag(dx * (1f / (1f - 0.07f * drawer.progress.value)))
+                                if (moved > slop) drawer.drag(dx * (1f / (1f - 0.07f * drawer.value)))
                             }
                             if (moved <= slop) drawer.close() else drawer.settle(tracker.calculateVelocity().x)
                         }
@@ -858,10 +923,9 @@ private fun Modifier.drawerSwipe(enabled: Boolean, edgeOnly: Boolean, drawer: Dr
                     dx += d.x; dy += d.y
                     if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
                     if (dx < -slop) return@awaitEachGesture
-                    if (dx > slop * 0.6f && dx > kotlin.math.abs(dy)) dragging = true else continue
-                }
+                    if (dx > slop * 0.4f && dx > kotlin.math.abs(dy) * 0.8f) { dragging = true; drawer.drag(dx) } else continue
+                } else drawer.drag(d.x)
                 ch.consume()
-                drawer.drag(d.x)
             }
             if (dragging) drawer.settle(tracker.calculateVelocity().x)
         }

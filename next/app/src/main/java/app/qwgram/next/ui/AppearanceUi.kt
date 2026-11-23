@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Animation
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.DataUsage
 import androidx.compose.material.icons.outlined.Dock
@@ -215,41 +216,36 @@ fun TypePreview() = PreviewCard("шрифт") {
 
 // ------------------------------------------------------------------ settings: tiles & pages
 
-/** 2×2 tiles of the most-used sections: shaped icon, title and what's inside */
+/** 3×2 grid of the main sections: big shaped icon over a two-line title, nothing truncated */
 @Composable
 fun QuickTiles2() {
     val cs = MaterialTheme.colorScheme
-    data class Tile(val title: String, val sub: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val page: String)
+    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val page: String)
     val tiles = listOf(
-        Tile("Оформление", "Тема, формы, анимации", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, "appearance"),
-        Tile("Приватность", "Кто что видит", Icons.Outlined.Lock, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, "privacy"),
-        Tile("Уведомления", "Звуки и чаты", Icons.Outlined.Notifications, MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, "notifications"),
-        Tile("Данные", "Память, прокси", Icons.Outlined.DataUsage, MaterialShapes.Pentagon, cs.surfaceContainerHighest, cs.onSurface, "data"),
+        Tile("Оформление", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, "appearance"),
+        Tile("Функции qwgram", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, "features"),
+        Tile("Приватность", Icons.Outlined.Lock, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, "privacy"),
+        Tile("Уведомления", Icons.Outlined.Notifications, MaterialShapes.Sunny, cs.secondaryContainer, cs.onSecondaryContainer, "notifications"),
+        Tile("Данные и память", Icons.Outlined.DataUsage, MaterialShapes.Pentagon, cs.surfaceContainerHighest, cs.onSurface, "data"),
+        Tile("Папки", Icons.Outlined.FolderOpen, MaterialShapes.Cookie6Sided, cs.primaryContainer, cs.onPrimaryContainer, "folders"),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        tiles.chunked(2).forEachIndexed { r, row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEachIndexed { c, t ->
-                    // connected 2×2: big radius on the outer corners only
-                    val big = 28.dp
-                    val small = 8.dp
-                    val shape = RoundedCornerShape(
-                        topStart = if (r == 0 && c == 0) big else small, topEnd = if (r == 0 && c == 1) big else small,
-                        bottomStart = if (r == 1 && c == 0) big else small, bottomEnd = if (r == 1 && c == 1) big else small,
-                    )
-                    Box(Modifier.weight(1f).clip(shape)) {
-                        MorphBox(
-                            onClick = { Nav.push(Route.Page(t.page)) }, rest = 0.dp, pressed = 20.dp, color = cs.surfaceContainerLow,
-                            contentAlignment = Alignment.CenterStart, modifier = Modifier.fillMaxWidth().height(84.dp),
-                        ) {
-                            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(44.dp).clip(t.shape.asShape()).background(t.bg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.fg) }
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(t.sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        tiles.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { t ->
+                    MorphBox(
+                        onClick = { Nav.push(Route.Page(t.page)) }, rest = 26.dp, pressed = 14.dp, squish = 0.95f,
+                        color = cs.surfaceContainerLow, contentAlignment = Alignment.Center,
+                        modifier = Modifier.weight(1f).height(108.dp),
+                    ) {
+                        Column(Modifier.padding(horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.size(46.dp).clip(t.shape.asShape()).background(t.bg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.fg) }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                t.title, style = MaterialTheme.typography.labelLarge, color = cs.onSurface,
+                                maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 16.sp, softWrap = true,
+                            )
                         }
                     }
                 }
@@ -350,8 +346,9 @@ fun NavPage2() = PageScaffold("Панели и кнопки") {
         segmented("Показывать", Prefs.fabStyle, listOf("extended" to "Да", "none" to "Нет"))
         segmented("Форма", Prefs.fabShape, listOf("cookie" to "Печенье", "sunny" to "Солнце", "circle" to "Круг", "square" to "Квадрат"))
     }
-    group("Чат", footer = "Шапка и поле ввода парят над фоном, под ними — плавное растворение.") {
-        switch("Плавающие шапка и поле ввода", Prefs.floatingBars)
+    group("Шапки и панели", footer = "Плавающие: заголовок лежит на растворении, кнопки и папки — отдельные круглые кнопки с морфингом. Выключите, чтобы вернуть обычные прямоугольные панели везде.") {
+        switch("Плавающие шапки и панели", Prefs.floatingBars)
+        switch("Заголовок по центру", Prefs.centerTitle, "Во всех шапках")
     }
     group("Меню") {
         switch("Боковое меню", Prefs.drawer, "Открывается свайпом вправо по списку")
@@ -382,6 +379,9 @@ fun TextPage2() = PageScaffold("Шрифт и масштаб") {
     item { TypePreview() }
     group("Шрифт") {
         segmented("Начертание", Prefs.font, listOf("system" to "Системный", "serif" to "Засечки", "mono" to "Моно"))
+    }
+    group("Эмодзи", footer = "Noto — набор Google, одинаковый на всех устройствах и с новыми эмодзи. Применится после перезапуска qwgram. Эмодзи Apple встроить нельзя: они принадлежат Apple.") {
+        segmented("Стиль", Prefs.emojiStyle, listOf("system" to "Системные", "noto" to "Noto"))
     }
     group("Масштаб") {
         sliderFloat("Размер интерфейса", Prefs.uiScale, 0.85f..1.15f, 5) { "${(it * 100).toInt()}%" }

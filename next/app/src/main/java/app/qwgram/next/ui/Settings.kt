@@ -102,7 +102,7 @@ fun SettingsHome(pad: PaddingValues) {
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize()) {
         FadeHeader("Настройки", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, onBack = null) {
-            MorphIconButton(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
+            HeaderIcon(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
         }
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -135,8 +135,7 @@ fun SettingsHome(pad: PaddingValues) {
                 nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
             }
             group("Чаты") {
-                nav("Папки с чатами", "Создать и настроить", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
-                nav("Функции qwgram", "Приватность и поведение", Icons.Outlined.AutoAwesome, 2) { Nav.push(Route.Page("features")) }
+                nav("Заблокированные", "Пользователи и боты", Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             }
             group("Сеть") {
                 nav("Прокси", "SOCKS5, MTProto, HTTP", Icons.Outlined.VpnKey) { Nav.push(Route.Page("proxy")) }

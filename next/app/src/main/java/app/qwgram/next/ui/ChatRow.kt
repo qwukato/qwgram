@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -185,39 +186,69 @@ fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
     val archived = chat.positions.any { it.list is TdApi.ChatListArchive }
     val pinned = chat.positions.any { it.isPinned && (it.list is TdApi.ChatListMain || it.list is TdApi.ChatListArchive) }
     val muted = TdStore.isMuted(chat)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            ChatAvatar(chat, 44.dp)
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(Texts.chatStatus(chat), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val cs = MaterialTheme.colorScheme
+    val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
+    val unread = chat.unreadCount > 0 || chat.isMarkedAsUnread
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = cs.surfaceContainerLow) {
+        // header card: tap opens the profile
+        MorphBox(
+            onClick = { onDismiss(); Nav.push(Route.Profile(chat.id)) }, rest = 28.dp, pressed = 18.dp, squish = 0.98f,
+            color = cs.surfaceContainerHigh, contentAlignment = Alignment.CenterStart,
+            modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                ChatAvatar(chat, 52.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(Texts.chatStatus(chat), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        val row: @Composable (String, ImageVector, Boolean, () -> Unit) -> Unit = { title, icon, danger, action ->
-            ListItem(
-                headlineContent = { Text(title, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
-                leadingContent = { Icon(icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
-                modifier = Modifier.combinedClickable(onClick = action),
-            )
+        Spacer(Modifier.height(10.dp))
+        // quick actions: a connected row of tonal tiles, each morphs on press; "on" states are filled
+        data class A(val title: String, val icon: ImageVector, val on: Boolean, val act: () -> Unit)
+        val acts = buildList {
+            add(A(if (pinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, pinned) { Td.send(TdApi.ToggleChatIsPinned(list, chat.id, !pinned)); onDismiss() })
+            add(A(if (muted) "Со звуком" else "Без звука", if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, muted) { setMuted(chat, !muted); onDismiss() })
+            add(A(if (unread) "Прочитано" else "Не прочитано", if (unread) Icons.Outlined.DoneAll else Icons.Outlined.MarkChatUnread, false) {
+                if (unread) markRead(chat) else Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true)); onDismiss()
+            })
+            if (!TdStore.isSaved(chat)) add(A(if (archived) "Из архива" else "В архив", if (archived) Icons.Outlined.Unarchive else Icons.Outlined.Archive, archived) {
+                Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive())); onDismiss()
+            })
         }
-        val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
-        row(if (pinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, false) {
-            Td.send(TdApi.ToggleChatIsPinned(list, chat.id, !pinned)); onDismiss()
+        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            acts.forEachIndexed { i, a ->
+                val outer = 24.dp
+                val inner = 8.dp
+                MorphBox(
+                    onClick = a.act, rest = if (i == 0 || i == acts.lastIndex) outer else inner, pressed = 30.dp, squish = 0.94f,
+                    color = if (a.on) cs.secondaryContainer else cs.surfaceContainerHighest,
+                    contentColor = if (a.on) cs.onSecondaryContainer else cs.onSurface,
+                    modifier = Modifier.weight(1f).height(84.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 4.dp)) {
+                        Icon(a.icon, null)
+                        Spacer(Modifier.height(6.dp))
+                        Text(a.title, style = MaterialTheme.typography.labelMedium, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            }
         }
-        row(if (muted) "Включить уведомления" else "Без звука", if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, false) {
-            setMuted(chat, !muted); onDismiss()
+        Spacer(Modifier.height(10.dp))
+        MorphBox(
+            onClick = { confirmDelete = true }, rest = 24.dp, pressed = 14.dp, squish = 0.97f,
+            color = cs.errorContainer, contentColor = cs.onErrorContainer,
+            modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(56.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Delete, null)
+                Spacer(Modifier.width(10.dp))
+                Text("Удалить чат", style = MaterialTheme.typography.titleSmall)
+            }
         }
-        if (chat.unreadCount > 0 || chat.isMarkedAsUnread) row("Отметить прочитанным", Icons.Outlined.DoneAll, false) {
-            markRead(chat); onDismiss()
-        } else row("Отметить непрочитанным", Icons.Outlined.MarkChatUnread, false) {
-            Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true)); onDismiss()
-        }
-        if (!TdStore.isSaved(chat)) row(if (archived) "Вернуть из архива" else "В архив", if (archived) Icons.Outlined.Unarchive else Icons.Outlined.Archive, false) {
-            Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive())); onDismiss()
-        }
-        row("Удалить чат", Icons.Outlined.Delete, true) { confirmDelete = true }
-        Spacer(Modifier.size(24.dp))
+        Spacer(Modifier.size(28.dp))
     }
     if (confirmDelete) {
         AlertDialog(

@@ -10,6 +10,10 @@ class App : Application() {
         super.onCreate()
         instance = this
         Prefs.init(this)
+        // emoji style: system font, or the bundled Google Noto set replacing every emoji (needs an app restart to switch)
+        if (Prefs.emojiStyle.value == "noto") runCatching {
+            androidx.emoji2.text.EmojiCompat.init(androidx.emoji2.bundled.BundledEmojiCompatConfig(this).setReplaceAll(true))
+        }
         Notifier.init(this)
         Td.init(this)
     }

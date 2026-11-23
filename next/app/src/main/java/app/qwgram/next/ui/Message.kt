@@ -1,6 +1,9 @@
 package app.qwgram.next.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -138,7 +141,10 @@ fun MessageItem(
     val showAvatar = group && !out && Prefs.groupAvatars.value
     val lastInRun = grp == Grp.Single || grp == Grp.Bottom
     val firstInRun = grp == Grp.Single || grp == Grp.Top
-    val swipe = remember { Animatable(0f) }
+    val swipeAnim = remember { Animatable(0f, visibilityThreshold = 0.5f) }
+    // while the finger is down the offset is written synchronously (no coroutine hop → no jitter)
+    var swipeDrag by remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
+    val swipe = object { val value: Float get() = if (!swipeDrag.isNaN()) swipeDrag else swipeAnim.value }
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     var armed by remember { mutableStateOf(false) }
@@ -149,7 +155,7 @@ fun MessageItem(
     )
 
     Row(
-        modifier.fillMaxWidth().background(tintBg).padding(top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
+        modifier.fillMaxWidth().background(tintBg).padding(start = 8.dp, end = 8.dp, top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
             // a tap beside the bubble (empty side of the row) also opens the menu, like Telegram
             .pointerInput(m.id) { detectTapGestures(onTap = { onTap(bubbleRect) }) }
             .pointerInput(m.id) {
@@ -181,7 +187,7 @@ fun MessageItem(
                         val pull = -raw
                         val maxShown = threshold * 1.9f
                         val shown = maxShown * (1f - kotlin.math.exp(-pull / maxShown))
-                        scope.launch { swipe.snapTo(-shown) }
+                        swipeDrag = -shown
                         val now = pull >= threshold * 1.15f
                         if (now && !armed) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         armed = now
@@ -190,7 +196,12 @@ fun MessageItem(
                         if (armed) onSwipeReply()
                         armed = false
                         // soft return: low stiffness, gentle settle (no snapping back)
-                        scope.launch { swipe.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 220f)) }
+                        val from = swipeDrag
+                        scope.launch {
+                            if (!from.isNaN()) swipeAnim.snapTo(from)
+                            swipeDrag = Float.NaN
+                            swipeAnim.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 260f))
+                        }
                     }
                 }
             },
@@ -466,25 +477,79 @@ private fun ReactionsMeta(m: TdApi.Message, modifier: Modifier = Modifier, meta:
         modifier = modifier,
         measurePolicy = policy,
         content = {
-            list.forEach { r ->
-                val emoji = (r.type as? TdApi.ReactionTypeEmoji)?.emoji ?: "⭐"
-                val chosen = r.isChosen
-                MorphBox(
-                    onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) }, rest = 14.dp, pressed = 7.dp,
-                    color = if (chosen) cs.primary.copy(alpha = 0.24f) else cs.onSurface.copy(alpha = 0.08f),
-                    contentColor = if (chosen) cs.primary else cs.onSurfaceVariant,
-                    modifier = Modifier.height(28.dp),
-                ) {
-                    Row(Modifier.padding(start = 7.dp, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(emoji, fontSize = 14.sp)
-                        Spacer(Modifier.width(3.dp))
-                        Text(compact(r.totalCount), style = MaterialTheme.typography.labelMedium, fontWeight = if (chosen) androidx.compose.ui.text.font.FontWeight.Bold else null)
-                    }
-                }
-            }
+            list.forEach { r -> key(reactionKey(r.type)) { ReactionChip(m, r) } }
             meta()
         },
     )
+}
+
+private fun reactionKey(t: TdApi.ReactionType): String = when (t) {
+    is TdApi.ReactionTypeEmoji -> "e" + t.emoji
+    is TdApi.ReactionTypeCustomEmoji -> "c" + t.customEmojiId
+    is TdApi.ReactionTypePaid -> "paid"
+    else -> t.toString()
+}
+
+/** one reaction: springs in, pops + bursts when you set it, count rolls; paid (Telegram Stars) reactions are gold */
+@Composable
+private fun ReactionChip(m: TdApi.Message, r: TdApi.MessageReaction) {
+    val cs = MaterialTheme.colorScheme
+    val paid = r.type is TdApi.ReactionTypePaid
+    val emoji = when (val t = r.type) { is TdApi.ReactionTypeEmoji -> t.emoji; is TdApi.ReactionTypePaid -> "⭐"; else -> "✨" }
+    val chosen = r.isChosen
+    val pop = remember { Animatable(0.6f) }
+    val burst = remember { Animatable(0f) }
+    var seen by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(chosen) {
+        val prev = seen
+        seen = chosen
+        if (prev == null) { pop.animateTo(1f, androidx.compose.animation.core.spring(0.55f, 600f)); return@LaunchedEffect }
+        if (chosen && !prev) {
+            launch { burst.snapTo(0f); burst.animateTo(1f, androidx.compose.animation.core.tween(620, easing = androidx.compose.animation.core.FastOutSlowInEasing)); burst.snapTo(0f) }
+            pop.snapTo(0.72f)
+            pop.animateTo(1f, androidx.compose.animation.core.spring(0.38f, 520f))
+        } else pop.animateTo(1f, androidx.compose.animation.core.spring(0.7f, 600f))
+    }
+    val gold = Color(0xFFFFC233)
+    val bg by androidx.compose.animation.animateColorAsState(
+        when { paid -> gold.copy(alpha = if (chosen) 0.42f else 0.26f); chosen -> cs.primary.copy(alpha = 0.24f); else -> cs.onSurface.copy(alpha = 0.08f) },
+        Springs.effects(), label = "rb",
+    )
+    val fg = when { paid -> Color(0xFF8A5A00).let { if (cs.surface.luminance() < 0.5f) gold else it }; chosen -> cs.primary; else -> cs.onSurfaceVariant }
+    Box {
+        MorphBox(
+            onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) }, rest = 14.dp, pressed = 7.dp,
+            color = bg, contentColor = fg,
+            modifier = Modifier.height(28.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                .then(if (paid) Modifier.border(1.dp, gold.copy(alpha = 0.7f), RoundedCornerShape(14.dp)) else Modifier),
+        ) {
+            Row(Modifier.padding(start = 7.dp, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(emoji, fontSize = 14.sp)
+                Spacer(Modifier.width(3.dp))
+                androidx.compose.animation.AnimatedContent(
+                    r.totalCount,
+                    transitionSpec = {
+                        val up = targetState > initialState
+                        (androidx.compose.animation.slideInVertically(Springs.fastSpatial()) { if (up) it else -it } + androidx.compose.animation.fadeIn(Springs.effects()))
+                            .togetherWith(androidx.compose.animation.slideOutVertically(Springs.exit()) { if (up) -it else it } + androidx.compose.animation.fadeOut(Springs.exit()))
+                    },
+                    label = "rc",
+                ) { n ->
+                    Text(compact(n), style = MaterialTheme.typography.labelMedium, fontWeight = if (chosen || paid) androidx.compose.ui.text.font.FontWeight.Bold else null)
+                }
+            }
+        }
+        // burst: the emoji flies up, grows and fades out
+        if (burst.value > 0f) Text(
+            emoji, fontSize = 20.sp,
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 3.dp).graphicsLayer {
+                val t = burst.value
+                translationY = -46.dp.toPx() * t
+                scaleX = 1f + 1.4f * t; scaleY = scaleX
+                alpha = 1f - t * t
+            },
+        )
+    }
 }
 
 private class FlowMetaPolicy(private val gap: Int, private val metaGap: Int) : androidx.compose.ui.layout.MeasurePolicy {

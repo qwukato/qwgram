@@ -67,9 +67,18 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Check
 
+/** header action: a floating round button with its own container and press morph, or a plain icon in classic mode */
+@Composable
+fun HeaderIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    if (Prefs.floatingBars.value) MorphIconButton(icon, desc, onClick, modifier.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp)
+    else MorphIconButton(icon, desc, onClick, modifier)
+}
+
 /**
- * M3 top app bar floating over the content on a fade: solid surface at the top dissolving to transparent, so
- * scrolled content passes underneath softly. Title takes all free width (adapts to long names), optional subtitle.
+ * M3 top app bar. Floating style: the title lies on a fade (surface → transparent) and the buttons float as
+ * separate round containers; content scrolls underneath. Classic style: a flat surfaceContainer bar.
+ * Titles can be centred (Appearance → Panels).
  */
 @Composable
 fun FadeHeader(
@@ -81,18 +90,34 @@ fun FadeHeader(
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
+    val floating = Prefs.floatingBars.value
+    val center = Prefs.centerTitle.value
     Box(
         modifier.fillMaxWidth()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.62f to cs.surface.copy(alpha = 0.92f), 1f to cs.surface.copy(alpha = 0f)))
-            .statusBarsPadding().padding(bottom = 18.dp),
+            .then(
+                if (floating) Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.62f to cs.surface.copy(alpha = 0.92f), 1f to cs.surface.copy(alpha = 0f)))
+                else Modifier.background(cs.surfaceContainer),
+            )
+            .statusBarsPadding().padding(bottom = if (floating) 18.dp else 0.dp),
     ) {
-        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack) else Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer { alpha = titleAlpha() }) {
-                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val titleBlock: @Composable (Modifier) -> Unit = { m ->
+            Column(m.graphicsLayer { alpha = titleAlpha() }, horizontalAlignment = if (center) Alignment.CenterHorizontally else Alignment.Start) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            actions()
+        }
+        if (center) {
+            Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp)) {
+                titleBlock(Modifier.align(Alignment.Center).padding(horizontal = 104.dp))
+                if (onBack != null) HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack, Modifier.align(Alignment.CenterStart))
+                Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) { actions() }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onBack != null) HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack) else Spacer(Modifier.width(10.dp))
+                titleBlock(Modifier.weight(1f).padding(horizontal = 10.dp))
+                actions()
+            }
         }
     }
 }
@@ -218,8 +243,8 @@ fun <T> ConnectedGroup(options: List<Pair<T, String>>, selected: T, onSelect: (T
                 when { pressed -> 1.18f; sel -> 1.12f; else -> 1f }, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "w",
             )
             val inner by androidx.compose.animation.core.animateDpAsState(when { sel -> 24.dp; pressed -> 4.dp; else -> 8.dp }, Springs.fastSpatial(), label = "r")
-            val start = if (i == 0) 24.dp else inner
-            val end = if (i == options.lastIndex) 24.dp else inner
+            val start = if (i == 0) 24.dp else inner.coerceAtLeast(0.dp)
+            val end = if (i == options.lastIndex) 24.dp else inner.coerceAtLeast(0.dp)
             val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHighest, Springs.effects(), label = "bg")
             val fg = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant
             Box(
@@ -288,6 +313,7 @@ fun GroupScope.sliderInt(title: String, pref: Prefs.I, range: IntRange, step: In
             Text(format(local.toInt()), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         Slider(
+            modifier = Modifier.noSwipeBack(),
             value = local,
             onValueChange = { v ->
                 val snapped = (range.first + Math.round((v - range.first) / step) * step).coerceIn(range.first, range.last)
@@ -307,6 +333,7 @@ fun GroupScope.sliderFloat(title: String, pref: Prefs.F, range: ClosedFloatingPo
         }
         val stepSize = (range.endInclusive - range.start) / (steps + 1)
         Slider(
+            modifier = Modifier.noSwipeBack(),
             value = local,
             onValueChange = { v -> local = (range.start + Math.round((v - range.start) / stepSize) * stepSize).coerceIn(range.start, range.endInclusive) },
             onValueChangeFinished = { pref.value = local }, valueRange = range,

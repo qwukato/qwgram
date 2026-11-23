@@ -118,6 +118,10 @@ import app.qwgram.next.td.Texts
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material.icons.outlined.Search
@@ -319,6 +323,9 @@ fun ChatScreen(chatId: Long) {
     var deleteFor by remember { mutableStateOf<List<TdApi.Message>?>(null) }
     var viewer by remember { mutableStateOf<TdApi.Photo?>(null) }
     val selected = remember { mutableStateListOf<Long>() }
+    val rows = remember { HashMap<Long, Pair<Float, Float>>() }   // message id → (top, bottom) in root, for drag-select
+    var listTop by remember { mutableStateOf(0f) }
+    val dens = androidx.compose.ui.platform.LocalDensity.current
     var searching by remember { mutableStateOf(false) }
     val search = remember(chatId) { ChatSearch(chatId) }
     var panel by remember { mutableStateOf(false) }
@@ -328,9 +335,10 @@ fun ChatScreen(chatId: Long) {
     val imeNow = WindowInsets.ime.getBottom(density)
     val imeTarget = WindowInsets.imeAnimationTarget.getBottom(density)
     LaunchedEffect(imeTarget) { if (imeTarget > with(density) { 180.dp.roundToPx() }) Prefs.kbHeight.value = imeTarget }
+    LaunchedEffect(imeTarget) { if (panel && imeTarget > 0) panelHolding = true }
     LaunchedEffect(imeNow, panelHolding) {
         val kb = Prefs.kbHeight.value
-        if (panelHolding && kb > 0 && imeNow >= kb * 0.92f) { panel = false; panelHolding = false }
+        if (panelHolding && (kb <= 0 || imeNow >= kb * 0.92f)) { panel = false; panelHolding = false }
     }
     val panelHeight = with(density) {
         val kb = Prefs.kbHeight.value
@@ -338,6 +346,7 @@ fun ChatScreen(chatId: Long) {
     }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var confirmSend by remember { mutableStateOf<TdApi.InputMessageContent?>(null) }
+    var followSent by remember { mutableStateOf(false) }
     var highlight by remember { mutableStateOf(0L) }
 
     DisposableEffect(chatId) {
@@ -384,7 +393,23 @@ fun ChatScreen(chatId: Long) {
     // keep the newest message in view when something arrives and we are at the bottom
     val newest = ctl.messages.firstOrNull()?.id
     LaunchedEffect(newest) {
-        if (!ctl.hasNewer && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+        val first = ctl.messages.firstOrNull()
+        val mine = first?.isOutgoing == true && followSent
+        if (!ctl.hasNewer && (mine || listState.firstVisibleItemIndex <= 2)) {
+            followSent = false
+            // the list rises after the new message on a smooth spring (Telegram)
+            listState.animateScrollToItem(0)
+        }
+    }
+    // reading reached the bottom → the whole chat is read
+    val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    LaunchedEffect(atBottom, newest) {
+        val c = TdStore.chats.peek(chatId)
+        val last = c?.lastMessage?.id ?: return@LaunchedEffect
+        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread)) {
+            Td.send(TdApi.ViewMessages(chatId, longArrayOf(last), TdApi.MessageSourceChatHistory(), true))
+            if (c.isMarkedAsUnread) Td.send(TdApi.ToggleChatIsMarkedAsUnread(chatId, false))
+        }
     }
 
     val entries by remember(ctl) {
@@ -470,7 +495,10 @@ fun ChatScreen(chatId: Long) {
             ) {
             AnimatedContent(
                 targetState = when { selecting -> 2; searching -> 1; else -> 0 },
-                transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) },
+                transitionSpec = {
+                    (fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 90)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(200, delayMillis = 90), initialScale = 0.96f))
+                        .togetherWith(fadeOut(androidx.compose.animation.core.tween(90)))
+                },
                 label = "topbar",
             ) { mode ->
                 when (mode) {
@@ -500,12 +528,17 @@ fun ChatScreen(chatId: Long) {
             }
             Spacer(Modifier.height(18.dp))
             }
-            Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxSize()
+                    .onGloballyPositioned { listTop = it.boundsInRoot().top }
+                    .dragSelect(listState, rows, { entries.mapNotNull { (it as? Entry.Msg)?.m?.id } }, selected, edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }, topInset = { with(dens) { topH.toPx() } }, bottomInset = { with(dens) { bottomH.toPx() } }, rootTop = { listTop }),
+            ) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 8.dp, end = 8.dp, top = (topH - 12.dp).coerceAtLeast(8.dp), bottom = (bottomH - 10.dp).coerceAtLeast(8.dp)),
+                    // no side padding: selection highlights span the whole width; rows pad their own content
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - 12.dp).coerceAtLeast(8.dp), bottom = (bottomH - 10.dp).coerceAtLeast(8.dp)),
                 ) {
                     items(entries, key = { it.key }, contentType = { it::class }) { e ->
                         when (e) {
@@ -516,7 +549,8 @@ fun ChatScreen(chatId: Long) {
                                 MessageItem(
                                     m = e.m, grp = e.grp, chat = chat, group = group,
                                     reply = ctl.replies[id],
-                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit()),
+                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                                        .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
                                     onTap = { rect ->
@@ -607,6 +641,7 @@ fun ChatScreen(chatId: Long) {
                         if (at > 0) Toast.makeText(ctx, "Сообщение запланировано", Toast.LENGTH_SHORT).show()
                     }
                     text = ""
+                    followSent = at == 0
                     haptic(HapticFeedbackType.Confirm)
                     if (at == 0) scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) }
                 }
@@ -716,9 +751,18 @@ private fun typing(chatId: Long) {
 }
 
 fun react(m: TdApi.Message, emoji: String) {
-    val chosen = m.interactionInfo?.reactions?.reactions?.firstOrNull { it.isChosen && (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
-    if (chosen != null) Td.send(TdApi.RemoveMessageReaction(m.chatId, m.id, TdApi.ReactionTypeEmoji(emoji)))
-    else Td.send(TdApi.AddMessageReaction(m.chatId, m.id, TdApi.ReactionTypeEmoji(emoji), false, true))
+    // Telegram's reaction list may spell an emoji with or without the FE0F selector ("❤️" vs "❤"): compare loosely
+    val bare = emoji.replace("\uFE0F", "")
+    val chosen = m.interactionInfo?.reactions?.reactions?.firstOrNull { it.isChosen && (it.type as? TdApi.ReactionTypeEmoji)?.emoji?.replace("\uFE0F", "") == bare }
+    if (chosen != null) { Td.send(TdApi.RemoveMessageReaction(m.chatId, m.id, chosen.type)); return }
+    val existing = m.interactionInfo?.reactions?.reactions?.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji?.replace("\uFE0F", "") == bare }?.type as? TdApi.ReactionTypeEmoji
+    val first = existing?.emoji ?: emoji
+    Td.send(TdApi.AddMessageReaction(m.chatId, m.id, TdApi.ReactionTypeEmoji(first), false, true)) { r ->
+        if (r is TdApi.Error) {
+            val alt = if (first.contains('\uFE0F')) bare else "$bare\uFE0F"
+            if (alt != first) Td.send(TdApi.AddMessageReaction(m.chatId, m.id, TdApi.ReactionTypeEmoji(alt), false, true))
+        }
+    }
 }
 
 private fun copy(ctx: Context, s: String) {
@@ -811,9 +855,9 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
             }
     }
     val actions: @Composable () -> Unit = {
-            MorphIconButton(Icons.Outlined.Search, "Поиск в чате", onSearch)
+            HeaderIcon(Icons.Outlined.Search, "Поиск в чате", onSearch)
             Box {
-                MorphIconButton(Icons.Outlined.MoreVert, "Ещё", { menu = true })
+                HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
                     val muted = TdStore.isMuted(chat)
                     DropdownMenuItem(
@@ -848,11 +892,11 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
     if (floating) {
         // M3 top app bar without a container, on the fade: title takes all free width
         Row(
-            Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp),
+            Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
-            titleArea(Modifier.weight(1f))
+            HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+            Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) { titleArea(Modifier) }
             actions()
         }
     } else {
@@ -935,13 +979,98 @@ private fun UnreadDivider() {
 @Composable
 private fun ChannelBar(chat: TdApi.Chat) {
     val muted = TdStore.isMuted(chat)
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), contentAlignment = Alignment.Center) {
-            QButton(onClick = { setMuted(chat, !muted) }, tonal = true, modifier = Modifier.fillMaxWidth(0.7f).height(48.dp)) {
-                Icon(if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (muted) "Включить звук" else "Выключить звук")
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp), contentAlignment = Alignment.Center) {
+        val bg by androidx.compose.animation.animateColorAsState(if (muted) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "cb")
+        MorphBox(
+            onClick = { setMuted(chat, !muted) }, rest = 28.dp, pressed = 14.dp, elevation = 4.dp,
+            color = bg, contentColor = if (muted) cs.onPrimaryContainer else cs.onSurface,
+            modifier = Modifier.height(56.dp),
+        ) {
+            Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                AnimatedContent(muted, transitionSpec = { (scaleIn(Springs.fastSpatial(), initialScale = 0.4f) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) }, label = "bell") { m ->
+                    Icon(if (m) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, null)
+                }
+                Spacer(Modifier.width(10.dp))
+                AnimatedContent(muted, transitionSpec = { (fadeIn(Springs.effects()) + androidx.compose.animation.slideInVertically(Springs.spatial()) { it / 2 }).togetherWith(fadeOut(Springs.exit())) }, label = "bt") { m ->
+                    Text(if (m) "Включить звук" else "Выключить звук", style = MaterialTheme.typography.titleSmall)
+                }
             }
+        }
+    }
+}
+
+/**
+ * Telegram-style drag-select: hold a message (it gets selected by its own long-press), then slide up or down —
+ * every message the finger passes joins the selection (or leaves it, if the first one was being unselected).
+ * Near the top/bottom edge the list scrolls by itself. Runs in the Initial pass so the list doesn't scroll by hand meanwhile.
+ */
+private fun Modifier.dragSelect(
+    list: androidx.compose.foundation.lazy.LazyListState,
+    rows: Map<Long, Pair<Float, Float>>,
+    order: () -> List<Long>,
+    selected: androidx.compose.runtime.snapshots.SnapshotStateList<Long>,
+    edge: Float,
+    topInset: () -> Float,
+    bottomInset: () -> Float,
+    rootTop: () -> Float,
+): Modifier = this.pointerInput(Unit) {
+    val slop = viewConfiguration.touchSlop
+    val longPress = viewConfiguration.longPressTimeoutMillis
+    kotlinx.coroutines.coroutineScope {
+        val scope = this
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            fun idAt(yLocal: Float): Long? {
+                val y = yLocal + rootTop()
+                return rows.entries.firstOrNull { (id, r) -> y >= r.first && y < r.second && id in order() }?.key
+            }
+            // wait for the long-press time without moving
+            val start = System.currentTimeMillis()
+            var moved = false
+            var released = false
+            while (System.currentTimeMillis() - start < longPress + 40) {
+                val ev = withTimeoutOrNull(longPress + 40 - (System.currentTimeMillis() - start)) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial) } ?: break
+                val ch = ev.changes.firstOrNull { it.id == down.id }
+                if (ch == null || !ch.pressed) { released = true; break }
+                if ((ch.position - down.position).getDistance() > slop) { moved = true; break }
+            }
+            if (moved || released) return@awaitEachGesture
+            val anchor = idAt(down.position.y) ?: return@awaitEachGesture
+            // the item's own long-press has toggled the anchor by now; follow its new state
+            val adding = anchor in selected
+            val base = selected.toSet()
+            var y = down.position.y
+            var auto: kotlinx.coroutines.Job? = null
+            fun apply() {
+                val cur = idAt(y) ?: return
+                val ids = order()
+                val a = ids.indexOf(anchor); val b = ids.indexOf(cur)
+                if (a < 0 || b < 0) return
+                val range = ids.subList(minOf(a, b), maxOf(a, b) + 1).toSet()
+                val want = if (adding) base + range else base - range
+                selected.removeAll { it !in want }
+                want.forEach { if (it !in selected) selected.add(it) }
+            }
+            while (true) {
+                val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                if (!ch.pressed) break
+                ch.consume()
+                y = ch.position.y
+                apply()
+                val h = size.height.toFloat()
+                val speed = when {
+                    y < topInset() + edge -> ((topInset() + edge - y) / edge).coerceIn(0f, 1.5f) * 22f
+                    y > h - bottomInset() - edge -> -((y - (h - bottomInset() - edge)) / edge).coerceIn(0f, 1.5f) * 22f
+                    else -> 0f
+                }
+                auto?.cancel()
+                if (speed != 0f) auto = scope.launch {
+                    while (true) { list.scrollBy(speed); apply(); kotlinx.coroutines.delay(16) }
+                }
+            }
+            auto?.cancel()
         }
     }
 }
@@ -1062,9 +1191,12 @@ private fun Composer(
                 val ready = text.isNotBlank() || editing != null
                 val corner by animateDpAsState(if (ready) 16.dp else 26.dp, Springs.fastSpatial(), label = "send")
                 val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, Springs.fastSpatial(), label = "rec")
-                val sendMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie6Sided) }
-                val morphP by androidx.compose.animation.core.animateFloatAsState(if (ready) 1f else 0f, Springs.fastSpatial(), label = "sm")
-                val spin by androidx.compose.animation.core.animateFloatAsState(if (ready) 60f else 0f, Springs.spatial(), label = "spin")
+                // circle (mic) ⇄ 9-sided cookie (send), turning as it morphs; bouncy both ways
+                val sendMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie9Sided) }
+                val off = Prefs.motion.value == "off"
+                val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+                val morphP by androidx.compose.animation.core.animateFloatAsState(if (ready) 1f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 420f * k), label = "sm")
+                val spin by androidx.compose.animation.core.animateFloatAsState(if (ready) 120f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f * k), label = "spin")
                 Surface(
                     shape = MorphShape(sendMorph, morphP),
                     shadowElevation = if (floating) 3.dp else 0.dp,
@@ -1286,8 +1418,8 @@ private fun MessageMenu(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 if (reactions.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        items(reactions) { e ->
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        reactions.forEach { e ->
                             MorphBox(onClick = { react(m, e); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
                                 Text(e, fontSize = 24.sp)
                             }
