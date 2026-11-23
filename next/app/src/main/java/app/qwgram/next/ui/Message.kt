@@ -101,6 +101,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.filled.Close
 import org.drinkless.tdlib.TdApi
 import kotlin.math.roundToInt
 

@@ -97,6 +97,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
