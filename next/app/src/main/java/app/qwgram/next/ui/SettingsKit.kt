@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
+import androidx.compose.material.icons.filled.Check
 
 /** Settings page frame: large collapsing app bar + lazy content. */
 @Composable

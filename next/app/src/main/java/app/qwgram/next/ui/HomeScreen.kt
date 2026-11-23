@@ -102,6 +102,7 @@ import app.qwgram.next.td.Td
 import app.qwgram.next.td.TdStore
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.itemsIndexed
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -348,12 +349,12 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
             }
         }
         "chips" -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.foundation.lazy.itemsIndexed(tabs) { i, t ->
+            itemsIndexed(tabs) { i, t ->
                 FilterChip(selected = i == selected, onClick = { onSelect(i) }, label = { FolderLabel(t.title, counts[i], i == selected) })
             }
         }
         else -> androidx.compose.foundation.lazy.LazyRow(state = rowState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            androidx.compose.foundation.lazy.itemsIndexed(tabs) { i, t ->
+            itemsIndexed(tabs) { i, t ->
                 val sel = i == selected
                 val outer = 20.dp
                 val inner by animateDpAsState(if (sel) outer else 8.dp, Springs.fastSpatial(), label = "r")

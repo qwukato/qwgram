@@ -81,7 +81,7 @@ fun NewMessagePage() {
     LaunchedEffect(q) {
         found = if (q.length >= 3 && mode == 0) {
             kotlinx.coroutines.delay(300)
-            Td.callOrNull(TdApi.SearchPublicChats(q, null))?.chatIds?.mapNotNull { id -> TdStore.chats.peek(id) ?: Td.callOrNull(TdApi.GetChat(id)) }.orEmpty()
+            Td.callOrNull(TdApi.SearchPublicChats(q, null))?.chatIds?.toList()?.mapNotNull { id -> TdStore.chats.peek(id) ?: Td.callOrNull(TdApi.GetChat(id)) }.orEmpty()
         } else emptyList()
     }
     val users = ids.mapNotNull { TdStore.users[it] }
