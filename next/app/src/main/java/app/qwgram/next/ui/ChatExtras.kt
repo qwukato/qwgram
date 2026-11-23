@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -121,7 +122,7 @@ object RecentEmoji {
 fun StickerPanel(chatId: Long, height: Dp, onEmoji: (String) -> Unit, onSticker: (TdApi.Sticker) -> Unit, onGif: (TdApi.Animation) -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().height(height).background(cs.surfaceContainer)) {
+    Column(Modifier.fillMaxWidth().background(cs.surfaceContainer).navigationBarsPadding().height(height)) {
         PrimaryTabRow(selectedTabIndex = tab, containerColor = cs.surfaceContainer) {
             listOf(Icons.Outlined.EmojiEmotions to "Эмодзи", Icons.Outlined.StickyNote2 to "Стикеры", Icons.Outlined.Gif to "GIF").forEachIndexed { i, (ic, t) ->
                 Tab(selected = tab == i, onClick = { tab = i }, icon = { Icon(ic, t) })

@@ -15,9 +15,16 @@ class KeyedMap<K, V : Any> {
     private val slots = HashMap<K, MutableState<V?>>()
     private val keysVersion = mutableIntStateOf(0)
 
-    private fun slot(k: K): MutableState<V?> = slots.getOrPut(k) { mutableStateOf(null) }
-
-    operator fun get(k: K): V? = slot(k).value
+    /**
+     * Never creates state while reading (reads can happen inside read-only snapshots, e.g. snapshotFlow,
+     * where a freshly created state would be invisible afterwards). A missing key subscribes to key-set
+     * changes instead, so the reader recomposes when the value first arrives.
+     */
+    operator fun get(k: K): V? {
+        val s = slots[k]
+        if (s == null) { keysVersion.intValue; return null }
+        return s.value
+    }
 
     operator fun set(k: K, v: V) {
         val s = slots[k]

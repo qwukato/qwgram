@@ -19,6 +19,19 @@ Inugram. За основу взят **Inugram** (MIT, `teidesu/inugram`): его
 `patches-native/` (патчи сабмодулей). В CI `pnpm run setup -- --ci --pluginless` клонирует Telegram и
 накладывает патчи через `git apply --index`.
 
+## qwgram Next (`next/`, ноябрь 2026)
+
+Отдельный клиент с нуля: Compose + TDLib, workflow `build-next.yml` (TDLib собирается в CI и кэшируется,
+коммит закреплён в `TD_COMMIT`; имена API сверять с `td/generate/scheme/td_api.tl` этого коммита).
+- `material3` закреплён на `1.5.0-alpha08`: версии с лета 2026 требуют AGP 9.1 и compileSdk 37.
+  В alpha08 `toShape()` composable, поэтому свои `PolygonShape`/`asShape()` в `ui/Shapes.kt`.
+- Движение только через `ui/Motion.kt` (`Springs.*` по токенам скилла, `MorphBox`/`MorphIconButton`/`MorphFab`
+  с морфом при нажатии). Экраны и оверлеи без отскока (`Springs.smooth`).
+- Навигация `ui/Nav.kt`: стек, нижний экран остаётся живым, свайп вправо и предиктивный «назад».
+- Данные: `td/KeyedMap.kt` (состояние на ключ). Не возвращать `mutableStateMapOf` для чатов/файлов: он
+  перерисовывал все строки на каждое обновление файла, отсюда были лаги.
+- Статус: собирается в CI; на устройстве проверял только владелец по скриншотам.
+
 ## Изменения qwgram (ноябрь 2026)
 
 Проверено: вся серия (448 патчей, включая новый `feature/m3-seed-theme.patch` и правленый
