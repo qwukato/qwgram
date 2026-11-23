@@ -94,6 +94,7 @@ import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
