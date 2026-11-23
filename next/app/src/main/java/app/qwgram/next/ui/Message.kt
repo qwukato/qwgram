@@ -89,6 +89,11 @@ import androidx.compose.foundation.border
 import androidx.compose.animation.core.snap
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import org.drinkless.tdlib.TdApi
 import kotlin.math.roundToInt
 
@@ -104,7 +109,7 @@ fun MessageItem(
     modifier: Modifier = Modifier,
     selection: Boolean? = null,
     highlighted: Boolean = false,
-    onTap: () -> Unit = {},
+    onTap: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     onLong: () -> Unit,
     onDouble: () -> Unit,
     onSwipeReply: () -> Unit,
@@ -129,28 +134,54 @@ fun MessageItem(
     val haptic = rememberHaptic()
     var armed by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
+    var bubbleRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val tintBg by androidx.compose.animation.animateColorAsState(
         if (selection == true || highlighted) cs.primary.copy(alpha = 0.14f) else Color.Transparent, Springs.effects(), label = "sel",
     )
 
     Row(
         modifier.fillMaxWidth().background(tintBg).padding(top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
+            // a tap beside the bubble (empty side of the row) also opens the menu, like Telegram
+            .pointerInput(m.id) { detectTapGestures(onTap = { onTap(bubbleRect) }) }
             .pointerInput(m.id) {
                 if (!Prefs.swipeReply.value) return@pointerInput
-                detectHorizontalDragGestures(
-                    onDragEnd = {
+                // only leftward drags belong to reply-swipe; rightward ones stay free for swipe-back
+                val slop = viewConfiguration.touchSlop
+                val threshold = 64.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var dx = 0f
+                    var dy = 0f
+                    var dragging = false
+                    var raw = 0f
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) break
+                        val d = ch.positionChange()
+                        if (!dragging) {
+                            if (ch.isConsumed) return@awaitEachGesture
+                            dx += d.x; dy += d.y
+                            if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
+                            if (dx > slop) return@awaitEachGesture
+                            if (dx < -slop && -dx > kotlin.math.abs(dy) * 1.2f) dragging = true else continue
+                        }
+                        ch.consume()
+                        raw = (raw + d.x).coerceAtMost(0f)
+                        // rubber band: free until the threshold, then resists
+                        val pull = -raw
+                        val shown = if (pull <= threshold) pull else threshold + (pull - threshold) * 0.3f
+                        scope.launch { swipe.snapTo(-shown.coerceAtMost(threshold * 1.8f)) }
+                        val now = pull >= threshold
+                        if (now && !armed) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        armed = now
+                    }
+                    if (dragging) {
                         if (armed) onSwipeReply()
                         armed = false
-                        scope.launch { swipe.animateTo(0f) }
-                    },
-                    onDragCancel = { armed = false; scope.launch { swipe.animateTo(0f) } },
-                ) { change, drag ->
-                    val v = (swipe.value + drag).coerceIn(-90.dp.toPx(), 0f)
-                    if (v < 0f) change.consume()
-                    scope.launch { swipe.snapTo(v) }
-                    val now = v <= -56.dp.toPx()
-                    if (now && !armed) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                    armed = now
+                        // soft return: low stiffness, gentle settle (no snapping back)
+                        scope.launch { swipe.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 260f)) }
+                    }
                 }
             },
         horizontalArrangement = if (out) Arrangement.End else Arrangement.Start,
@@ -179,17 +210,20 @@ fun MessageItem(
             else Spacer(Modifier.width(34.dp))
             Spacer(Modifier.width(6.dp))
         }
-        Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }) {
-            Bubble(m, grp, chat, group && !out, reply, onTap, onLong, onDouble, onPhoto, onReplyClick)
+        Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }.onGloballyPositioned { bubbleRect = it.boundsInRoot() }) {
+            Bubble(m, grp, chat, group && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick)
         }
         if (swipe.value < -8f) {
-            val p = (-swipe.value / 56.dp.value / 3f).coerceIn(0f, 1f)
+            val thr = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
+            val p = (-swipe.value / thr).coerceIn(0f, 1f)
+            val pop by androidx.compose.animation.core.animateFloatAsState(if (armed) 1.15f else 1f, Springs.fastSpatial(), label = "pop")
+            val bg by androidx.compose.animation.animateColorAsState(if (armed) cs.primary else cs.secondaryContainer, Springs.effects(), label = "rb")
             Box(
                 Modifier.align(Alignment.CenterVertically).offset { IntOffset(swipe.value.roundToInt() + 8, 0) }
-                    .graphicsLayer { scaleX = p; scaleY = p; alpha = p }
-                    .size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+                    .graphicsLayer { scaleX = p * pop; scaleY = p * pop; alpha = p; rotationZ = (1f - p) * -90f }
+                    .size(34.dp).clip(CircleShape).background(bg),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            ) { Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(18.dp), tint = if (armed) cs.onPrimary else cs.onSecondaryContainer) }
         }
     }
 }

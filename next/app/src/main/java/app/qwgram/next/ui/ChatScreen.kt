@@ -134,6 +134,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.MarkChatUnread
 import androidx.compose.material.icons.outlined.Poll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.blur
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.sp
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import kotlin.math.roundToInt
@@ -302,6 +318,21 @@ fun ChatScreen(chatId: Long) {
     var searching by remember { mutableStateOf(false) }
     val search = remember(chatId) { ChatSearch(chatId) }
     var panel by remember { mutableStateOf(false) }
+    // keyboard ⇄ panel without jumps: the panel takes the keyboard's height and stays until the keyboard is fully up
+    var panelHolding by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val imeNow = WindowInsets.ime.getBottom(density)
+    val imeTarget = WindowInsets.imeAnimationTarget.getBottom(density)
+    LaunchedEffect(imeTarget) { if (imeTarget > with(density) { 180.dp.roundToPx() }) Prefs.kbHeight.value = imeTarget }
+    LaunchedEffect(imeNow, panelHolding) {
+        val kb = Prefs.kbHeight.value
+        if (panelHolding && kb > 0 && imeNow >= kb * 0.92f) { panel = false; panelHolding = false }
+    }
+    val panelHeight = with(density) {
+        val kb = Prefs.kbHeight.value
+        if (kb > 0) kb.toDp() else 300.dp + WindowInsets.navigationBars.getBottom(this).toDp()
+    }
+    var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var highlight by remember { mutableStateOf(0L) }
 
     DisposableEffect(chatId) {
@@ -412,14 +443,25 @@ fun ChatScreen(chatId: Long) {
     BackHandler(enabled = selecting || searching || panel) {
         when {
             selecting -> selected.clear()
-            panel -> panel = false
+            panel -> { panel = false; panelHolding = false }
             else -> { searching = false; search.query = ""; search.results = emptyList() }
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    val menuOpen = menuFor != null
+    val blur by androidx.compose.animation.core.animateDpAsState(if (menuOpen) 10.dp else 0.dp, Springs.effects(), label = "blur")
+    Box(Modifier.fillMaxSize().then(if (blur > 0.dp) Modifier.blur(blur) else Modifier)) {
         ChatWallpaper()
-        Column(Modifier.fillMaxSize().then(if (panel) Modifier else Modifier.imePadding())) {
+        var topH by remember { mutableStateOf(0.dp) }
+        var bottomH by remember { mutableStateOf(0.dp) }
+        val fade = wallpaperBase()
+        Box(Modifier.fillMaxSize().then(if (panel) Modifier else Modifier.imePadding())) {
+            // ---- top: bars over a fade (content scrolls underneath, like Telegram)
+            Column(
+                Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(0f to fade, 0.7f to fade.copy(alpha = 0.8f), 1f to fade.copy(alpha = 0f)))
+                    .onSizeChanged { topH = with(density) { it.height.toDp() } },
+            ) {
             AnimatedContent(
                 targetState = when { selecting -> 2; searching -> 1; else -> 0 },
                 transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) },
@@ -450,12 +492,14 @@ fun ChatScreen(chatId: Long) {
             ctl.pinned?.let { p ->
                 PinnedBar(p, onClick = { jump(p.id) }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
             }
-            Box(Modifier.weight(1f)) {
+            Spacer(Modifier.height(18.dp))
+            }
+            Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 8.dp, end = 8.dp, top = (topH - 12.dp).coerceAtLeast(8.dp), bottom = (bottomH - 10.dp).coerceAtLeast(8.dp)),
                 ) {
                     items(entries, key = { it.key }, contentType = { it::class }) { e ->
                         when (e) {
@@ -469,9 +513,9 @@ fun ChatScreen(chatId: Long) {
                                     modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit()),
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
-                                    onTap = {
+                                    onTap = { rect ->
                                         if (selecting) { if (id in selected) selected.remove(id) else selected.add(id) }
-                                        else menuFor = e.m
+                                        else { menuAnchor = rect; keyboard?.hide(); menuFor = e.m }
                                     },
                                     onLong = {
                                         haptic(HapticFeedbackType.LongPress)
@@ -495,7 +539,7 @@ fun ChatScreen(chatId: Long) {
                     }
                 }
                 // "@" and "♥" jump to the next unread mention / reaction (Telegram)
-                Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 72.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = bottomH + 64.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     listOf(
                         Triple(chat.unreadMentionCount, "@", TdApi.SearchMessagesFilterUnreadMention() as TdApi.SearchMessagesFilter),
                         Triple(chat.unreadReactionCount, "❤", TdApi.SearchMessagesFilterUnreadReaction()),
@@ -523,7 +567,7 @@ fun ChatScreen(chatId: Long) {
                 }
                 val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 || ctl.hasNewer } }
                 androidx.compose.animation.AnimatedVisibility(
-                    showDown, Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                    showDown, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = bottomH + 4.dp),
                     enter = scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects()), exit = scaleOut(Springs.exit()) + fadeOut(Springs.exit()),
                 ) {
                     Box {
@@ -536,6 +580,13 @@ fun ChatScreen(chatId: Long) {
                     }
                 }
             }
+            // ---- bottom: composer (+ panel) over a fade
+            Column(
+                Modifier.zIndex(2f).align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f), 1f to fade))
+                    .onSizeChanged { bottomH = with(density) { it.height.toDp() } },
+            ) {
+            Spacer(Modifier.height(18.dp))
             if (canSend) {
                 fun send(silent: Boolean? = null, at: Int = 0) {
                     val t = text.trim()
@@ -558,9 +609,9 @@ fun ChatScreen(chatId: Long) {
                     replyTo = replyTo, editing = editing,
                     panelOpen = panel,
                     onTogglePanel = {
-                        if (panel) { panel = false; keyboard?.show() } else { keyboard?.hide(); panel = true }
+                        if (panel) { panelHolding = true; keyboard?.show() } else { panel = true; keyboard?.hide() }
                     },
-                    onFocusText = { panel = false },
+                    onFocusText = { if (panel) panelHolding = true },
                     onCancel = { if (editing != null) text = ""; replyTo = null; editing = null },
                     onSend = { send() },
                     onSendSilent = { send(silent = true) },
@@ -568,23 +619,25 @@ fun ChatScreen(chatId: Long) {
                 )
                 androidx.compose.animation.AnimatedVisibility(
                     panel,
-                    enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()),
-                    exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit()),
+                    // from the keyboard: appear in place (same height); otherwise slide up smoothly
+                    enter = if (imeNow > 0) androidx.compose.animation.EnterTransition.None else expandVertically(Springs.smooth()) + fadeIn(Springs.effects()),
+                    exit = if (panelHolding || imeNow > 0) androidx.compose.animation.ExitTransition.None else shrinkVertically(Springs.exit()) + fadeOut(Springs.exit()),
                 ) {
                     StickerPanel(
-                        chatId, 340.dp,
+                        chatId, panelHeight,
                         onEmoji = { text += it },
                         onSticker = { s -> sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false },
                         onGif = { a -> sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false },
                     )
                 }
             } else ChannelBar(chat)
+            }
         }
     }
 
     menuFor?.let { m ->
         MessageMenu(
-            m, chat,
+            m, chat, menuAnchor,
             onDismiss = { menuFor = null },
             onReply = { replyTo = m; editing = null },
             onEdit = {
@@ -648,6 +701,12 @@ private fun copy(ctx: Context, s: String) {
 }
 
 @Composable
+private fun wallpaperBase(): Color {
+    val cs = MaterialTheme.colorScheme
+    return when (Prefs.wallpaper.value) { "tonal" -> cs.surfaceContainer; "plain" -> cs.surface; else -> cs.surfaceContainerLow }
+}
+
+@Composable
 private fun ChatWallpaper() {
     val cs = MaterialTheme.colorScheme
     val mode = Prefs.wallpaper.value
@@ -706,16 +765,10 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
     val typingNow = !TdStore.actions[chat.id].isNullOrEmpty()
     val privateUser = TdStore.privateUserId(chat).takeIf { it != 0L && !TdStore.isSaved(chat) }
     val floating = Prefs.floatingBars.value
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = if (floating) RoundedCornerShape(28.dp) else androidx.compose.ui.graphics.RectangleShape,
-        shadowElevation = if (floating) 3.dp else 0.dp,
-        modifier = if (floating) Modifier.statusBarsPadding().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp) else Modifier,
-    ) {
-        Row(Modifier.then(if (floating) Modifier else Modifier.statusBarsPadding()).height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+    val cs = MaterialTheme.colorScheme
+    val titleArea: @Composable (Modifier) -> Unit = { mod ->
             Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable { Nav.push(Route.Profile(chat.id)) }.padding(vertical = 6.dp, horizontal = 4.dp),
+                mod.clip(RoundedCornerShape(28.dp)).clickable { Nav.push(Route.Profile(chat.id)) }.padding(vertical = 6.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChatAvatar(chat, 40.dp)
@@ -730,6 +783,8 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
                     }
                 }
             }
+    }
+    val actions: @Composable () -> Unit = {
             MorphIconButton(Icons.Outlined.Search, "Поиск в чате", onSearch)
             Box {
                 MorphIconButton(Icons.Outlined.MoreVert, "Ещё", { menu = true })
@@ -762,6 +817,30 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
                         onClick = { menu = false; deleteChat(chat); Nav.pop() },
                     )
                 }
+            }
+    }
+    if (floating) {
+        // M3 Expressive: separate floating parts — back button, title pill, actions pill
+        Row(
+            Modifier.statusBarsPadding().padding(start = 8.dp, end = 8.dp, top = 6.dp).height(56.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 3.dp) {
+                MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() }, size = 56.dp)
+            }
+            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Box(contentAlignment = Alignment.CenterStart) { titleArea(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) }
+            }
+            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.fillMaxHeight()) {
+                Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
+            }
+        }
+    } else {
+        Surface(color = cs.surfaceContainer) {
+            Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+                titleArea(Modifier.weight(1f))
+                actions()
             }
         }
     }
@@ -950,13 +1029,16 @@ private fun Composer(
                 val ready = text.isNotBlank() || editing != null
                 val corner by animateDpAsState(if (ready) 16.dp else 26.dp, Springs.fastSpatial(), label = "send")
                 val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, Springs.fastSpatial(), label = "rec")
+                val sendMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie6Sided) }
+                val morphP by androidx.compose.animation.core.animateFloatAsState(if (ready) 1f else 0f, Springs.fastSpatial(), label = "sm")
+                val spin by androidx.compose.animation.core.animateFloatAsState(if (ready) 60f else 0f, Springs.spatial(), label = "spin")
                 Surface(
-                    shape = RoundedCornerShape(corner),
+                    shape = MorphShape(sendMorph, morphP),
                     shadowElevation = if (floating) 3.dp else 0.dp,
                     color = if (ready || recording) cs.primary else cs.primaryContainer,
                     contentColor = if (ready || recording) cs.onPrimary else cs.onPrimaryContainer,
                     modifier = Modifier.size(52.dp)
-                        .graphicsLayer { scaleX = scale; scaleY = scale; translationX = dragX.value }
+                        .graphicsLayer { scaleX = scale; scaleY = scale; translationX = dragX.value; rotationZ = spin }
                         .pointerInput(ready) {
                             if (ready) {
                                 detectTapGestures(
@@ -1010,7 +1092,7 @@ private fun Composer(
                             }
                         },
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Box(Modifier.graphicsLayer { rotationZ = -spin }, contentAlignment = Alignment.Center) {
                         AnimatedContent(
                             targetState = when { editing != null -> 2; ready -> 1; else -> 0 },
                             transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) },
@@ -1094,12 +1176,22 @@ private fun sendVoice(chatId: Long, f: File, secs: Int, replyTo: TdApi.Message?)
 
 // ------------------------------------------------------------------ menus & sheets
 
+private class MenuItem(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val danger: Boolean = false, val action: () -> Unit)
+
+/**
+ * Telegram-style context menu, Material 3 Expressive look: floats next to the message (below it, or above when
+ * there is no room), reactions in a pill on top, actions split into separate cards. Springs out of the message;
+ * the chat behind is blurred and dimmed a little. Tap outside or Back to close.
+ */
 @Composable
 private fun MessageMenu(
-    m: TdApi.Message, chat: TdApi.Chat, onDismiss: () -> Unit,
+    m: TdApi.Message, chat: TdApi.Chat, anchor: androidx.compose.ui.geometry.Rect, onDismiss: () -> Unit,
     onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit, onCopy: () -> Unit,
     onSelect: () -> Unit, onCopyLink: () -> Unit, onSave: () -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     var props by remember { mutableStateOf<TdApi.MessageProperties?>(null) }
     var reactions by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(m.id) {
@@ -1107,37 +1199,118 @@ private fun MessageMenu(
         val av = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 8))
         reactions = av?.let { (it.topReactions + it.recentReactions + it.popularReactions).mapNotNull { r -> (r.type as? TdApi.ReactionTypeEmoji)?.emoji }.distinct().take(24) }.orEmpty()
     }
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, Springs.spatial()) }
+    var closing by remember { mutableStateOf(false) }
+    fun close(then: () -> Unit = {}) {
+        if (closing) return
+        closing = true
+        scope.launch { appear.animateTo(0f, Springs.exit()); onDismiss(); then() }
+    }
+    BackHandler { close() }
+
+    val p = props
     val canSend = TdStore.canSend(chat)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        if (reactions.isNotEmpty()) {
-            ReactionStrip(reactions) { e -> react(m, e); onDismiss() }
-            Spacer(Modifier.height(8.dp))
-        }
-        Text(
-            Texts.time(m.date) + if (m.editDate > 0) " · изменено" else "",
-            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-        )
-        val p = props
-        val row: @Composable (String, androidx.compose.ui.graphics.vector.ImageVector, Boolean, () -> Unit) -> Unit = { t, icon, danger, action ->
-            ListItem(
-                headlineContent = { Text(t, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
-                leadingContent = { Icon(icon, null, tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
-                modifier = Modifier.clickable { onDismiss(); action() },
-            )
-        }
-        if (canSend && (p == null || p.canBeReplied)) row("Ответить", Icons.AutoMirrored.Filled.Reply, false, onReply)
-        if (Texts.caption(m.content)?.text?.isNotEmpty() == true) row("Копировать текст", Icons.Outlined.ContentCopy, false, onCopy)
-        if (p?.canGetLink == true) row("Копировать ссылку", Icons.Outlined.Link, false, onCopyLink)
-        if (p?.canBeForwarded != false) row("Переслать", Icons.Outlined.Shortcut, false, onForward)
-        if (p?.canBeForwarded != false && !TdStore.isSaved(chat)) row("В Избранное", Icons.Outlined.BookmarkBorder, false, onSave)
-        if (p?.canBePinned == true) row(if (m.isPinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, false) {
+    val main = buildList {
+        if (canSend && (p == null || p.canBeReplied)) add(MenuItem("Ответить", Icons.AutoMirrored.Filled.Reply) { onReply() })
+        if (Texts.caption(m.content)?.text?.isNotEmpty() == true) add(MenuItem("Копировать", Icons.Outlined.ContentCopy) { onCopy() })
+        if (p?.canGetLink == true) add(MenuItem("Ссылка на сообщение", Icons.Outlined.Link) { onCopyLink() })
+        if (p?.canBeEdited == true && m.content is TdApi.MessageText) add(MenuItem("Изменить", Icons.Outlined.Edit) { onEdit() })
+        if (p?.canBePinned == true) add(MenuItem(if (m.isPinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin) {
             if (m.isPinned) Td.send(TdApi.UnpinChatMessage(m.chatId, m.id)) else Td.send(TdApi.PinChatMessage(m.chatId, m.id, true, false))
+        })
+        if (p?.canBeForwarded != false) add(MenuItem("Переслать", Icons.Outlined.Shortcut) { onForward() })
+        if (p?.canBeForwarded != false && !TdStore.isSaved(chat)) add(MenuItem("В Избранное", Icons.Outlined.BookmarkBorder) { onSave() })
+    }
+    val extra = listOf(MenuItem("Выбрать", Icons.Outlined.CheckCircle) { onSelect() })
+    val danger = if (p == null || p.canBeDeletedOnlyForSelf || p.canBeDeletedForAllUsers) listOf(MenuItem("Удалить", Icons.Outlined.Delete, danger = true) { onDelete() }) else emptyList()
+    val out = m.isOutgoing && !m.isChannelPost
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var below by remember { mutableStateOf(true) }
+    val topInset = WindowInsets.statusBars.getTop(density)
+    val bottomInset = WindowInsets.navigationBars.getBottom(density)
+
+    Box(
+        Modifier.fillMaxSize()
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
+            .background(Color.Black.copy(alpha = 0.22f))
+            .pointerInput(Unit) { detectTapGestures { close() } },
+    )
+    androidx.compose.ui.layout.Layout(
+        modifier = Modifier.fillMaxSize(),
+        content = {
+            Column(
+                Modifier.width(IntrinsicSize.Max).widthIn(min = 220.dp, max = 300.dp).graphicsLayer {
+                    val v = appear.value
+                    val sc = 0.82f + 0.18f * v
+                    scaleX = sc; scaleY = sc
+                    alpha = v.coerceIn(0f, 1f)
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (out) 1f else 0f, if (below) 0f else 1f)
+                },
+                horizontalAlignment = if (out) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (reactions.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(reactions) { e ->
+                            MorphBox(onClick = { react(m, e); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
+                                Text(e, fontSize = 24.sp)
+                            }
+                        }
+                    }
+                }
+                var index = 0
+                listOf(main, extra, danger).filter { it.isNotEmpty() }.forEach { group ->
+                    Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(vertical = 6.dp)) {
+                            group.forEach { item ->
+                                val i = index++
+                                val enter = remember { androidx.compose.animation.core.Animatable(0f) }
+                                LaunchedEffect(Unit) { kotlinx.coroutines.delay(18L * i); enter.animateTo(1f, Springs.spatial()) }
+                                Row(
+                                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .graphicsLayer { alpha = enter.value.coerceIn(0f, 1f); translationY = (1f - enter.value) * 10.dp.toPx() }
+                                        .clickable { close(item.action) }.padding(horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    val tint = if (item.danger) cs.error else cs.onSurfaceVariant
+                                    Icon(item.icon, null, tint = tint, modifier = Modifier.size(22.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Text(item.title, style = MaterialTheme.typography.bodyLarge, color = if (item.danger) cs.error else cs.onSurface, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 2.dp) {
+                    Text(
+                        Texts.time(m.date) + if (m.editDate > 0) " · изменено" else "",
+                        style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        },
+    ) { ms, c ->
+        val menu = ms[0].measure(androidx.compose.ui.unit.Constraints(maxWidth = c.maxWidth, maxHeight = c.maxHeight))
+        val pad = 12.dp.roundToPx()
+        val gap = 8.dp.roundToPx()
+        val a = anchor.translate(-origin.x, -origin.y)
+        val w = c.maxWidth
+        val h = c.maxHeight
+        val hasAnchor = anchor != androidx.compose.ui.geometry.Rect.Zero
+        val fitsBelow = a.bottom + gap + menu.height <= h - bottomInset - pad
+        below = !hasAnchor || fitsBelow || a.top - gap - menu.height < topInset + pad
+        val yRaw = when {
+            !hasAnchor -> (h - menu.height) / 2
+            fitsBelow -> a.bottom.toInt() + gap
+            else -> a.top.toInt() - gap - menu.height
         }
-        if (p?.canBeEdited == true && m.content is TdApi.MessageText) row("Изменить", Icons.Outlined.Edit, false, onEdit)
-        row("Выбрать", Icons.Outlined.CheckCircle, false, onSelect)
-        if (p == null || p.canBeDeletedOnlyForSelf || p.canBeDeletedForAllUsers) row("Удалить", Icons.Outlined.Delete, true, onDelete)
-        Spacer(Modifier.height(24.dp))
+        val y = yRaw.coerceIn(topInset + pad, (h - bottomInset - pad - menu.height).coerceAtLeast(topInset + pad))
+        val xRaw = if (!hasAnchor) (w - menu.width) / 2 else if (out) a.right.toInt() - menu.width else a.left.toInt()
+        val x = xRaw.coerceIn(pad, (w - pad - menu.width).coerceAtLeast(pad))
+        layout(w, h) { menu.place(x, y) }
     }
 }
 

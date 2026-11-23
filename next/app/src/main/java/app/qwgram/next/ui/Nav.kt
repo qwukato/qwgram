@@ -129,7 +129,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                             }
                         }
                         .background(MaterialTheme.colorScheme.surface)
-                        .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope, fullWidth = e.route !is Route.Page) else Modifier),
+                        .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
                     holder.SaveableStateProvider(e.id) { content(e.route) }
                 }
@@ -138,26 +138,29 @@ fun NavHost(content: @Composable (Route) -> Unit) {
     }
 }
 
-/** horizontal drag to the right closes the screen; vertical or leftward drags are left to the content */
-private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope, fullWidth: Boolean): Modifier = pointerInput(e.id, fullWidth) {
+/**
+ * Swipe right anywhere closes the screen. Runs in the Main pass after the content: if a child already handles
+ * the drag (slider, pager, swipe row, reply swipe), the event is consumed and the screen stays put.
+ * The screen follows the finger; release past 22% or a flick closes it, otherwise it springs back.
+ */
+private fun Modifier.swipeBack(e: Nav.Entry, scope: CoroutineScope): Modifier = pointerInput(e.id) {
     val w = size.width.toFloat().coerceAtLeast(1f)
-    val edge = 48.dp.toPx()
     val slop = viewConfiguration.touchSlop
     awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        if (!fullWidth && down.position.x > edge) return@awaitEachGesture
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
         val tracker = VelocityTracker()
         tracker.addPosition(down.uptimeMillis, down.position)
         var dx = 0f
         var dy = 0f
         var dragging = false
         while (true) {
-            val ev = awaitPointerEvent(PointerEventPass.Initial)
+            val ev = awaitPointerEvent(PointerEventPass.Main)
             val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
             if (!ch.pressed) break
             tracker.addPosition(ch.uptimeMillis, ch.position)
             val d = ch.positionChange()
             if (!dragging) {
+                if (ch.isConsumed) return@awaitEachGesture          // a child took this drag
                 dx += d.x; dy += d.y
                 if (abs(dy) > slop && abs(dy) > abs(dx)) return@awaitEachGesture
                 if (dx < -slop) return@awaitEachGesture

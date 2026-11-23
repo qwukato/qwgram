@@ -130,21 +130,21 @@ object RecentEmoji {
     }
 }
 
-/** Telegram-style panel that replaces the keyboard: emoji grid, installed sticker sets and saved GIFs. */
+/**
+ * Telegram-style panel that replaces the keyboard (same height): emoji, stickers and GIFs as pages
+ * you can swipe between; the tab indicator follows the swipe.
+ */
 @Composable
 fun StickerPanel(chatId: Long, height: Dp, onEmoji: (String) -> Unit, onSticker: (TdApi.Sticker) -> Unit, onGif: (TdApi.Animation) -> Unit) {
-    var tab by remember { mutableIntStateOf(0) }
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().background(cs.surfaceContainer).navigationBarsPadding().height(height)) {
-        PrimaryTabRow(selectedTabIndex = tab, containerColor = cs.surfaceContainer) {
-            listOf(Icons.Outlined.EmojiEmotions to "Эмодзи", Icons.Outlined.StickyNote2 to "Стикеры", Icons.Outlined.Gif to "GIF").forEachIndexed { i, (ic, t) ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(ic, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(t) }
-                })
-            }
+    val pager = androidx.compose.foundation.pager.rememberPagerState { 3 }
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxWidth().height(height).background(cs.surfaceContainer).navigationBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.Center) {
+            ConnectedGroup(listOf(0 to "Эмодзи", 1 to "Стикеры", 2 to "GIF"), pager.currentPage) { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = Springs.smooth()) } }
         }
-        AnimatedContent(tab, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "panel") { t ->
-            when (t) {
+        androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
+            when (page) {
                 0 -> EmojiGrid(onEmoji)
                 1 -> StickerGrid(onSticker)
                 else -> GifGrid(onGif)

@@ -111,7 +111,8 @@ object Prefs {
     // ---- navigation ----
     val navStyle = S("nav_style", "standard")           // standard | floating
     val navLabels = B("nav_labels", true)
-    val floatingBars = B("floating_bars", true)           // floating composer & chat header
+    val floatingBars = B("floating_bars", true)
+    val kbHeight = I("kb_height", 0)                       // last keyboard height (px), the emoji panel uses it           // floating composer & chat header
     val listSwipe = S("list_swipe", "folders")            // folders | actions (archive / read)
     val autoDlMobile = B("autodl_mobile", true)
     val autoDlWifi = B("autodl_wifi", true)
