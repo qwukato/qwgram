@@ -84,6 +84,7 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.sp
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ settings tab
@@ -118,18 +119,18 @@ fun SettingsHome(pad: PaddingValues) {
                     }
                 }
             }
-            group {
-                nav("Внешний вид", "Тема, формы, пузыри, анимации", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("appearance")) }
+            item { Spacer(Modifier.height(10.dp)) }
+            item { QuickTiles() }
+            group("Аккаунт") {
+                nav("Мой аккаунт", "Имя, о себе, @username", Icons.Outlined.Person) { Nav.push(Route.Page("account")) }
+                nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
+            }
+            group("Чаты") {
+                nav("Папки с чатами", "Создать и настроить", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
                 nav("Функции qwgram", "Приватность и поведение", Icons.Outlined.AutoAwesome, 2) { Nav.push(Route.Page("features")) }
             }
-            group("Telegram") {
-                nav("Мой аккаунт", "Имя, о себе, @username", Icons.Outlined.Person) { Nav.push(Route.Page("account")) }
-                nav("Уведомления и звуки", null, Icons.Outlined.Notifications) { Nav.push(Route.Page("notifications")) }
-                nav("Конфиденциальность", null, Icons.Outlined.Lock) { Nav.push(Route.Page("privacy")) }
-                nav("Данные и память", null, Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
-                nav("Устройства", null, Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
-                nav("Папки с чатами", null, Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
-                nav("Прокси", null, Icons.Outlined.VpnKey) { Nav.push(Route.Page("proxy")) }
+            group("Сеть") {
+                nav("Прокси", "SOCKS5, MTProto, HTTP", Icons.Outlined.VpnKey) { Nav.push(Route.Page("proxy")) }
             }
             group {
                 nav("О qwgram", "Версия ${BuildConfig.VERSION_NAME}", Icons.Outlined.Info) { Nav.push(Route.Page("about")) }
@@ -145,6 +146,38 @@ fun SettingsHome(pad: PaddingValues) {
         confirmButton = { QTextButton(onClick = { logout = false; Td.send(TdApi.LogOut()) }) { Text("Выйти", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { QTextButton(onClick = { logout = false }) { Text("Отмена") } },
     )
+}
+
+/** four big expressive tiles with shaped icon containers (cookie, clover, sun, pentagon) */
+@Composable
+private fun QuickTiles() {
+    val cs = MaterialTheme.colorScheme
+    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val page: String)
+    val tiles = listOf(
+        Tile("Оформление", Icons.Outlined.Palette, androidx.compose.material3.MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, "appearance"),
+        Tile("Приватность", Icons.Outlined.Lock, androidx.compose.material3.MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, "privacy"),
+        Tile("Уведомления", Icons.Outlined.Notifications, androidx.compose.material3.MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, "notifications"),
+        Tile("Данные", Icons.Outlined.DataUsage, androidx.compose.material3.MaterialShapes.Pentagon, cs.surfaceContainerHighest, cs.onSurface, "data"),
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        tiles.forEachIndexed { i, t ->
+            val start = if (i == 0) 24.dp else 8.dp
+            MorphBox(
+                onClick = { Nav.push(Route.Page(t.page)) }, rest = if (i == 0 || i == tiles.lastIndex) 24.dp else 12.dp, pressed = 28.dp,
+                color = cs.surfaceContainerLow, modifier = Modifier.weight(1f).height(104.dp), squish = 0.94f,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.size(48.dp).clip(t.shape.asShape()).background(t.bg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.fg) }
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.text.BasicText(
+                        t.title, maxLines = 1, style = MaterialTheme.typography.labelMedium.copy(color = cs.onSurface),
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 12.sp, stepSize = 0.5.sp),
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------ pages

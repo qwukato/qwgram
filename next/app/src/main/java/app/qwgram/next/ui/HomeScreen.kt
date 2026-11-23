@@ -116,6 +116,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.outlined.Forum
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -268,7 +269,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             .drawerSwipe(enabled = canOpenDrawer, edgeOnly = Prefs.listSwipe.value == "actions", drawer = drawer),
     ) {
         val scrolled = scrollBehavior.state.overlappedFraction > 0.01f
-        val headerColor = if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface
+        val headerColor by androidx.compose.animation.animateColorAsState(if (scrolled) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface, Springs.effects(), label = "hc")
         Column(Modifier.background(headerColor)) {
             if (Prefs.topBar.value == "search") {
                 SearchBarHeader(openDrawer)
@@ -302,18 +303,27 @@ private fun MaterialTheme_springPager() = androidx.compose.animation.core.spring
 @Composable
 private fun SearchBarHeader(openDrawer: () -> Unit) {
     val me = TdStore.me
+    val cs = MaterialTheme.colorScheme
+    val conn = TdStore.connection
+    val connecting = conn !is TdApi.ConnectionStateReady
     Box(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Surface(
-            onClick = { Nav.push(Route.Search) },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        // M3 search bar: full pill, leading menu, trailing account avatar; shows connection state in place of the hint
+        MorphBox(
+            onClick = { Nav.push(Route.Search) }, rest = 28.dp, pressed = 16.dp, squish = 0.985f,
+            color = cs.surfaceContainerHigh, elevation = 1.dp, contentAlignment = Alignment.CenterStart,
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
-                if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(16.dp))
-                Text("Поиск в qwgram", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                UserAvatar(me, 32.dp, Modifier.clickable { HomeState.tab = HomeTab.Settings })
-                Spacer(Modifier.width(12.dp))
+                if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) else { Spacer(Modifier.width(12.dp)); Icon(Icons.Outlined.Search, null, tint = cs.onSurfaceVariant); Spacer(Modifier.width(12.dp)) }
+                AnimatedContent(connecting, transitionSpec = { (fadeIn(Springs.effects()) + androidx.compose.animation.slideInVertically(Springs.smooth()) { it / 2 }).togetherWith(fadeOut(Springs.exit())) }, label = "sb", modifier = Modifier.weight(1f)) { c ->
+                    if (c) Row(verticalAlignment = Alignment.CenterVertically) {
+                        LoadingIndicator(Modifier.size(26.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (conn is TdApi.ConnectionStateWaitingForNetwork) "Ожидание сети…" else if (conn is TdApi.ConnectionStateUpdating) "Обновление…" else "Соединение…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                    } else Text("Поиск в qwgram", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                }
+                UserAvatar(me, 34.dp, Modifier.clip(CircleShape).clickable { HomeState.tab = HomeTab.Settings })
+                Spacer(Modifier.width(10.dp))
             }
         }
     }
@@ -445,11 +455,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
         }
         if (chats.isEmpty()) {
             item {
-                Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(MaterialTheme.colorScheme.secondaryContainer))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Здесь пока пусто", style = MaterialTheme.typography.titleMedium)
-                }
+                EmptyState(Icons.Outlined.Forum, "Здесь пока пусто", if (list is TdApi.ChatListFolder) "В этой папке нет чатов" else "Начните переписку кнопкой «Написать»")
             }
         }
     }

@@ -83,7 +83,7 @@ object Prefs {
     val badgeStyle = S("badge_style", "filled")         // filled | tonal | dot
     val showArchiveRow = B("archive_row", true)
     val avatarSize = I("avatar_size", 54)
-    val topBar = S("top_bar", "title")                  // title | search
+    val topBar = S("top_bar", "search")                  // title | search
     val titleText = S("title_text", "qwgram")           // qwgram | name | chats | folder
 
     // ---- folders ----

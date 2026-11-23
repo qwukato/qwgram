@@ -90,6 +90,10 @@ import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.graphicsLayer
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
@@ -287,15 +291,37 @@ private fun MediaTile(m: TdApi.Message) {
 
 // ------------------------------------------------------------------ search
 
+private enum class SearchFilter(val title: String) { All("Все"), People("Люди"), Groups("Группы"), Channels("Каналы"), Bots("Боты"), Messages("Сообщения") }
+
+private fun matches(c: TdApi.Chat, f: SearchFilter): Boolean = when (f) {
+    SearchFilter.All -> true
+    SearchFilter.People -> c.type is TdApi.ChatTypePrivate && !TdStore.isBot(c)
+    SearchFilter.Groups -> TdStore.isGroup(c)
+    SearchFilter.Channels -> TdStore.isChannel(c)
+    SearchFilter.Bots -> TdStore.isBot(c)
+    SearchFilter.Messages -> false
+}
+
+/** segmented card item: rounded outer corners for the first/last row of a block, 2dp gaps */
+private fun segShape(i: Int, n: Int) = RoundedCornerShape(
+    topStart = if (i == 0) 20.dp else 4.dp, topEnd = if (i == 0) 20.dp else 4.dp,
+    bottomStart = if (i == n - 1) 20.dp else 4.dp, bottomEnd = if (i == n - 1) 20.dp else 4.dp,
+)
+
 @Composable
 fun SearchScreen() {
     var q by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(SearchFilter.All) }
     val local = remember { mutableStateListOf<Long>() }
     val global = remember { mutableStateListOf<Long>() }
     var messages by remember { mutableStateOf<List<TdApi.Message>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var recent by remember { mutableStateOf<List<Long>>(emptyList()) }
-    LaunchedEffect(Unit) { recent = Td.callOrNull(TdApi.SearchRecentlyFoundChats("", null, 20))?.chatIds?.toList().orEmpty() }
+    var top by remember { mutableStateOf<List<Long>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        recent = Td.callOrNull(TdApi.SearchRecentlyFoundChats("", null, 20))?.chatIds?.toList().orEmpty()
+        top = Td.callOrNull(TdApi.GetTopChats(TdApi.TopChatCategoryUsers(), 12))?.chatIds?.toList().orEmpty()
+    }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(250); try { focus.requestFocus() } catch (_: Exception) {} }
     LaunchedEffect(q) {
@@ -317,67 +343,136 @@ fun SearchScreen() {
         busy = false
     }
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize()) {
-        Surface(color = cs.surfaceContainer) {
-            Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
-                BasicTextField(
-                    value = q, onValueChange = { q = it }, singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
-                    cursorBrush = SolidColor(cs.primary),
-                    modifier = Modifier.weight(1f).focusRequester(focus),
-                    decorationBox = { inner -> if (q.isEmpty()) Text("Поиск чатов и сообщений", color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge); inner() },
-                )
-                if (q.isNotEmpty()) MorphIconButton(Icons.Filled.Close, "Очистить", { q = "" })
+    fun open(c: TdApi.Chat) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) }
+    Column(Modifier.fillMaxSize().background(cs.surface)) {
+        // floating search pill + filters
+        Column(Modifier.statusBarsPadding().padding(top = 6.dp)) {
+            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 2.dp, modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+                    MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+                    BasicTextField(
+                        value = q, onValueChange = { q = it }, singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
+                        cursorBrush = SolidColor(cs.primary),
+                        modifier = Modifier.weight(1f).focusRequester(focus),
+                        decorationBox = { inner -> if (q.isEmpty()) Text("Чаты, люди, сообщения", color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge); inner() },
+                    )
+                    androidx.compose.animation.AnimatedVisibility(q.isNotEmpty(), enter = androidx.compose.animation.scaleIn(Springs.fastSpatial()) + androidx.compose.animation.fadeIn(Springs.effects()), exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit())) {
+                        MorphIconButton(Icons.Filled.Close, "Очистить", { q = "" })
+                    }
+                    if (busy) LoadingIndicator(Modifier.size(36.dp).padding(end = 4.dp))
+                }
+            }
+            androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(SearchFilter.entries.toList()) { f ->
+                    androidx.compose.material3.FilterChip(
+                        selected = filter == f, onClick = { filter = f }, label = { Text(f.title) },
+                        leadingIcon = if (filter == f) ({ Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }) else null,
+                        shape = RoundedCornerShape(if (filter == f) 16.dp else 8.dp),
+                    )
+                }
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (q.isBlank()) {
-                item { SectionHeader("Недавние чаты") }
-                item {
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        (recent.mapNotNull { TdStore.chats[it] } + TdStore.chatsIn(TdApi.ChatListMain())).distinctBy { it.id }.take(16).forEach { c ->
-                            Column(Modifier.width(68.dp).clip(RoundedCornerShape(16.dp)).clickable { Nav.push(Route.Chat(c.id)) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                ChatAvatar(c, 56.dp)
-                                Spacer(Modifier.height(6.dp))
-                                Text(if (TdStore.isSaved(c)) "Избранное" else c.title.substringBefore(' '), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val recentChats = recent.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
+                val topChats = top.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
+                if (topChats.isNotEmpty()) {
+                    item { SectionHeader("Часто пишете") }
+                    item {
+                        Surface(shape = RoundedCornerShape(24.dp), color = cs.surfaceContainerLow) {
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                topChats.forEach { c ->
+                                    Column(Modifier.width(72.dp).clip(RoundedCornerShape(20.dp)).clickable { open(c) }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        ChatAvatar(c, 52.dp)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(c.title.substringBefore(' '), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-            if (busy) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) } }
-            if (local.isNotEmpty()) {
-                item { SectionHeader("Чаты и контакты") }
-                items(local.toList(), key = { "l$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) } } }
-            }
-            if (global.isNotEmpty()) {
-                item { SectionHeader("Глобальный поиск") }
-                items(global.toList(), key = { "g$it" }) { id -> TdStore.chats[id]?.let { c -> ChatRow(c, null) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) } } }
-            }
-            if (messages.isNotEmpty()) {
-                item { SectionHeader("Сообщения") }
-                items(messages, key = { "m${it.chatId}_${it.id}" }) { m ->
-                    val c = TdStore.chats[m.chatId] ?: return@items
-                    ListItem(
-                        headlineContent = { Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = { Text(Texts.preview(m), maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        leadingContent = { ChatAvatar(c, 48.dp) },
-                        trailingContent = { Text(Texts.listDate(m.date), style = MaterialTheme.typography.labelMedium) },
-                        modifier = Modifier.clickable { Nav.jumpTo = c.id to m.id; Nav.push(Route.Chat(c.id)) },
-                    )
-                }
-            }
-            if (q.isNotBlank() && !busy && local.isEmpty() && global.isEmpty() && messages.isEmpty()) item {
-                Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(96.dp).clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Search, null, tint = cs.onSecondaryContainer)
+                if (recentChats.isNotEmpty()) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { SectionHeader("Недавние") }
+                            QTextButton(onClick = { Td.send(TdApi.ClearRecentlyFoundChats()); recent = emptyList() }) { Text("Очистить") }
+                        }
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text("Ничего не найдено", style = MaterialTheme.typography.titleMedium)
+                    itemsIndexed(recentChats, key = { _, c -> "r${c.id}" }) { i, c ->
+                        Box(Modifier.clip(segShape(i, recentChats.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } }
+                    }
+                }
+                if (topChats.isEmpty() && recentChats.isEmpty()) item { EmptyState(Icons.Outlined.Search, "Начните вводить", "Ищите чаты, людей, каналы по @username и сообщения") }
+            } else {
+                val loc = local.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
+                val glo = global.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
+                val showChats = filter != SearchFilter.Messages
+                val showMessages = filter == SearchFilter.All || filter == SearchFilter.Messages
+                if (showChats && loc.isNotEmpty()) {
+                    item { SectionHeader("Чаты и контакты") }
+                    itemsIndexed(loc, key = { _, c -> "l${c.id}" }) { i, c -> Box(Modifier.clip(segShape(i, loc.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
+                }
+                if (showChats && glo.isNotEmpty()) {
+                    item { SectionHeader("Глобальный поиск") }
+                    itemsIndexed(glo, key = { _, c -> "g${c.id}" }) { i, c -> Box(Modifier.clip(segShape(i, glo.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
+                }
+                val msgs = if (showMessages) messages.filter { TdStore.chats[it.chatId] != null } else emptyList()
+                if (msgs.isNotEmpty()) {
+                    item { SectionHeader("Сообщения") }
+                    itemsIndexed(msgs, key = { _, m -> "m${m.chatId}_${m.id}" }) { i, m ->
+                        val c = TdStore.chats[m.chatId] ?: return@itemsIndexed
+                        Row(
+                            Modifier.fillMaxWidth().clip(segShape(i, msgs.size)).background(cs.surfaceContainerLow)
+                                .clickable { Nav.jumpTo = c.id to m.id; Nav.push(Route.Chat(c.id)) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ChatAvatar(c, 44.dp)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    Text(Texts.listDate(m.date), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+                                }
+                                Text(highlight(Texts.preview(m), q.trim(), cs.primary), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                if (!busy && (if (showChats) loc.isEmpty() && glo.isEmpty() else true) && msgs.isEmpty()) item {
+                    EmptyState(Icons.Outlined.SearchOff, "Ничего не найдено", "Попробуйте другой запрос или фильтр")
                 }
             }
         }
+    }
+}
+
+private fun highlight(text: String, q: String, color: androidx.compose.ui.graphics.Color) = androidx.compose.ui.text.buildAnnotatedString {
+    append(text)
+    if (q.isNotEmpty()) {
+        var i = text.indexOf(q, ignoreCase = true)
+        while (i >= 0) {
+            addStyle(androidx.compose.ui.text.SpanStyle(color = color, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), i, i + q.length)
+            i = text.indexOf(q, i + q.length, ignoreCase = true)
+        }
+    }
+}
+
+/** expressive empty state: a morphing-cornered shape with an icon, title and hint */
+@Composable
+fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String) {
+    val cs = MaterialTheme.colorScheme
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "es")
+    val rot by t.animateFloat(-8f, 8f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2400), androidx.compose.animation.core.RepeatMode.Reverse), label = "r")
+    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(112.dp).graphicsLayer { rotationZ = rot }.clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(40.dp).graphicsLayer { rotationZ = -rot }, tint = cs.onSecondaryContainer)
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(6.dp))
+        Text(sub, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 
