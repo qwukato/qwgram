@@ -131,6 +131,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -302,42 +304,37 @@ private fun FloatingNavPill() {
         add(Triple(HomeTab.Settings, "Настройки", Icons.Filled.Settings to Icons.Outlined.Settings))
     }
     val cs = MaterialTheme.colorScheme
-    // room left for the selected item's label: the pill never grows past the space beside the FAB
-    androidx.compose.foundation.layout.BoxWithConstraints {
-    val labelMax = maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 8.dp
-    val labels = Prefs.navLabels.value && labelMax >= 48.dp
-    Surface(shape = RoundedCornerShape(32.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
-        Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    val labels = Prefs.navLabels.value
+    // M3 Expressive floating bar: every tab keeps a fixed slot (icon in its indicator, label under it), so nothing
+    // grows, shifts or gets cut when switching; the indicator springs in behind the chosen icon
+    Surface(shape = RoundedCornerShape(36.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             tabs.forEach { (t, title, icons) ->
                 val sel = HomeState.tab == t
-                val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHigh.copy(alpha = 0f), Springs.effects(), label = "nb")
-                MorphBox(
-                    onClick = { HomeState.tab = t }, rest = 26.dp, pressed = 14.dp, color = bg,
-                    contentColor = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant,
-                    modifier = Modifier.fillMaxHeight().widthIn(min = 56.dp),
+                val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val haptic = rememberHaptic()
+                val ind by androidx.compose.animation.core.animateFloatAsState(if (sel) 1f else 0f, androidx.compose.animation.core.spring(0.6f, 420f), label = "ind")
+                val pressed by interaction.collectIsPressedAsState()
+                val sc by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.9f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "ps")
+                Column(
+                    Modifier.width(76.dp).clip(RoundedCornerShape(20.dp)).clickable(interaction, indication = null) { if (!sel) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick); HomeState.tab = t }
+                        .padding(vertical = 4.dp).graphicsLayer { scaleX = sc; scaleY = sc },
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        NavIcon(t, unread, if (sel) icons.first else icons.second, title)
-                        // the label (and with it the indicator) grows on a smooth spring, never past its item
-                        androidx.compose.animation.AnimatedVisibility(
-                            sel && labels,
-                            enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), expandFrom = Alignment.Start) + fadeIn(Springs.effects()),
-                            exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), shrinkTowards = Alignment.Start) + fadeOut(Springs.exit()),
-                        ) {
-                            Row {
-                                Spacer(Modifier.width(8.dp))
-                                // laid out once at full width and revealed by the expanding clip: never re-wrapped or squeezed mid-animation
-                                Text(
-                                    title, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false,
-                                    modifier = Modifier.widthIn(max = labelMax).wrapContentWidth(Alignment.Start, unbounded = true),
-                                )
-                            }
+                    Box(Modifier.size(56.dp, 32.dp), contentAlignment = Alignment.Center) {
+                        // the indicator pill grows out from the icon's centre
+                        Box(Modifier.matchParentSize().graphicsLayer { scaleX = 0.4f + 0.6f * ind; alpha = ind.coerceIn(0f, 1f) }.clip(CircleShape).background(cs.secondaryContainer))
+                        CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) {
+                            NavIcon(t, unread, if (sel) icons.first else icons.second, title)
                         }
+                    }
+                    if (labels) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(title, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false, color = if (sel) cs.onSurface else cs.onSurfaceVariant)
                     }
                 }
             }
         }
-    }
     }
 }
 
@@ -450,7 +447,9 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             beyondViewportPageCount = 1,
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
+            Box(Modifier.fillMaxSize().clipToBounds()) {
             ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, cascade = if (page == cascadePage) cascadeGen else 0, pageOffset = { page - (pager.currentPage + pager.currentPageOffsetFraction) }, onLong = { actionChat = it })
+            }
         }
         val cs = MaterialTheme.colorScheme
         Column(
@@ -948,14 +947,19 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
 private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float): Modifier = graphicsLayer {
     if (Prefs.motion.value == "off") return@graphicsLayer
     val d = pageOffset()
-    if (kotlin.math.abs(d) < 0.0005f) return@graphicsLayer
-    val rel = (index - state.firstVisibleItemIndex).coerceIn(0, 10)
-    val lag = 0.045f * rel
-    translationX = -d * size.width * lag
     val a = kotlin.math.abs(d).coerceAtMost(1f)
-    alpha = 1f - a * 0.35f
-    val sc = 1f - a * 0.04f
+    if (a < 0.0005f || a > 0.9995f) return@graphicsLayer   // at rest (this page or a neighbour): untouched
+    // bell curve: 0 at rest, strongest mid-swipe — rows never drift into a page that is standing still
+    val bell = 4f * a * (1f - a)
+    val rel = (index - state.firstVisibleItemIndex).coerceIn(0, 12) / 12f
+    val dir = if (d > 0f) 1f else -1f
+    // lower rows trail the finger more (cascade), and the rows spread apart a little vertically (two layers
+    // bouncing apart), then close up again as the page lands
+    translationX = -dir * size.width * 0.22f * bell * rel
+    translationY = bell * rel * 10.dp.toPx() * (index - state.firstVisibleItemIndex).coerceIn(0, 12) / 6f
+    val sc = 1f - 0.05f * bell
     scaleX = sc; scaleY = sc
+    alpha = 1f - 0.25f * bell * rel
 }
 
 /** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */

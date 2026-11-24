@@ -365,6 +365,7 @@ fun <T> RadioDialog(title: String, options: List<Pair<T, String>>, selected: T, 
 }
 
 fun GroupScope.sliderInt(title: String, pref: Prefs.I, range: IntRange, step: Int = 1, format: (Int) -> String = { it.toString() }) = row {
+    val haptic = rememberHaptic()
     var local by remember(pref.state.value) { mutableFloatStateOf(pref.state.value.toFloat()) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -376,6 +377,7 @@ fun GroupScope.sliderInt(title: String, pref: Prefs.I, range: IntRange, step: In
             value = local,
             onValueChange = { v ->
                 val snapped = (range.first + Math.round((v - range.first) / step) * step).coerceIn(range.first, range.last)
+                if (snapped.toFloat() != local) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)   // tick per step
                 local = snapped.toFloat(); pref.value = snapped
             },
             valueRange = range.first.toFloat()..range.last.toFloat(),
@@ -384,6 +386,7 @@ fun GroupScope.sliderInt(title: String, pref: Prefs.I, range: IntRange, step: In
 }
 
 fun GroupScope.sliderFloat(title: String, pref: Prefs.F, range: ClosedFloatingPointRange<Float>, steps: Int, format: (Float) -> String) = row {
+    val haptic = rememberHaptic()
     var local by remember(pref.state.value) { mutableFloatStateOf(pref.state.value) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -394,7 +397,11 @@ fun GroupScope.sliderFloat(title: String, pref: Prefs.F, range: ClosedFloatingPo
         Slider(
             modifier = Modifier.noSwipeBack(),
             value = local,
-            onValueChange = { v -> local = (range.start + Math.round((v - range.start) / stepSize) * stepSize).coerceIn(range.start, range.endInclusive) },
+            onValueChange = { v ->
+                val n = (range.start + Math.round((v - range.start) / stepSize) * stepSize).coerceIn(range.start, range.endInclusive)
+                if (n != local) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                local = n
+            },
             onValueChangeFinished = { pref.value = local }, valueRange = range,
         )
     }
@@ -410,8 +417,10 @@ fun BottomSpacer() = Spacer(Modifier.navigationBarsPadding().height(16.dp))
 /** M3 switch with the check icon in the thumb (Expressive style) */
 @Composable
 fun QSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    val haptic = rememberHaptic()
     Switch(
-        checked = checked, onCheckedChange = onChange,
+        checked = checked,
+        onCheckedChange = { v -> haptic(if (v) androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOn else androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOff); onChange(v) },
         thumbContent = if (checked) ({ Icon(androidx.compose.material.icons.Icons.Filled.Check, null, Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)) }) else null,
     )
 }

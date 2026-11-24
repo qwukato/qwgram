@@ -89,6 +89,11 @@ object PhotoEditor {
     fun open(uri: Uri, onDone: (Uri) -> Unit) { request = uri to onDone }
 }
 
+/** photo or video: the matching editor */
+fun openMediaEditor(uri: Uri, isVideo: Boolean, onDone: (Uri) -> Unit) {
+    if (isVideo) VideoEditor.open(uri, onDone) else PhotoEditor.open(uri, onDone)
+}
+
 private class Line(val color: Color, val width: Float, val points: MutableList<Offset>)   // points: 0..1 of the image
 
 private fun adjustMatrix(bright: Float, contrast: Float, sat: Float, warm: Float): android.graphics.ColorMatrix {
@@ -186,6 +191,10 @@ fun PhotoEditorHost() {
         }
     }
 
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { close() },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnClickOutside = false),
+    ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // top bar
         Row(Modifier.statusBarsPadding().padding(10.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -354,5 +363,6 @@ fun PhotoEditorHost() {
                 }
             }
         }
+    }
     }
 }

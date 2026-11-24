@@ -107,6 +107,10 @@ jobs:
           URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/google/fonts/contents/ofl/googlesansflex \
             | python3 -c "import sys,json; fs=[f for f in json.load(sys.stdin) if f['name'].endswith('.ttf') and 'Italic' not in f['name']]; print(fs[0]['download_url'] if fs else '')")
           [ -n "$URL" ] && curl -fsSL "$URL" -o $D/gsflex.ttf
+          # Roboto Flex (OFL): Cyrillic & everything Google Sans Flex lacks, same variable weights
+          URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/google/fonts/contents/ofl/robotoflex \
+            | python3 -c "import sys,json; fs=[f for f in json.load(sys.stdin) if f['name'].endswith('.ttf') and 'Italic' not in f['name']]; print(fs[0]['download_url'] if fs else '')")
+          [ -n "$URL" ] && curl -fsSL "$URL" -o $D/robotoflex.ttf
           # Twemoji Mozilla (COLR, CC-BY 4.0)
           curl -fsSL https://mirrors.ctan.org/fonts/twemoji-colr/TwemojiMozilla.ttf -o $D/twemoji.ttf \
             || curl -fsSL https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf -o $D/twemoji.ttf

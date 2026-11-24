@@ -61,6 +61,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
 import org.drinkless.tdlib.TdApi
 
 @Composable
@@ -76,11 +78,15 @@ fun CountBadge(n: Int, muted: Boolean, mention: Boolean = false) {
         style == "tonal" -> cs.primaryContainer to cs.onPrimaryContainer
         else -> cs.primary to cs.onPrimary
     }
+    // a true circle for one digit (fixed height, width at least the height), a pill only for longer numbers
     Box(
-        Modifier.heightIn(min = 22.dp).clip(CircleShape).background(bg).padding(horizontal = if (mention) 6.dp else 7.dp),
+        Modifier.height(22.dp).widthIn(min = 22.dp).clip(CircleShape).background(bg).padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (mention) "@" else if (n > 999) "999+" else n.toString(), color = fg, style = MaterialTheme.typography.labelMedium)
+        Text(
+            if (mention) "@" else if (n > 999) "999+" else n.toString(), color = fg, maxLines = 1, softWrap = false,
+            style = MaterialTheme.typography.labelMedium.copy(lineHeight = 14.sp, platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
+        )
     }
 }
 

@@ -137,6 +137,12 @@ object TdStore {
         n.isMutualContact = u.isMutualContact; n.isPremium = u.isPremium; n.isSupport = u.isSupport
         n.verificationStatus = u.verificationStatus; n.type = u.type; n.languageCode = u.languageCode
         n.haveAccess = u.haveAccess
+        // every other field too: dropping them lost the profile colour (Premium banner), gift colours, story state…
+        n.backgroundCustomEmojiId = u.backgroundCustomEmojiId; n.upgradedGiftColors = u.upgradedGiftColors
+        n.profileAccentColorId = u.profileAccentColorId; n.profileBackgroundCustomEmojiId = u.profileBackgroundCustomEmojiId
+        n.isCloseFriend = u.isCloseFriend; n.restrictionInfo = u.restrictionInfo; n.activeStoryState = u.activeStoryState
+        n.restrictsNewChats = u.restrictsNewChats; n.paidMessageStarCount = u.paidMessageStarCount
+        n.addedToAttachmentMenu = u.addedToAttachmentMenu
     }
 
     /** chats are mutable TDLib objects; re-putting a shallow copy makes Compose notice the change */

@@ -165,7 +165,7 @@ object Prefs {
     val predictiveBack = B("predictive_back", true)
     val uiScale = F("ui_scale", 1f)
     val font = S("font", "google")                      // google (Google Sans Flex) | system | serif | mono
-    val bodyWeight = I("body_weight", 400)                // 300…700, body text (any font; variable fonts are exact)
+    val bodyWeight = I("body_weight", 500)                // 300…700, body text (any font; variable fonts are exact)
     val headWeight = I("head_weight_v", 800)              // 400…900, headers and titles
     val haptics = B("haptics", true)
 

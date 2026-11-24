@@ -437,9 +437,7 @@ fun ChatScreen(chatId: Long) {
             val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { (it.key as? String)?.startsWith("m") == true }
             val atEnd = listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer
             val id = (info?.key as? String)?.drop(1)?.toLongOrNull()
-            if (atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.lastMessage?.let { last ->
-                viewMessages(chatId, longArrayOf(last.id))
-            }
+            if (atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.let { c -> markRead(c) }
             if (atEnd || id == null) Prefs.setChatPos(chatId, null)
             else Prefs.setChatPos(chatId, id to if (info.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0)
         }
@@ -488,9 +486,9 @@ fun ChatScreen(chatId: Long) {
     LaunchedEffect(atBottom, newest) {
         val c = TdStore.chats.peek(chatId)
         val last = c?.lastMessage?.id ?: return@LaunchedEffect
-        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread)) {
+        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0)) {
             viewMessages(chatId, longArrayOf(last))
-            if (c.isMarkedAsUnread) Td.send(TdApi.ToggleChatIsMarkedAsUnread(chatId, false))
+            markRead(c)
         }
     }
 
@@ -1198,10 +1196,17 @@ private var readErrorShown = false
 
 /** marks messages read; if Telegram refuses, says why once (helps to find the cause instead of silently failing) */
 fun viewMessages(chatId: Long, ids: LongArray) {
-    Td.send(TdApi.ViewMessages(chatId, ids, TdApi.MessageSourceChatHistory(), true)) { r ->
+    if (ids.isEmpty()) return
+    // 1) as "seen in the opened chat": view counters, mentions/reactions under the eyes
+    Td.send(TdApi.ViewMessages(chatId, ids, TdApi.MessageSourceChatHistory(), true))
+    // 2) the read itself through the same request the long-press "Прочитано" uses (that one reliably clears the
+    //    counter in the list): everything up to the newest message on screen
+    Td.send(TdApi.ViewMessages(chatId, longArrayOf(ids.max()), TdApi.MessageSourceChatList(), true)) { r ->
         if (r is TdApi.Error && !readErrorShown) {
             readErrorShown = true
-            android.widget.Toast.makeText(app.qwgram.next.App.instance, "Не удалось отметить прочитанным: ${r.code} ${r.message}", android.widget.Toast.LENGTH_LONG).show()
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(app.qwgram.next.App.instance, "Не удалось отметить прочитанным: ${r.code} ${r.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
         }
     }
 }
@@ -1443,7 +1448,7 @@ private fun copyToCache(ctx: Context, uri: Uri): File? = try {
 
 private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, replyTo: TdApi.Message?) {
     val f = copyToCache(ctx, uri) ?: return
-    val mime = ctx.contentResolver.getType(uri).orEmpty()
+    val mime = mimeOf(ctx, uri)
     val input = TdApi.InputFileLocal(f.absolutePath)
     val content: TdApi.InputMessageContent = when {
         !asDocument && mime.startsWith("image/") && !mime.contains("gif") -> TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = input } }
@@ -1453,13 +1458,19 @@ private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, r
     sendContent(chatId, content, replyTo)
 }
 
+/** content:// asks the resolver; file:// (edited copies) goes by the extension */
+private fun mimeOf(ctx: Context, uri: Uri): String =
+    ctx.contentResolver.getType(uri)
+        ?: android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase().orEmpty())
+        ?: ""
+
 /** several photos/videos go as one album (2–10), anything else one by one */
 private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi.Message?) {
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
         if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo) }; return@launch }
         val contents = uris.mapNotNull { uri ->
             val f = copyToCache(ctx, uri) ?: return@mapNotNull null
-            val mime = ctx.contentResolver.getType(uri).orEmpty()
+            val mime = mimeOf(ctx, uri)
             val input = TdApi.InputFileLocal(f.absolutePath)
             if (mime.startsWith("video/")) TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = input; supportsStreaming = true } }
             else TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = input } }

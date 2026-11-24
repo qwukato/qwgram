@@ -115,6 +115,7 @@ fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed:
     val radius = remember { Animatable(rest, Dp.VectorConverter) }
     val scale = remember { Animatable(1f) }
     val press = remember { Animatable(0f) }
+    val hf = androidx.compose.ui.platform.LocalHapticFeedback.current
     val f = pressFactor()
     val target = (rest + (pressed - rest) * f).coerceAtLeast(0.dp)
     val sq = 1f - (1f - squish) * f
@@ -123,6 +124,8 @@ fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed:
         interaction.interactions.collect { i ->
             when (i) {
                 is PressInteraction.Press -> {
+                    // a light tick under the finger on every expressive button
+                    if (Prefs.haptics.value) hf.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentFrequentTick)
                     launch { radius.animateTo(target, Springs.pressIn()) }
                     launch { scale.animateTo(sq, Springs.pressIn()) }
                     launch { press.animateTo(1f, androidx.compose.animation.core.tween(90)) }
@@ -274,7 +277,7 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 380f * k) else androidx.compose.animation.core.spring(1f, 700f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.62f, 170f * k) else androidx.compose.animation.core.spring(0.85f, 260f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
         val radiusEnd = 16.dp.rs()
@@ -311,6 +314,16 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     }
 }
 
+
+/** bottom sheets open and close calmly (standard motion, no bounce) while the rest of the app stays expressive */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun CalmMotion(content: @Composable () -> Unit) {
+    androidx.compose.material3.MaterialExpressiveTheme(
+        colorScheme = MaterialTheme.colorScheme, motionScheme = androidx.compose.material3.MotionScheme.standard(),
+        shapes = MaterialTheme.shapes, typography = MaterialTheme.typography, content = content,
+    )
+}
 
 /** where the search bar grows from: bounds (in root) of the button that opened search */
 object SearchMorph {

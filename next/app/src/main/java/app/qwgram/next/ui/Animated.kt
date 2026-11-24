@@ -57,6 +57,7 @@ fun TgsImage(file: TdApi.File, modifier: Modifier = Modifier, loop: Boolean = tr
         iterations = if (loop) LottieConstants.IterateForever else 1,
         isPlaying = Prefs.motion.value != "off",
         contentScale = ContentScale.Fit,
+        enableMergePaths = true,
     )
 }
 

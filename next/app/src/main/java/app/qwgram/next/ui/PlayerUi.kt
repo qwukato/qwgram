@@ -384,7 +384,7 @@ fun WavyRing(progress: Float, playing: Boolean, color: Color, track: Color, modi
         val c = center
         drawCircle(track, r, c, style = Stroke(stroke))
         val sweep = (progress.coerceIn(0f, 1f) * 2 * PI).toFloat()
-        if (sweep <= 0f) return@Canvas
+        if (sweep * r < stroke * 2f) return@Canvas   // too short to draw: avoid a lone dot
         val path = Path()
         val steps = 90
         for (i in 0..steps) {
@@ -427,8 +427,10 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
         val stroke = 4.dp.toPx()
         val x = size.width * pr
         val gap = 6.dp.toPx()
-        drawLine(track, Offset((x + gap).coerceAtMost(size.width), cy), Offset(size.width, cy), stroke, StrokeCap.Round)
-        if (x - gap > 0f) {
+        val trackStart = if (x - gap > stroke * 2.5f) x + gap else 0f
+        drawLine(track, Offset(trackStart.coerceAtMost(size.width), cy), Offset(size.width, cy), stroke, StrokeCap.Round)
+        // no stray round-cap dot at the very start: the wave appears once there is a real length to draw
+        if (x - gap > stroke * 2.5f) {
             val path = Path()
             var px = 0f
             path.moveTo(0f, cy)
@@ -446,7 +448,7 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
 @Composable
 private fun QueueSheet(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = cs.surfaceContainerLow) {
+    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = cs.surfaceContainerLow) {
         Text("Очередь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             items(Player.queue.size) { i ->
@@ -471,5 +473,5 @@ private fun QueueSheet(onDismiss: () -> Unit) {
                 }
             }
         }
-    }
+    } }
 }

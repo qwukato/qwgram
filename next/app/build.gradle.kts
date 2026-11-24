@@ -91,6 +91,8 @@ dependencies {
     implementation("com.airbnb.android:lottie-compose:6.6.2")        // animated stickers / emoji (TGS = gzipped Lottie)
     implementation("androidx.media3:media3-exoplayer:1.5.1")         // video playback
     implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-transformer:1.5.1")     // video editor export (trim, crop, rotate, colour, mute)
+    implementation("androidx.media3:media3-effect:1.5.1")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     implementation("androidx.emoji2:emoji2-bundled:1.5.0")
     implementation("androidx.activity:activity-compose:1.10.1")

@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
 object Fonts {
     private const val SANS = "fonts/gsflex.ttf"
     private const val EMOJI = "fonts/twemoji.ttf"
+    private const val CYR = "fonts/robotoflex.ttf"
     private val WEIGHTS = intArrayOf(300, 400, 500, 600, 700, 800, 900)
     private val cache = HashMap<String, FontFamily?>()
 
@@ -47,27 +48,42 @@ object Fonts {
         val wantTwemoji = emoji == "twemoji" && twemojiAvailable(ctx)
         val google = font == "google" && googleAvailable(ctx)
         if (Build.VERSION.SDK_INT >= 29 && (google || (wantTwemoji && font == "system"))) {
-            // one platform typeface: every weight of the (variable) main font, then Twemoji, then the system fallback
-            val fonts: List<android.graphics.fonts.Font> = if (google) {
-                val buf = read(ctx, SANS) ?: return null
-                WEIGHTS.map { w -> android.graphics.fonts.Font.Builder(buf.duplicate()).setWeight(w).setFontVariationSettings("'wght' $w").build() }
-            } else {
-                // system font + Twemoji: the platform Roboto (variable on Android 12+)
-                val f = java.io.File("/system/fonts/Roboto-Regular.ttf")
-                if (!f.exists()) return null
-                WEIGHTS.map { w -> android.graphics.fonts.Font.Builder(f).setWeight(w).setFontVariationSettings("'wght' $w").build() }
+            val mainBuf: java.nio.ByteBuffer? = if (google) read(ctx, SANS) else null
+            val sysFile = java.io.File("/system/fonts/Roboto-Regular.ttf")
+            if (!google && !sysFile.exists()) return null
+            val cyrBuf = if (google) read(ctx, CYR) else null
+            val emojiBuf = if (wantTwemoji) read(ctx, EMOJI) else null
+            fun at(w: Int, buf: java.nio.ByteBuffer?, file: java.io.File?): android.graphics.fonts.Font =
+                (if (buf != null) android.graphics.fonts.Font.Builder(buf.duplicate()) else android.graphics.fonts.Font.Builder(file!!))
+                    .setWeight(w).setFontVariationSettings("'wght' $w").build()
+            // one platform typeface PER WEIGHT (Compose picks the font by weight; a single typeface would ignore it):
+            // the main font at that weight → Roboto Flex at the same weight for Cyrillic & co (Google Sans Flex is
+            // Latin-only) → Twemoji → the system fallback
+            val fonts = WEIGHTS.map { w ->
+                val main = android.graphics.fonts.FontFamily.Builder(at(w, mainBuf, if (google) null else sysFile)).build()
+                val b = android.graphics.Typeface.CustomFallbackBuilder(main).setSystemFallback("sans-serif")
+                    .setStyle(android.graphics.fonts.FontStyle(w, android.graphics.fonts.FontStyle.FONT_SLANT_UPRIGHT))
+                if (cyrBuf != null) b.addCustomFallback(android.graphics.fonts.FontFamily.Builder(at(w, cyrBuf, null)).build())
+                if (emojiBuf != null) b.addCustomFallback(android.graphics.fonts.FontFamily.Builder(android.graphics.fonts.Font.Builder(emojiBuf.duplicate()).build()).build())
+                TypefaceFont(b.build(), FontWeight(w))
             }
-            val fam = android.graphics.fonts.FontFamily.Builder(fonts.first()).also { b -> fonts.drop(1).forEach { b.addFont(it) } }.build()
-            val builder = android.graphics.Typeface.CustomFallbackBuilder(fam).setSystemFallback("sans-serif")
-            if (wantTwemoji) read(ctx, EMOJI)?.let { e ->
-                builder.addCustomFallback(android.graphics.fonts.FontFamily.Builder(android.graphics.fonts.Font.Builder(e).build()).build())
-            }
-            return FontFamily(androidx.compose.ui.text.font.Typeface(builder.build()))
+            return FontFamily(fonts)
         }
         if (google) {
             // Android 8–9: the variable font through Compose, without the custom emoji fallback
             return FontFamily(WEIGHTS.map { w -> Font(SANS, ctx.assets, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w))) })
         }
         return null
+    }
+}
+
+/** a ready platform typeface presented to Compose as a font of a given weight */
+@OptIn(ExperimentalTextApi::class)
+private class TypefaceFont(val tf: android.graphics.Typeface, override val weight: FontWeight) :
+    androidx.compose.ui.text.font.AndroidFont(androidx.compose.ui.text.font.FontLoadingStrategy.Blocking, Loader, FontVariation.Settings()) {
+    override val style: androidx.compose.ui.text.font.FontStyle = androidx.compose.ui.text.font.FontStyle.Normal
+    private object Loader : androidx.compose.ui.text.font.AndroidFont.TypefaceLoader {
+        override fun loadBlocking(context: Context, font: androidx.compose.ui.text.font.AndroidFont): android.graphics.Typeface? = (font as? TypefaceFont)?.tf
+        override suspend fun awaitLoad(context: Context, font: androidx.compose.ui.text.font.AndroidFont): android.graphics.Typeface? = (font as? TypefaceFont)?.tf
     }
 }

@@ -157,14 +157,15 @@ fun AttachGallerySheet(
     var media by remember { mutableStateOf<List<DeviceMedia>>(emptyList()) }
     val picked = remember { mutableStateListOf<Uri>() }
     val edited = remember { androidx.compose.runtime.mutableStateMapOf<Uri, Uri>() }   // original → edited copy
+    val isVideoUri = remember { androidx.compose.runtime.mutableStateMapOf<Uri, Boolean>() }
+    fun isVideo(u: Uri) = isVideoUri[u] ?: media.firstOrNull { it.uri == u || edited[it.uri] == u }?.isVideo ?: false
     val askAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { access = hasMediaAccess(ctx) }
     LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // picking something lifts the sheet fully, so the "Send" button at its bottom is on screen
-    LaunchedEffect(picked.isNotEmpty()) { if (picked.isNotEmpty()) runCatching { sheet.expand() } }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
+    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
         Box {
             Column(Modifier.fillMaxWidth()) {
                 // quick actions: tonal shape buttons
@@ -220,7 +221,7 @@ fun AttachGallerySheet(
                         val shown = edited[m.uri] ?: m.uri
                         val order = picked.indexOf(shown)
                         GalleryTile(DeviceMedia(shown, m.isVideo, m.durationMs), order,
-                            onEdit = if (m.isVideo) null else ({ PhotoEditor.open(shown) { out -> val i = picked.indexOf(shown); edited[m.uri] = out; if (i >= 0) picked[i] = out else if (picked.size < 10) picked.add(out) } }),
+                            onEdit = { openMediaEditor(shown, m.isVideo) { out -> val i = picked.indexOf(shown); edited[m.uri] = out; isVideoUri[out] = m.isVideo; if (i >= 0) picked[i] = out else if (picked.size < 10) picked.add(out) } },
                         ) { if (order >= 0) picked.remove(shown) else if (picked.size < 10) picked.add(shown) }
                     }
                 }
@@ -232,19 +233,32 @@ fun AttachGallerySheet(
                 enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
                 exit = scaleOut(Springs.exit(), targetScale = 0.6f) + fadeOut(Springs.exit()),
             ) {
-                MorphBox(
-                    onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
-                    color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
-                ) {
-                    Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.Send, null)
-                        Spacer(Modifier.width(10.dp))
-                        Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // edit the last picked photo / video (Telegram's pencil next to Send)
+                    MorphIconButton(
+                        Icons.Outlined.Edit, "Редактировать", {
+                            picked.lastOrNull()?.let { u ->
+                                val orig = edited.entries.firstOrNull { it.value == u }?.key ?: u
+                                openMediaEditor(u, isVideo(u)) { out -> val i = picked.indexOf(u); edited[orig] = out; isVideoUri[out] = isVideo(u); if (i >= 0) picked[i] = out }
+                            }
+                        },
+                        size = 56.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer, elevation = 6.dp,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    MorphBox(
+                        onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
+                        color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Send, null)
+                            Spacer(Modifier.width(10.dp))
+                            Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable
