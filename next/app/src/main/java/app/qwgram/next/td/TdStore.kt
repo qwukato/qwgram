@@ -32,6 +32,8 @@ object TdStore {
 
     /** unread (unmuted) chats in the main list, straight from TDLib */
     var unreadChats by mutableIntStateOf(0)
+    /** Telegram profile colours (banner gradients for Premium profiles), by colour id */
+    val profileColors = androidx.compose.runtime.mutableStateMapOf<Int, TdApi.ProfileAccentColor>()
     val folders = mutableStateListOf<TdApi.ChatFolderInfo>()
     var mainListPosition by mutableIntStateOf(0)
 
@@ -60,6 +62,7 @@ object TdStore {
                 listVersion++
             }
             is TdApi.UpdateChatTitle -> edit(obj.chatId) { it.title = obj.title }
+            is TdApi.UpdateProfileAccentColors -> obj.colors.forEach { profileColors[it.id] = it }
             is TdApi.UpdateChatBackground -> edit(obj.chatId) { it.background = obj.background }
             is TdApi.UpdateChatPhoto -> edit(obj.chatId) { it.photo = obj.photo }
             is TdApi.UpdateChatLastMessage -> {

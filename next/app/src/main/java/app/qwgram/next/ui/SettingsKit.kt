@@ -97,6 +97,7 @@ fun FadeHeader(
     subtitle: String? = null,
     onBack: (() -> Unit)? = { Nav.pop() },
     titleAlpha: () -> Float = { 1f },
+    backgroundAlpha: (() -> Float)? = null,
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
@@ -105,7 +106,16 @@ fun FadeHeader(
     Box(
         modifier.fillMaxWidth()
             .then(
-                if (floating) Modifier.topFade(cs.surface)
+                if (backgroundAlpha != null) Modifier.drawBehind {
+                    // transparent over a banner, fills in as the page scrolls
+                    val a = backgroundAlpha().coerceIn(0f, 1f)
+                    if (a > 0f) {
+                        val f = (22.dp.toPx() / size.height).coerceIn(0.05f, 0.6f)
+                        val c = if (floating) cs.surface else cs.surfaceContainer
+                        drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to c.copy(alpha = a), (1f - f) to c.copy(alpha = a), 1f to c.copy(alpha = if (floating) 0f else a)))
+                    }
+                }
+                else if (floating) Modifier.topFade(cs.surface)
                 else Modifier.background(cs.surfaceContainer),
             )
             .statusBarsPadding().padding(bottom = if (floating) 18.dp else 0.dp),

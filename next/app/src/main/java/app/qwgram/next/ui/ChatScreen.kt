@@ -377,7 +377,7 @@ fun ChatScreen(chatId: Long) {
         onDispose {
             Td.send(TdApi.CloseChat(chatId))
             if (Notifier.openChatId == chatId) Notifier.openChatId = 0L
-            Player.stop()
+            if (Player.queue.isEmpty()) Player.stop()   // voice notes stop with the chat, music keeps playing
             // keep what the user typed as a Telegram draft
             val t = text
             val d = if (t.isBlank() && replyTo == null) null else TdApi.DraftMessage().apply {
@@ -477,6 +477,10 @@ fun ChatScreen(chatId: Long) {
             // the list rises after the new message on a smooth spring (Telegram)
             listState.animateScrollToItem(0)
         }
+    }
+    // audio files of this chat form the player's queue (oldest → newest)
+    LaunchedEffect(newest, ctl.messages.size) {
+        Player.contextQueue = ctl.messages.asReversed().mapNotNull { (it.content as? TdApi.MessageAudio)?.audio }
     }
     // reading reached the bottom → the whole chat is read
     val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }

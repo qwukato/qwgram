@@ -178,38 +178,19 @@ fun ProfileScreen(chatId: Long) {
             FadeHeader(title, subtitle = status, titleAlpha = {
                 // the name appears in the bar once the big one scrolls away
                 if (gridState.firstVisibleItemIndex > 0) 1f else ((gridState.firstVisibleItemScrollOffset - 260f) / 140f).coerceIn(0f, 1f)
-            }, actions = {
-                // share the contact / link, like Telegram's profile header
-                val un = user?.usernames?.activeUsernames?.firstOrNull()
-                    ?: (chat?.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() }
-                val shareText = when {
-                    un != null -> "https://t.me/$un"
-                    user != null && user.phoneNumber.isNotBlank() -> TdStore.fullName(user) + "\n+" + user.phoneNumber
-                    else -> null
-                }
-                if (shareText != null) HeaderIcon(Icons.Outlined.Share, if (user != null) "Поделиться контактом" else "Поделиться", {
-                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, shareText)
-                    ctx.startActivity(android.content.Intent.createChooser(i, null))
-                })
-            })
+            }, backgroundAlpha = {
+                if (gridState.firstVisibleItemIndex > 0) 1f else ((gridState.firstVisibleItemScrollOffset - 160f) / 140f).coerceIn(0f, 1f)
+            }, actions = { ProfileMenu(chat, user, me) })
         },
     ) { pad ->
         LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (me) {
-                        Box(contentAlignment = Alignment.BottomEnd) {
-                            UserAvatar(user, 120.dp, Modifier.clip(CircleShape).clickable { openAvatars() })
-                            MorphIconButton(
-                                Icons.Outlined.PhotoCamera, "Сменить фото",
-                                { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                size = 40.dp, color = MaterialTheme.colorScheme.primary, tint = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
-                    } else Box(Modifier.clip(CircleShape).clickable { openAvatars() }) { if (chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp) }
-                    Spacer(Modifier.height(16.dp))
-                    Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                    if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium, color = if (status == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    ProfileBanner(
+                        chat, user, me, title, status, topInset = pad.calculateTopPadding(),
+                        onAvatar = { openAvatars() },
+                        onCamera = if (me) ({ pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) else null,
+                    )
                     if (chat != null && !TdStore.isSaved(chat)) {
                         Spacer(Modifier.height(20.dp))
                         val muted = TdStore.isMuted(chat)
@@ -223,13 +204,11 @@ fun ProfileScreen(chatId: Long) {
                             })
                             add(GroupButton(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Вкл. звук" else "Без звука", selected = muted) { setMuted(chat, !muted) })
                             add(GroupButton(Icons.Outlined.Search, "Поиск") { Nav.push(Route.Chat(chat.id)) })
-                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) add(GroupButton(Icons.Outlined.Lock, "Секретный") {
-                                scope.launch { Td.callOrNull(TdApi.CreateNewSecretChat(uid))?.let { Nav.push(Route.Chat(it.id)) } ?: Toast.makeText(ctx, "Не удалось начать секретный чат", Toast.LENGTH_SHORT).show() }
-                            })
                         })
                     }
+                    if (user != null) ProfileMusic(user.id)
                     Spacer(Modifier.height(16.dp))
-                    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(vertical = 4.dp)) {
                             val rows = buildList {
                                 if (user != null && user.phoneNumber.isNotBlank()) add(Triple(Icons.Outlined.Phone, if (me && Prefs.hidePhone.value) "Скрыт" else "+" + user.phoneNumber, "Телефон"))

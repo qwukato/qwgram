@@ -24,7 +24,20 @@ import app.qwgram.next.td.Texts
 import org.drinkless.tdlib.TdApi
 import java.io.File
 
-/** One shared player for voice notes and audio files. */
+/** a music track for the player */
+class Track(val file: TdApi.File, val title: String, val performer: String, val durationSec: Int, val cover: TdApi.File?, val mini: TdApi.Minithumbnail?) {
+    companion object {
+        fun of(a: TdApi.Audio) = Track(
+            a.audio, a.title.ifBlank { a.fileName.ifBlank { "Без названия" } }, a.performer, a.duration,
+            a.externalAlbumCovers?.maxByOrNull { it.width * it.height }?.file ?: a.albumCoverThumbnail?.file, a.albumCoverMinithumbnail,
+        )
+    }
+}
+
+/**
+ * One shared player. Voice notes play on their own; music plays from a queue (chat audio, profile music) with
+ * next/previous, shuffle, repeat, speed and seeking, and shows the mini / full player.
+ */
 object Player {
     var fileId by mutableIntStateOf(0)
         private set
@@ -32,45 +45,133 @@ object Player {
         private set
     var progress by mutableFloatStateOf(0f)
         private set
+    var positionMs by mutableIntStateOf(0)
+        private set
+    var durationMs by mutableIntStateOf(0)
+        private set
+    var loading by mutableStateOf(false)
+        private set
+    /** music queue; empty while a voice note plays */
+    var queue by mutableStateOf<List<Track>>(emptyList())
+        private set
+    var index by mutableIntStateOf(0)
+        private set
+    var shuffle by mutableStateOf(false)
+    var repeat by mutableIntStateOf(0)        // 0 off, 1 all, 2 one
+    var speed by mutableFloatStateOf(1f)
+        private set
+    /** the mini player was closed by the user (until the next track is started) */
+    var dismissed by mutableStateOf(false)
+    /** audios of the open chat: tapping one plays through the rest */
+    var contextQueue: List<TdApi.Audio> = emptyList()
+
+    val track: Track? get() = queue.getOrNull(index)
+
     private var mp: MediaPlayer? = null
     private val h = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
             val p = mp ?: return
             try {
-                if (p.duration > 0) progress = p.currentPosition / p.duration.toFloat()
+                val d = p.duration
+                if (d > 0) { durationMs = d; positionMs = p.currentPosition; progress = p.currentPosition / d.toFloat() }
             } catch (_: Exception) {
             }
             if (playing) h.postDelayed(this, 50)
         }
     }
 
+    /** voice notes (and single files) */
     fun toggle(file: TdApi.File) {
         val f = Images.current(file) ?: return
-        if (fileId == f.id && mp != null) {
-            if (playing) { mp?.pause(); playing = false } else { mp?.start(); playing = true; h.post(tick) }
-            return
+        if (fileId == f.id && mp != null) { if (playing) pause() else resume(); return }
+        queue = emptyList()
+        load(f)
+    }
+
+    /** an audio message: plays it within the chat's audio list */
+    fun toggleAudio(a: TdApi.Audio) {
+        if (fileId == a.audio.id && mp != null) { if (playing) pause() else resume(); return }
+        val list = contextQueue.takeIf { q -> q.any { it.audio.id == a.audio.id } } ?: listOf(a)
+        playQueue(list.map { Track.of(it) }, list.indexOfFirst { it.audio.id == a.audio.id }.coerceAtLeast(0))
+    }
+
+    fun playQueue(tracks: List<Track>, start: Int) {
+        if (tracks.isEmpty()) return
+        queue = tracks
+        index = start.coerceIn(0, tracks.lastIndex)
+        dismissed = false
+        load(tracks[index].file)
+    }
+
+    fun pause() { try { mp?.pause() } catch (_: Exception) {}; playing = false }
+    fun resume() { try { mp?.start(); playing = true; h.post(tick) } catch (_: Exception) {} }
+    fun playPause() { if (playing) pause() else if (mp != null) resume() else track?.let { load(it.file) } }
+
+    fun next(user: Boolean = true) {
+        if (queue.isEmpty()) return
+        val n = when {
+            shuffle && queue.size > 1 -> (queue.indices - index).random()
+            index < queue.lastIndex -> index + 1
+            repeat == 1 || user -> 0
+            else -> { pause(); seekTo(0f); return }
         }
-        if (!f.local.isDownloadingCompleted) {
-            Td.send(TdApi.DownloadFile(f.id, 32, 0, 0, true)) { r ->
-                if (r is TdApi.File && r.local.isDownloadingCompleted) start(r)
+        index = n; load(queue[n].file)
+    }
+
+    fun previous() {
+        if (queue.isEmpty()) return
+        if (positionMs > 3000) { seekTo(0f); return }
+        index = if (index > 0) index - 1 else queue.lastIndex
+        load(queue[index].file)
+    }
+
+    fun seekTo(fraction: Float) {
+        val p = mp ?: return
+        try { val d = p.duration; if (d > 0) { p.seekTo((d * fraction.coerceIn(0f, 1f)).toInt()); positionMs = p.currentPosition; progress = fraction } } catch (_: Exception) {}
+    }
+
+    fun cycleSpeed() {
+        speed = when (speed) { 1f -> 1.25f; 1.25f -> 1.5f; 1.5f -> 2f; 2f -> 0.75f; else -> 1f }
+        applySpeed()
+    }
+
+    private fun applySpeed() {
+        val p = mp ?: return
+        try { if (Build.VERSION.SDK_INT >= 23) { val was = p.isPlaying; p.playbackParams = p.playbackParams.setSpeed(speed); if (!was) p.pause() } } catch (_: Exception) {}
+    }
+
+    fun close() { stop(); queue = emptyList(); dismissed = true }
+
+    private fun load(file: TdApi.File) {
+        val f = Images.current(file) ?: return
+        stop()
+        fileId = f.id
+        if (f.local.isDownloadingCompleted) { start(f); return }
+        loading = true
+        Td.send(TdApi.DownloadFile(f.id, 32, 0, 0, true)) { r ->
+            h.post {
+                loading = false
+                if (r is TdApi.File && r.local.isDownloadingCompleted && fileId == r.id) start(r)
             }
-            fileId = f.id
-            return
         }
-        start(f)
     }
 
     private fun start(f: TdApi.File) {
-        stop()
         try {
             val p = MediaPlayer()
             p.setDataSource(f.local.path)
-            p.setOnCompletionListener { playing = false; progress = 0f }
+            p.setOnCompletionListener {
+                if (queue.isNotEmpty()) {
+                    if (repeat == 2) { seekTo(0f); resume() } else next(user = false)
+                } else { playing = false; progress = 0f }
+            }
             p.prepare()
-            p.start()
             mp = p
             fileId = f.id
+            durationMs = p.duration
+            applySpeed()
+            p.start()
             playing = true
             h.post(tick)
         } catch (e: Exception) {
@@ -79,13 +180,11 @@ object Player {
     }
 
     fun stop() {
-        try {
-            mp?.release()
-        } catch (_: Exception) {
-        }
+        try { mp?.release() } catch (_: Exception) {}
         mp = null
         playing = false
         progress = 0f
+        positionMs = 0
     }
 }
 

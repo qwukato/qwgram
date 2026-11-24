@@ -839,7 +839,7 @@ private fun PlayButton(playing: Boolean, fg: Color, file: TdApi.File?, onClick: 
 private fun AudioView(a: TdApi.Audio, fg: Color, modifier: Modifier) {
     val playing = Player.fileId == a.audio.id && Player.playing
     Row(modifier.widthIn(min = 220.dp), verticalAlignment = Alignment.CenterVertically) {
-        PlayButton(playing, fg, a.audio) { Player.toggle(a.audio) }
+        PlayButton(playing, fg, a.audio) { Player.toggleAudio(a) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(a.title.ifBlank { a.fileName }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
