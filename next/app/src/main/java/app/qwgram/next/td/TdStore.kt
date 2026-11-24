@@ -99,8 +99,8 @@ object TdStore {
             }
             is TdApi.UpdateFile -> files[obj.file.id] = obj.file
             is TdApi.UpdateUnreadChatCount -> {
-                unreadByList[listKey(obj.chatList)] = obj.unreadUnmutedCount + obj.markedAsUnreadUnmutedCount
-                if (obj.chatList is TdApi.ChatListMain) unreadChats = obj.unreadUnmutedCount + obj.markedAsUnreadUnmutedCount
+                unreadByList[listKey(obj.chatList)] = obj.unreadUnmutedCount   // already includes chats marked as unread
+                if (obj.chatList is TdApi.ChatListMain) unreadChats = obj.unreadUnmutedCount
             }
             is TdApi.UpdateChatAvailableReactions -> edit(obj.chatId) { it.availableReactions = obj.availableReactions }
             is TdApi.UpdateChatPermissions -> edit(obj.chatId) { it.permissions = obj.permissions }

@@ -1339,26 +1339,15 @@ private fun Composer(
 
     if (poll) PollDialog(onDismiss = { poll = false }) { content -> sendContent(chat.id, content, replyTo); poll = false; onCancel() }
     if (sendOptions) SendOptionsSheet(onDismiss = { sendOptions = false }, onSilent = onSendSilent, onSchedule = onSchedule)
-    if (attach) {
-        ModalBottomSheet(onDismissRequest = { attach = false }) {
-            Text("Отправить", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                AttachAction("Галерея", Icons.Outlined.Image, androidx.compose.material3.MaterialShapes.Cookie9Sided, 0) {
-                    attach = false
-                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                }
-                AttachAction("Файл", Icons.Outlined.Description, androidx.compose.material3.MaterialShapes.Flower, 1) {
-                    attach = false
-                    pickFile.launch(arrayOf("*/*"))
-                }
-                if (chat.type !is TdApi.ChatTypeSecret) AttachAction("Опрос", Icons.Outlined.Poll, androidx.compose.material3.MaterialShapes.Flower, 2) {
-                    attach = false
-                    poll = true
-                }
-            }
-            Spacer(Modifier.height(32.dp))
-        }
-    }
+    if (attach) AttachGallerySheet(
+        canPoll = chat.type !is TdApi.ChatTypeSecret,
+        onDismiss = { attach = false },
+        onSend = { uris -> attach = false; sendUris(ctx, chat.id, uris, replyTo); onCancel() },
+        onSystemPicker = { attach = false; pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+        onFile = { attach = false; pickFile.launch(arrayOf("*/*")) },
+        onMusic = { attach = false; pickFile.launch(arrayOf("audio/*")) },
+        onPoll = { attach = false; poll = true },
+    )
 }
 
 @Composable
@@ -1393,6 +1382,28 @@ private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, r
         else -> TdApi.InputMessageDocument().apply { document = TdApi.InputDocument().apply { document = input } }
     }
     sendContent(chatId, content, replyTo)
+}
+
+/** several photos/videos go as one album (2–10), anything else one by one */
+private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi.Message?) {
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo) }; return@launch }
+        val contents = uris.mapNotNull { uri ->
+            val f = copyToCache(ctx, uri) ?: return@mapNotNull null
+            val mime = ctx.contentResolver.getType(uri).orEmpty()
+            val input = TdApi.InputFileLocal(f.absolutePath)
+            if (mime.startsWith("video/")) TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = input; supportsStreaming = true } }
+            else TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = input } }
+        }
+        contents.chunked(10).forEach { part ->
+            Td.send(TdApi.SendMessageAlbum().apply {
+                this.chatId = chatId
+                this.replyTo = replyTo?.let { r -> TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
+                options = TdApi.MessageSendOptions().apply { disableNotification = Prefs.silentByDefault.value }
+                inputMessageContents = part.toTypedArray()
+            })
+        }
+    }
 }
 
 private fun sendVoice(chatId: Long, f: File, secs: Int, replyTo: TdApi.Message?) {

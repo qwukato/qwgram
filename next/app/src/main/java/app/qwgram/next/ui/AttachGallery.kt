@@ -1,0 +1,291 @@
+package app.qwgram.next.ui
+
+import android.Manifest
+import android.content.ContentUris
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Poll
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/** one item of the device gallery */
+class DeviceMedia(val uri: Uri, val isVideo: Boolean, val durationMs: Long)
+
+private fun mediaPermissions(): Array<String> = when {
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
+
+private fun hasMediaAccess(ctx: Context): Boolean {
+    val granted = { p: String -> ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED }
+    return when {
+        Build.VERSION.SDK_INT >= 34 -> granted(Manifest.permission.READ_MEDIA_IMAGES) || granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        Build.VERSION.SDK_INT >= 33 -> granted(Manifest.permission.READ_MEDIA_IMAGES)
+        else -> granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+}
+
+private suspend fun loadRecent(ctx: Context, limit: Int = 150): List<DeviceMedia> = withContext(Dispatchers.IO) {
+    val out = ArrayList<DeviceMedia>()
+    runCatching {
+        val uri = MediaStore.Files.getContentUri("external")
+        val proj = arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.Video.VideoColumns.DURATION)
+        val sel = "${MediaStore.Files.FileColumns.MEDIA_TYPE}=${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE} OR ${MediaStore.Files.FileColumns.MEDIA_TYPE}=${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}"
+        ctx.contentResolver.query(uri, proj, sel, null, "${MediaStore.Files.FileColumns.DATE_ADDED} DESC")?.use { c ->
+            while (c.moveToNext() && out.size < limit) {
+                val id = c.getLong(0)
+                val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                val base = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                out.add(DeviceMedia(ContentUris.withAppendedId(base, id), video, if (video) c.getLong(2) else 0L))
+            }
+        }
+    }
+    out
+}
+
+@Composable
+private fun rememberThumb(uri: Uri): ImageBitmap? {
+    val ctx = LocalContext.current
+    var bmp by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(uri) {
+        bmp = withContext(Dispatchers.IO) {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(uri, android.util.Size(320, 320), null).asImageBitmap()
+                else ctx.contentResolver.openInputStream(uri)?.use { i ->
+                    android.graphics.BitmapFactory.decodeStream(i, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 })
+                }?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    return bmp
+}
+
+/**
+ * Telegram-style "send" sheet in M3 Expressive: a camera tile and your recent photos/videos in a grid (tap to pick,
+ * numbered in order), the full system picker, file, music and poll as tonal shape buttons, and an extended
+ * "Send N" button that springs in when something is picked. 2–10 photos/videos go as one album.
+ */
+@Composable
+fun AttachGallerySheet(
+    canPoll: Boolean,
+    onDismiss: () -> Unit,
+    onSend: (List<Uri>) -> Unit,
+    onSystemPicker: () -> Unit,
+    onFile: () -> Unit,
+    onMusic: () -> Unit,
+    onPoll: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    var access by remember { mutableStateOf(hasMediaAccess(ctx)) }
+    var media by remember { mutableStateOf<List<DeviceMedia>>(emptyList()) }
+    val picked = remember { mutableStateListOf<Uri>() }
+    val askAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { access = hasMediaAccess(ctx) }
+    LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
+        Box {
+            Column(Modifier.fillMaxWidth()) {
+                // quick actions: tonal shape buttons
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    AttachShape("Галерея", Icons.Outlined.PhotoLibrary, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, onSystemPicker)
+                    AttachShape("Файл", Icons.Outlined.Description, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, onFile)
+                    AttachShape("Музыка", Icons.Outlined.AudioFile, MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, onMusic)
+                    if (canPoll) AttachShape("Опрос", Icons.Outlined.Poll, MaterialShapes.Flower, cs.surfaceContainerHighest, cs.onSurface, onPoll)
+                }
+                Spacer(Modifier.height(12.dp))
+                LazyVerticalGrid(
+                    GridCells.Fixed(3),
+                    Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    item(key = "camera") {
+                        MorphBox(
+                            onClick = {
+                                runCatching {
+                                    val dir = File(ctx.cacheDir, "camera").apply { mkdirs() }
+                                    val f = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
+                                    val u = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+                                    cameraUri = u
+                                    camera.launch(u)
+                                }
+                            },
+                            rest = 20.dp, pressed = 32.dp, squish = 0.94f, color = cs.primaryContainer, contentColor = cs.onPrimaryContainer,
+                            modifier = Modifier.aspectRatio(1f),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Outlined.PhotoCamera, null, Modifier.size(32.dp))
+                                Spacer(Modifier.height(4.dp))
+                                FitText("Камера", MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                    if (!access) item(key = "access", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+                        MorphBox(
+                            onClick = { askAccess.launch(mediaPermissions()) }, rest = 20.dp, pressed = 12.dp,
+                            color = cs.surfaceContainerHigh, modifier = Modifier.aspectRatio(2f),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
+                                Icon(Icons.Outlined.Image, null)
+                                Spacer(Modifier.height(6.dp))
+                                FitText("Показать фото с телефона", MaterialTheme.typography.titleSmall, maxLines = 2)
+                            }
+                        }
+                    }
+                    itemsIndexed(media, key = { _, m -> m.uri.toString() }) { _, m ->
+                        val order = picked.indexOf(m.uri)
+                        GalleryTile(m, order) { if (order >= 0) picked.remove(m.uri) else if (picked.size < 10) picked.add(m.uri) }
+                    }
+                }
+            }
+            // "Send N": springs in from the bottom when something is picked
+            AnimatedVisibility(
+                picked.isNotEmpty(),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
+                enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
+                exit = scaleOut(Springs.exit(), targetScale = 0.6f) + fadeOut(Springs.exit()),
+            ) {
+                MorphBox(
+                    onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
+                    color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
+                ) {
+                    Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Send, null)
+                        Spacer(Modifier.width(10.dp))
+                        Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachShape(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, shape: androidx.graphics.shapes.RoundedPolygon, bg: Color, fg: Color, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val p by animateFloatAsState(if (pressed) 1f else 0f, if (pressed) spring(0.8f, 900f) else spring(0.45f, 380f), label = "ap")
+    val morph = remember(shape) { androidx.graphics.shapes.Morph(shape, MaterialShapes.Circle) }
+    Column(
+        Modifier.clip(RoundedCornerShape(20.dp)).clickable(interaction, indication = null, onClick = onClick).padding(horizontal = 6.dp, vertical = 6.dp).width(72.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.matchParentSize().graphicsLayer { rotationZ = 40f * p; val s = 1f - 0.08f * p; scaleX = s; scaleY = s }.clip(MorphShape(morph, p.coerceIn(0f, 1f))).background(bg))
+            Icon(icon, null, tint = fg)
+        }
+        Spacer(Modifier.height(6.dp))
+        FitText(title, MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** a gallery thumbnail: picked ones shrink into a rounded frame with their number, like Telegram */
+@Composable
+private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val sel = order >= 0
+    val inset by animateDpAsState(if (sel) 10.dp else 0.dp, spring(0.6f, 520f), label = "in")
+    val r by animateDpAsState(if (sel) 18.dp else 6.dp, spring(0.6f, 520f), label = "r")
+    val bmp = rememberThumb(m.uri)
+    Box(
+        Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(if (sel) cs.primaryContainer else cs.surfaceContainerHigh)
+            .clickable(onClick = onClick),
+    ) {
+        Box(Modifier.fillMaxSize().padding(inset).clip(RoundedCornerShape(r)).background(cs.surfaceContainerHighest)) {
+            if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (m.isVideo) Text(
+                "%d:%02d".format(m.durationMs / 60000, (m.durationMs / 1000) % 60),
+                style = MaterialTheme.typography.labelSmall, color = Color.White,
+                modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
+        // the pick circle: empty ring → numbered primary dot
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).clip(CircleShape)
+                .background(if (sel) cs.primary else Color.Black.copy(alpha = 0.25f))
+                .border(2.dp, if (sel) cs.onPrimary else Color.White, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            AnimatedVisibility(sel, enter = scaleIn(spring(0.5f, 600f)), exit = scaleOut()) {
+                Text("${order + 1}", style = MaterialTheme.typography.labelMedium, color = cs.onPrimary)
+            }
+        }
+    }
+}

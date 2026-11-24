@@ -1,6 +1,11 @@
 package app.qwgram.next.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -893,24 +898,92 @@ private fun ContactView(c: TdApi.Contact, fg: Color, modifier: Modifier) {
     }
 }
 
+/**
+ * M3 Expressive poll: each answer is a tonal pill; after voting a filled bar grows behind it on a spring with the
+ * percentage rolling up. Multiple answers: tick several, then "Голосовать". Quiz: right answer green, wrong red,
+ * explanation below. "Отменить голос" when revoting is allowed.
+ */
 @Composable
 private fun PollView(m: TdApi.Message, p: TdApi.Poll, fg: Color, modifier: Modifier) {
-    val voted = p.options.any { it.isChosen } || p.isClosed
-    Column(modifier.widthIn(min = 240.dp)) {
-        Text(p.question.text, style = MaterialTheme.typography.titleSmall)
-        Text((if (p.isAnonymous) "Анонимный опрос" else "Опрос") + " · " + Texts.plural(p.totalVoterCount, "голос", "голоса", "голосов"),
-            style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.75f))
+    val cs = MaterialTheme.colorScheme
+    val quiz = p.type as? TdApi.PollTypeQuiz
+    val voted = p.options.any { it.isChosen }
+    val showResults = voted || p.isClosed
+    val multi = p.allowsMultipleAnswers && quiz == null
+    val pending = remember(m.id) { mutableStateListOf<Int>() }
+    Column(modifier.widthIn(min = 250.dp)) {
+        Text(p.question.text, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            listOf(if (quiz != null) "Викторина" else if (p.isAnonymous) "Анонимный опрос" else "Опрос", if (multi) "несколько ответов" else null, if (p.isClosed) "завершён" else null)
+                .filterNotNull().joinToString(" · "),
+            style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.72f),
+        )
+        Spacer(Modifier.height(6.dp))
         p.options.forEachIndexed { i, o ->
-            Column(
-                Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp))
-                    .clickable(enabled = !voted) { Td.send(TdApi.SetPollAnswer(m.chatId, m.id, intArrayOf(i))) }
-                    .padding(vertical = 4.dp),
+            val correct = quiz?.correctOptionIds?.contains(i) == true
+            val tone = when {
+                showResults && quiz != null && correct -> Color(0xFF2E7D32)
+                showResults && quiz != null && o.isChosen && !correct -> cs.error
+                else -> fg
+            }
+            val frac by animateFloatAsState(if (showResults) o.votePercentage / 100f else 0f, androidx.compose.animation.core.spring(0.7f, 220f), label = "pb")
+            val checked = o.isChosen || i in pending
+            val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val sc by animateFloatAsState(if (pressed) 0.97f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "ps")
+            Box(
+                Modifier.padding(top = 5.dp).fillMaxWidth().heightIn(min = 44.dp)
+                    .graphicsLayer { scaleX = sc; scaleY = sc; shape = RoundedCornerShape(if (checked) 14.dp else 22.dp); clip = true }
+                    .background(tone.copy(alpha = 0.10f))
+                    .drawBehind { if (frac > 0f) drawRect(tone.copy(alpha = if (o.isChosen || correct) 0.28f else 0.16f), size = size.copy(width = size.width * frac)) }
+                    .clickable(interactionSource = interaction, indication = null, enabled = !showResults) {
+                        if (multi) { if (i in pending) pending.remove(i) else pending.add(i) }
+                        else Td.send(TdApi.SetPollAnswer(m.chatId, m.id, intArrayOf(i)))
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Row {
-                    Text((if (o.isChosen) "✓ " else "") + o.text.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    if (voted) Text("${o.votePercentage}%", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // radio / check that morphs into a filled mark
+                    val markR by androidx.compose.animation.core.animateDpAsState(if (multi) 6.dp else 11.dp, label = "mr")
+                    Box(
+                        Modifier.size(22.dp).clip(RoundedCornerShape(markR))
+                            .background(if (checked) tone else Color.Transparent)
+                            .border(2.dp, tone.copy(alpha = if (checked) 1f else 0.6f), RoundedCornerShape(markR)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(checked, enter = androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.45f, 600f)), exit = androidx.compose.animation.scaleOut()) {
+                            Icon(if (quiz != null && showResults && !correct) Icons.Filled.Close else Icons.Filled.Check, null, Modifier.size(15.dp), tint = if (tone == fg) cs.surface else Color.White)
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(o.text.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    if (showResults) {
+                        Spacer(Modifier.width(8.dp))
+                        androidx.compose.animation.AnimatedContent(o.votePercentage, transitionSpec = {
+                            (androidx.compose.animation.slideInVertically(Springs.fastSpatial()) { it } + androidx.compose.animation.fadeIn()).togetherWith(androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
+                        }, label = "pp") { v -> Text("$v%", style = MaterialTheme.typography.labelLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+                    }
                 }
-                if (voted) LinearProgressIndicator(progress = { o.votePercentage / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), color = fg, trackColor = fg.copy(alpha = 0.15f))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(Texts.plural(p.totalVoterCount, "голос", "голоса", "голосов"), style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.72f), modifier = Modifier.weight(1f))
+            when {
+                multi && !showResults && pending.isNotEmpty() -> QTextButton(onClick = { Td.send(TdApi.SetPollAnswer(m.chatId, m.id, pending.toIntArray())); pending.clear() }) {
+                    Text("Голосовать", color = fg, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+                voted && !p.isClosed && quiz == null -> QTextButton(onClick = { Td.send(TdApi.SetPollAnswer(m.chatId, m.id, IntArray(0))) }) {
+                    Text("Отменить голос", color = fg)
+                }
+            }
+        }
+        if (quiz != null && showResults && quiz.explanation.text.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(fg.copy(alpha = 0.08f)).padding(10.dp)) {
+                Text("💡 " + quiz.explanation.text, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
