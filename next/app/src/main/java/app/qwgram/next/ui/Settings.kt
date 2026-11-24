@@ -156,11 +156,11 @@ fun SettingsHome(pad: PaddingValues) {
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize()) {
         FadeHeader("Настройки", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, onBack = null) {
-            HeaderIcon(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
+            SearchButton()
         }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - 12.dp, bottom = pad.calculateBottomPadding() + 32.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item { ProfileCard(me) }

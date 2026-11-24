@@ -136,6 +136,7 @@ object Prefs {
     val floatingBars = B("floating_bars", true)
     val hideKbOnScroll = B("hide_kb_scroll", true)        // scrolling a chat hides the keyboard
     val forwardNoAuthor = B("forward_no_author", false)   // forward as a copy by default
+    val fabAction = S("fab_action", "compose")            // compose (menu: message/group/channel) | search
     val centerTitle = B("center_title", false)            // centred titles in every header
     val emojiStyle = S("emoji_style", "twemoji")          // twemoji | noto (bundled Google emoji) | system
     val pressMorph = S("press_morph", "normal")          // off | soft | normal | strong

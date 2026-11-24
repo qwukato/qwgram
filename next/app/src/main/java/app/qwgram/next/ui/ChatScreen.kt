@@ -540,7 +540,7 @@ fun ChatScreen(chatId: Long) {
             // ---- top: bars over a fade (content scrolls underneath, like Telegram)
             Column(
                 Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(0f to fade, 0.7f to fade.copy(alpha = 0.8f), 1f to fade.copy(alpha = 0f)))
+                    .topFade(fade)
                     .onSizeChanged { topH = with(density) { it.height.toDp() } },
             ) {
             AnimatedContent(
@@ -588,7 +588,7 @@ fun ChatScreen(chatId: Long) {
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
                     // no side padding: selection highlights span the whole width; rows pad their own content
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - 12.dp).coerceAtLeast(8.dp), bottom = (bottomH - 10.dp).coerceAtLeast(8.dp)),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - headerOverlap()).coerceAtLeast(8.dp), bottom = (bottomH - if (Prefs.floatingBars.value) 10.dp else 0.dp).coerceAtLeast(8.dp)),
                 ) {
                     items(entries, key = { it.key }, contentType = { it::class }) { e ->
                         when (e) {
@@ -628,8 +628,11 @@ fun ChatScreen(chatId: Long) {
                         Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) }
                     }
                 }
-                // "@" and "♥" jump to the next unread mention / reaction (Telegram)
-                Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = bottomH + 64.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 || ctl.hasNewer } }
+                // "@" and "♥" jump to the next unread mention / reaction (Telegram). They sit at the bottom and
+                // float up on a spring when the "scroll down" button appears under them
+                val lift by androidx.compose.animation.core.animateDpAsState(if (showDown) 60.dp else 0.dp, androidx.compose.animation.core.spring(0.62f, 420f), label = "lift")
+                Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = bottomH + 4.dp + lift), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     listOf(
                         Triple(chat.unreadMentionCount, "@", TdApi.SearchMessagesFilterUnreadMention() as TdApi.SearchMessagesFilter),
                         Triple(chat.unreadReactionCount, "❤", TdApi.SearchMessagesFilterUnreadReaction()),
@@ -655,7 +658,6 @@ fun ChatScreen(chatId: Long) {
                         }
                     }
                 }
-                val showDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 || ctl.hasNewer } }
                 androidx.compose.animation.AnimatedVisibility(
                     showDown, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = bottomH + 4.dp),
                     enter = scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects()), exit = scaleOut(Springs.exit()) + fadeOut(Springs.exit()),
@@ -916,7 +918,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
             HeaderIcon(Icons.Outlined.Search, "Поиск в чате", onSearch)
             Box {
                 HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
+                QMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val muted = TdStore.isMuted(chat)
                     DropdownMenuItem(
                         text = { Text(if (muted) "Включить звук" else "Без звука") },

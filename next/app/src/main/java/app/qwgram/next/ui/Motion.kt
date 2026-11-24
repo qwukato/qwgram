@@ -45,6 +45,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import app.qwgram.next.Prefs
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,6 +71,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.isSpecified
 import kotlinx.coroutines.launch
 
 /**
@@ -96,7 +102,7 @@ object Springs {
 }
 
 /** Drives the press morph: the container's corner radius rest → pressed (smooth), back on a soft spring. */
-class PressMorph(val radius: Animatable<Dp, *>, val scale: Animatable<Float, *>)
+class PressMorph(val radius: Animatable<Dp, *>, val scale: Animatable<Float, *>, val press: Animatable<Float, *>)
 
 /** how strongly buttons morph when pressed (Appearance → Animations) */
 fun pressFactor(): Float = when (Prefs.pressMorph.value) { "off" -> 0f; "soft" -> 0.5f; "strong" -> 1.35f; else -> 1f }
@@ -105,6 +111,7 @@ fun pressFactor(): Float = when (Prefs.pressMorph.value) { "off" -> 0f; "soft" -
 fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed: Dp, squish: Float = 0.97f): PressMorph {
     val radius = remember { Animatable(rest, Dp.VectorConverter) }
     val scale = remember { Animatable(1f) }
+    val press = remember { Animatable(0f) }
     val f = pressFactor()
     val target = (rest + (pressed - rest) * f).coerceAtLeast(0.dp)
     val sq = 1f - (1f - squish) * f
@@ -115,15 +122,17 @@ fun rememberPressMorph(interaction: MutableInteractionSource, rest: Dp, pressed:
                 is PressInteraction.Press -> {
                     launch { radius.animateTo(target, Springs.pressIn()) }
                     launch { scale.animateTo(sq, Springs.pressIn()) }
+                    launch { press.animateTo(1f, androidx.compose.animation.core.tween(90)) }
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
                     launch { radius.animateTo(rest, Springs.morphRelease()) }
                     launch { scale.animateTo(1f, Springs.morphRelease()) }
+                    launch { press.animateTo(0f, androidx.compose.animation.core.tween(260)) }
                 }
             }
         }
     }
-    return PressMorph(radius, scale)
+    return PressMorph(radius, scale, press)
 }
 
 /**
@@ -159,10 +168,15 @@ fun MorphBox(
             .drawBehind {
                 val s = m.scale.value
                 val r = m.radius.value.toPx().coerceIn(0f, size.minDimension / 2f)
-                scale(s) { drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)) }
+                scale(s) {
+                    drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+                    // the press state layer lives inside the (squeezed) container, never outside it
+                    val pa = m.press.value
+                    if (pa > 0.001f) drawRoundRect(contentColor.copy(alpha = 0.12f * pa), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+                }
             }
             .combinedClickable(
-                interactionSource = interaction, indication = ripple(), enabled = enabled,
+                interactionSource = interaction, indication = null, enabled = enabled,
                 onClick = onClick, onLongClick = onLongClick,
             ),
         contentAlignment = contentAlignment,
@@ -221,6 +235,82 @@ fun MorphIconButton(
         modifier = modifier.size(size), rest = size / 2, pressed = size / 4,
         color = color, contentColor = tint, squish = 0.92f, elevation = elevation,
     ) { Icon(icon, desc, Modifier.size(24.dp)) }
+}
+
+/**
+ * M3 Expressive popup menu that grows out of its button: springs from a small rounded blob at the anchor's corner
+ * into the full menu (scale + corner morph), items fade in a beat later; shrinks back into the button on close.
+ * Drop-in for DropdownMenu (same children: DropdownMenuItem …).
+ */
+@Composable
+fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val state = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    state.targetState = expanded
+    if (!state.currentState && !state.targetState && state.isIdle) return
+    val cs = MaterialTheme.colorScheme
+    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+    val off = Prefs.motion.value == "off"
+    androidx.compose.ui.window.Popup(
+        alignment = Alignment.TopEnd,
+        onDismissRequest = onDismissRequest,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+    ) {
+        val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
+        val p by t.animateFloat(
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.68f, 420f * k) else androidx.compose.animation.core.spring(1f, 900f * k) },
+            label = "p",
+        ) { if (it) 1f else 0f }
+        Column(
+            modifier.padding(4.dp).widthIn(min = 200.dp, max = 300.dp)
+                .graphicsLayer {
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                    val sc = 0.25f + 0.75f * p
+                    scaleX = sc; scaleY = (0.1f + 0.9f * p).coerceAtLeast(0.05f)
+                    alpha = (p * 3f).coerceIn(0f, 1f)
+                    shape = RoundedCornerShape((28.dp - 12.dp * p.coerceIn(0f, 1f)).rs().coerceAtLeast(0.dp))
+                    clip = true
+                    shadowElevation = 6.dp.toPx() * p.coerceIn(0f, 1f)
+                }
+                .background(cs.surfaceContainer)
+                .padding(vertical = 6.dp)
+                .graphicsLayer { alpha = ((p - 0.35f) / 0.65f).coerceIn(0f, 1f) },
+        ) {
+            CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
+        }
+    }
+}
+
+/** where the search bar grows from: bounds (in root) of the button that opened search */
+object SearchMorph {
+    var origin: androidx.compose.ui.geometry.Rect? = null
+    fun open(from: androidx.compose.ui.geometry.Rect?) { origin = from; Nav.push(Route.Search) }
+}
+
+/** search icon button that remembers its bounds, so the search bar grows out of it (springy container transform) */
+@Composable
+fun SearchButton(modifier: Modifier = Modifier, floating: Boolean = Prefs.floatingBars.value) {
+    var rect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val cs = MaterialTheme.colorScheme
+    val m = modifier.onGloballyPositioned { rect = it.boundsInRoot() }
+    if (floating) MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp)
+    else MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m)
+}
+
+/** text that shrinks to fit instead of being cut or broken mid-word (labels in tiles and segmented buttons) */
+@Composable
+fun FitText(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = LocalContentColor.current,
+    maxLines: Int = 1,
+    minSize: androidx.compose.ui.unit.TextUnit = 9.sp,
+    textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Center,
+) {
+    androidx.compose.foundation.text.BasicText(
+        text, modifier, style = style.copy(color = color, textAlign = textAlign), maxLines = maxLines,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = minSize, maxFontSize = style.fontSize.takeIf { it.isSpecified } ?: 14.sp, stepSize = 0.5.sp),
+    )
 }
 
 /** global corner radius (Appearance → Shapes): every container radius goes through this */
@@ -336,7 +426,7 @@ fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) {
                 if (b.icon != null) Icon(b.icon, b.desc ?: b.label, Modifier.size(22.dp), tint = fg)
                 if (b.label != null) {
                     Spacer(Modifier.height(4.dp))
-                    Text(b.label, style = MaterialTheme.typography.labelMedium, color = if (b.selected) cs.onPrimary else cs.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    FitText(b.label, MaterialTheme.typography.labelMedium, color = if (b.selected) cs.onPrimary else cs.onSurface)
                 }
             }
         }

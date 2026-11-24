@@ -133,7 +133,13 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                         .graphicsLayer {
                             val w = size.width
                             val mode = Prefs.screenAnim.value
-                            if (isTop) {
+                            // search animates itself (the button grows into the search bar): no slide/fade from the stack
+                            val selfMorph = top.route is Route.Search && !top.dragged
+                            if (isTop && selfMorph) {
+                                alpha = if (e.closing) (1f - e.shown * 1.6f).coerceIn(0f, 1f) else 1f
+                            } else if (!isTop && selfMorph) {
+                                // the screen underneath stays put
+                            } else if (isTop) {
                                 val o = e.shown
                                 val moving = o > 0.0005f && entries.size > 1
                                 val faded = mode != "slide" && !e.closing && !e.dragged
@@ -159,7 +165,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                                 }
                             }
                         }
-                        .then(if (wpAll) Modifier else Modifier.background(surface))
+                        .then(if (wpAll || e.route is Route.Search) Modifier else Modifier.background(surface))
                         .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
                     if (wpAll) AppWallpaper()

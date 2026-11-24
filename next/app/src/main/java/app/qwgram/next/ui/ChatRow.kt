@@ -231,7 +231,7 @@ fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 4.dp)) {
                         Icon(a.icon, null)
                         Spacer(Modifier.height(6.dp))
-                        Text(a.title, style = MaterialTheme.typography.labelMedium, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        FitText(a.title, MaterialTheme.typography.labelLarge)
                     }
                 }
             }

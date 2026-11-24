@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -66,6 +67,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Check
+
+/** how much a list may slide under its header: only floating (faded) headers overlap, square ones never do */
+fun headerOverlap(): androidx.compose.ui.unit.Dp = if (Prefs.floatingBars.value) 12.dp else 0.dp
+
+/** opaque header that turns transparent only in its last [fade] (content never shows through the title area) */
+fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, fade: androidx.compose.ui.unit.Dp = 22.dp): Modifier = drawBehind {
+    val f = (fade.toPx() / size.height).coerceIn(0.05f, 0.6f)
+    drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to color, (1f - f) to color, 1f to color.copy(alpha = 0f)))
+}
 
 /** header action: a floating round button with its own container and press morph, or a plain icon in classic mode */
 @Composable
@@ -95,7 +105,7 @@ fun FadeHeader(
     Box(
         modifier.fillMaxWidth()
             .then(
-                if (floating) Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.62f to cs.surface.copy(alpha = 0.92f), 1f to cs.surface.copy(alpha = 0f)))
+                if (floating) Modifier.topFade(cs.surface)
                 else Modifier.background(cs.surfaceContainer),
             )
             .statusBarsPadding().padding(bottom = if (floating) 18.dp else 0.dp),
@@ -165,7 +175,7 @@ fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: L
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - 12.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) { content() }
         FadeHeader(title, Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, actions = { actions() })

@@ -130,6 +130,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.runtime.DisposableEffect
 import org.drinkless.tdlib.TdApi
 
 enum class HomeTab { Chats, Contacts, Settings }
@@ -167,13 +171,17 @@ fun HomeScreen() {
         )
         val contacts = HomeState.tab == HomeTab.Contacts
         // one FAB for every tab (same size, only the icon changes), so nothing jumps when switching
+        val searchFab = Prefs.fabAction.value == "search" && !contacts
+        var fabRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
         val fabButton: @Composable () -> Unit = {
-            FabMenu(
-                if (contacts) false else fabOpen,
-                { if (contacts) addContact = true else fabOpen = it },
-                if (contacts) Icons.Outlined.PersonAdd else Icons.Outlined.Edit,
-                emptyList(),
-            )
+            Box(Modifier.onGloballyPositioned { fabRect = it.boundsInRoot() }) {
+                FabMenu(
+                    if (contacts || searchFab) false else fabOpen,
+                    { when { contacts -> addContact = true; searchFab -> SearchMorph.open(fabRect); else -> fabOpen = it } },
+                    when { contacts -> Icons.Outlined.PersonAdd; searchFab -> Icons.Outlined.Search; else -> Icons.Outlined.Edit },
+                    emptyList(),
+                )
+            }
         }
         val fab: @Composable () -> Unit = {
             androidx.compose.animation.AnimatedVisibility(
@@ -200,9 +208,16 @@ fun HomeScreen() {
                 AnimatedContent(
                     targetState = HomeState.tab,
                     transitionSpec = {
-                        // M3 fade-through between top-level destinations
-                        (fadeIn(Springs.smooth()) + androidx.compose.animation.scaleIn(Springs.smooth(), initialScale = 0.96f))
-                            .togetherWith(fadeOut(Springs.exit()))
+                        // M3 shared axis X between top-level destinations: a short slide in the tab's direction,
+                        // the old screen fades out quickly, the new one fades in a beat later on a soft spring
+                        val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                        val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+                        (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.spring(0.86f, 420f * k)) { dir * it / 8 } +
+                            fadeIn(androidx.compose.animation.core.tween(220, delayMillis = 70)))
+                            .togetherWith(
+                                androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.spring(1f, 600f * k)) { -dir * it / 10 } +
+                                    fadeOut(androidx.compose.animation.core.tween(90)),
+                            )
                     },
                     label = "tabs",
                 ) { t ->
@@ -279,9 +294,12 @@ private fun FloatingNavPill() {
         if (Prefs.showContactsTab.value) add(Triple(HomeTab.Contacts, "Контакты", Icons.Filled.Person to Icons.Outlined.Person))
         add(Triple(HomeTab.Settings, "Настройки", Icons.Filled.Settings to Icons.Outlined.Settings))
     }
-    val labels = Prefs.navLabels.value
     val cs = MaterialTheme.colorScheme
-    Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
+    // room left for the selected item's label: the pill never grows past the space beside the FAB
+    androidx.compose.foundation.layout.BoxWithConstraints {
+    val labelMax = maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 8.dp
+    val labels = Prefs.navLabels.value && labelMax >= 48.dp
+    Surface(shape = RoundedCornerShape(32.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
         Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             tabs.forEach { (t, title, icons) ->
                 val sel = HomeState.tab == t
@@ -301,13 +319,14 @@ private fun FloatingNavPill() {
                         ) {
                             Row {
                                 Spacer(Modifier.width(8.dp))
-                                Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                FitText(title, MaterialTheme.typography.labelLarge, Modifier.widthIn(max = labelMax), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
                             }
                         }
                     }
                 }
             }
         }
+    }
     }
 }
 
@@ -394,7 +413,11 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
         tabs.getOrNull(pager.currentPage)?.let { Td.send(TdApi.LoadChats(it.list, 100)) }
     }
 
+    var cascadeGen by remember { mutableIntStateOf(0) }
+    var cascadePage by remember { mutableIntStateOf(-1) }
     val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || pager.currentPage == 0)
+    SideEffect { drawer.canOpen = canOpenDrawer }
+    DisposableEffect(Unit) { onDispose { drawer.canOpen = false } }
     val exDensity = androidx.compose.ui.platform.LocalDensity.current
     val exW = with(exDensity) { 40.dp.toPx() }
     val exH = with(exDensity) { 200.dp.toPx() }
@@ -403,8 +426,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     var headerH by remember { mutableStateOf(120.dp) }
     Box(
         Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
-            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = false, drawer = drawer)
-            .then(if (canOpenDrawer) Modifier.systemGestureExclusion { c -> androidx.compose.ui.geometry.Rect(0f, c.size.height * 0.3f, exW, c.size.height * 0.3f + exH) } else Modifier),
+            .then(if (canOpenDrawer) Modifier.systemGestureExclusion { c -> androidx.compose.ui.geometry.Rect(0f, c.size.height * 0.42f, exW, c.size.height * 0.42f + exH) } else Modifier),
     ) {
         // the list scrolls under the header (floating: over a fade; classic: under a solid bar)
         HorizontalPager(
@@ -415,13 +437,13 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             beyondViewportPageCount = 1,
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
-            ChatList(tab.list, PaddingValues(top = headerH - if (floating) 14.dp else 0.dp, bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, onLong = { actionChat = it })
+            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, cascade = if (page == cascadePage) cascadeGen else 0, onLong = { actionChat = it })
         }
         val cs = MaterialTheme.colorScheme
         Column(
             Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
                 .then(
-                    if (floating) Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface, 0.7f to cs.surface.copy(alpha = 0.9f), 1f to cs.surface.copy(alpha = 0f)))
+                    if (floating) Modifier.topFade(cs.surface)
                     else Modifier.background(cs.surfaceContainer),
                 ),
         ) {
@@ -433,10 +455,16 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
                     Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) {
                         ConnectionTitle(tabs.getOrNull(pager.currentPage)?.title)
                     }
-                    HeaderIcon(Icons.Outlined.Search, "Поиск", { Nav.push(Route.Search) })
+                    SearchButton()
                 }
             }
-            if (tabs.size > 1) FolderBar(tabs, pager.currentPage) { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = MaterialTheme_springPager()) } }
+            if (tabs.size > 1) FolderBar(tabs, pager.currentPage) { i ->
+                // tap on a folder: the list switches in place and its rows cascade in on a spring (M3 expressive)
+                scope.launch {
+                    if (Prefs.motion.value == "off" || kotlin.math.abs(i - pager.currentPage) == 0) pager.animateScrollToPage(i, animationSpec = MaterialTheme_springPager())
+                    else { cascadePage = i; cascadeGen++; pager.scrollToPage(i) }
+                }
+            }
             if (floating) Spacer(Modifier.height(14.dp))
         }
     }
@@ -447,34 +475,34 @@ private fun MaterialTheme_springPager() = androidx.compose.animation.core.spring
 
 @Composable
 private fun SearchBarHeader(openDrawer: () -> Unit) {
+    // M3 Expressive top bar: menu, the big "qwgram" title (or the connection state), search that grows into the
+    // search bar, and your avatar; on the fade in floating mode, on a solid bar in classic mode
     val me = TdStore.me
     val cs = MaterialTheme.colorScheme
     val conn = TdStore.connection
     val connecting = conn !is TdApi.ConnectionStateReady
-    Box(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        // M3 search bar: full pill, leading menu, trailing account avatar; shows connection state in place of the hint
-        MorphBox(
-            onClick = { Nav.push(Route.Search) }, rest = 28.dp, pressed = 16.dp, squish = 0.985f,
-            color = cs.surfaceContainerHigh, elevation = 1.dp, contentAlignment = Alignment.CenterStart,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
-                if (Prefs.drawer.value) MorphIconButton(Icons.Outlined.Menu, "Меню", openDrawer) else { Spacer(Modifier.width(12.dp)); Icon(Icons.Outlined.Search, null, tint = cs.onSurfaceVariant); Spacer(Modifier.width(12.dp)) }
-                AnimatedContent(connecting, transitionSpec = { (fadeIn(Springs.effects()) + androidx.compose.animation.slideInVertically(Springs.smooth()) { it / 2 }).togetherWith(fadeOut(Springs.exit())) }, label = "sb", modifier = Modifier.weight(1f)) { c ->
-                    if (c) Row(verticalAlignment = Alignment.CenterVertically) {
-                        LoadingIndicator(Modifier.size(26.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (conn is TdApi.ConnectionStateWaitingForNetwork) "Ожидание сети…" else if (conn is TdApi.ConnectionStateUpdating) "Обновление…" else "Соединение…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
-                    } else Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("qwgram", style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), color = cs.primary, maxLines = 1)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Поиск", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant, maxLines = 1)
-                    }
-                }
-                UserAvatar(me, 34.dp, Modifier.clip(CircleShape).clickable { HomeState.tab = HomeTab.Settings })
-                Spacer(Modifier.width(10.dp))
+    Row(
+        Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).fillMaxWidth().height(68.dp).padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (Prefs.drawer.value) HeaderIcon(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) {
+            AnimatedContent(connecting, transitionSpec = { (fadeIn(Springs.effects()) + androidx.compose.animation.slideInVertically(Springs.smooth()) { it / 2 }).togetherWith(fadeOut(Springs.exit()) + androidx.compose.animation.slideOutVertically(Springs.exit()) { -it / 2 }) }, label = "sb") { c ->
+                if (c) Row(verticalAlignment = Alignment.CenterVertically) {
+                    LoadingIndicator(Modifier.size(28.dp))
+                    Spacer(Modifier.width(8.dp))
+                    FitText(if (conn is TdApi.ConnectionStateWaitingForNetwork) "Ожидание сети…" else if (conn is TdApi.ConnectionStateUpdating) "Обновление…" else "Соединение…", MaterialTheme.typography.titleLarge, color = cs.onSurface, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                } else Text(
+                    "qwgram", maxLines = 1,
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+                    color = cs.primary,
+                )
             }
         }
+        SearchButton()
+        Spacer(Modifier.width(4.dp))
+        UserAvatar(me, 40.dp, Modifier.clip(CircleShape).clickable { HomeState.tab = HomeTab.Settings })
+        Spacer(Modifier.width(6.dp))
     }
 }
 
@@ -594,7 +622,7 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 }
 
 @Composable
-fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onLong: (TdApi.Chat) -> Unit) {
+fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
     val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
     val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
@@ -661,10 +689,10 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, onL
                 }
             }
         }
-        items(chats, key = { it.id }, contentType = { 0 }) { c0 ->
+        itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.cascadeIn(idx, cascade).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
                 ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
             }
         }
@@ -699,7 +727,7 @@ private fun ArchiveRow(archived: List<TdApi.Chat>, hidden: Boolean, onToggleHidd
             }
             if (unread > 0) CountBadge(unread, muted = true)
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
+        QMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
                 text = { Text(if (hidden) "Закрепить в списке" else "Скрыть архив") },
                 leadingIcon = { Icon(if (hidden) Icons.Outlined.PushPin else Icons.Outlined.VisibilityOff, null) },
@@ -815,6 +843,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
 /** state of the push drawer: 0 = closed, 1 = open; driven by fingers or springs */
 class DrawerControl(val progress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, val scope: kotlinx.coroutines.CoroutineScope) {
     var widthPx = 1f
+    /** set by the chat list: the menu may be pulled out right now */
+    var canOpen = false
     /** finger-driven value (-1 = not dragging): written synchronously, so the drawer sticks to the finger */
     var dragV by androidx.compose.runtime.mutableFloatStateOf(-1f)
     val value: Float get() = if (dragV >= 0f) dragV else progress.value
@@ -861,7 +891,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
     val cs = MaterialTheme.colorScheme
     val open by remember { derivedStateOf { drawer.value > 0.001f } }
     androidx.activity.compose.BackHandler(enabled = open) { drawer.close() }
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(cs.surfaceContainerLow)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(cs.surfaceContainerLow).drawerGestures(drawer)) {
         val w = minOf(maxWidth * 0.8f, 320.dp)
         val corner = screenCornerRadius()
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -872,34 +902,6 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                 translationX = -(1f - p) * drawer.widthPx * 0.35f
                 alpha = 0.3f + 0.7f * p
             }
-                // swipe left on the menu itself closes it (vertical scrolling inside still works)
-                .pointerInput(Unit) {
-                    val slop = viewConfiguration.touchSlop
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
-                        tracker.addPosition(down.uptimeMillis, down.position)
-                        var dx = 0f
-                        var dy = 0f
-                        var dragging = false
-                        while (true) {
-                            val ev = awaitPointerEvent(PointerEventPass.Initial)
-                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!ch.pressed) break
-                            tracker.addPosition(ch.uptimeMillis, ch.position)
-                            val d = ch.positionChange()
-                            if (!dragging) {
-                                dx += d.x; dy += d.y
-                                if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
-                                if (dx > slop) return@awaitEachGesture
-                                if (dx < -slop * 0.6f && -dx > kotlin.math.abs(dy)) dragging = true else continue
-                            }
-                            ch.consume()
-                            drawer.drag(d.x)
-                        }
-                        if (dragging) drawer.settle(tracker.calculateVelocity().x)
-                    }
-                },
         ) { if (open) androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) { drawerContent() } }
         Box(
             Modifier.fillMaxSize().graphicsLayer {
@@ -919,62 +921,68 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                 Modifier.matchParentSize()
                     .graphicsLayer { alpha = drawer.value }
                     .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.10f))
-                    .pointerInput(Unit) {
-                        val slop = viewConfiguration.touchSlop
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            down.consume()
-                            val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
-                            tracker.addPosition(down.uptimeMillis, down.position)
-                            var moved = 0f
-                            while (true) {
-                                val ev = awaitPointerEvent()
-                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!ch.pressed) break
-                                tracker.addPosition(ch.uptimeMillis, ch.position)
-                                val dx = ch.positionChange().x
-                                moved += kotlin.math.abs(dx)
-                                ch.consume()
-                                if (moved > slop) drawer.drag(dx * (1f / (1f - 0.07f * drawer.value)))
-                            }
-                            if (moved <= slop) drawer.close() else drawer.settle(tracker.calculateVelocity().x)
-                        }
-                    },
+                    .pointerInput(Unit) { awaitEachGesture { awaitFirstDown().consume(); do { val e = awaitPointerEvent(); e.changes.forEach { it.consume() } } while (e.changes.any { it.pressed }) } },
             )
         }
     }
 }
 
-/**
- * Swipe right over the chat list pulls the side menu out with the finger (Telegram behaviour): on the first folder
- * from anywhere, or only from the left edge when list rows use swipe actions. Vertical scrolls and left swipes are untouched.
- */
-private fun Modifier.drawerSwipe(enabled: Boolean, edgeOnly: Boolean, drawer: DrawerControl): Modifier =
-    if (!enabled) this else pointerInput(edgeOnly) {
-        val slop = viewConfiguration.touchSlop
-        val edge = 48.dp.toPx()
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            if (edgeOnly && down.position.x > edge) return@awaitEachGesture
-            val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
-            tracker.addPosition(down.uptimeMillis, down.position)
-            var dx = 0f
-            var dy = 0f
-            var dragging = false
-            while (true) {
-                val ev = awaitPointerEvent(PointerEventPass.Initial)
-                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                if (!ch.pressed) break
-                tracker.addPosition(ch.uptimeMillis, ch.position)
-                val d = ch.positionChange()
-                if (!dragging) {
-                    dx += d.x; dy += d.y
-                    if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) return@awaitEachGesture
-                    if (dx < -slop) return@awaitEachGesture
-                    if (dx > slop * 0.4f && dx > kotlin.math.abs(dy) * 0.8f) { dragging = true; drawer.drag(dx) } else continue
-                } else drawer.drag(d.x)
-                ch.consume()
-            }
-            if (dragging) drawer.settle(tracker.calculateVelocity().x)
-        }
+/** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */
+@Composable
+private fun Modifier.cascadeIn(index: Int, gen: Int): Modifier {
+    if (gen == 0 || index > 12) return this
+    val v = remember(gen) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(gen) {
+        kotlinx.coroutines.delay(index * 26L)
+        v.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 360f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
     }
+    return graphicsLayer {
+        alpha = v.value.coerceIn(0f, 1f)
+        translationY = (1f - v.value) * 36.dp.toPx()
+        val sc = 0.96f + 0.04f * v.value
+        scaleX = sc; scaleY = sc
+    }
+}
+
+/**
+ * The side menu's gestures live on the root, which never moves: positions measured on the sliding content would
+ * shift with it and eat the drag (that's why the menu used to be almost impossible to pull out).
+ *  - closed + chat list allows it: a light swipe right anywhere pulls it out with the finger;
+ *  - open: a swipe left anywhere pushes it back, a tap on the app side closes it.
+ * Initial pass: decided before the list / pager / rows see the movement.
+ */
+private fun Modifier.drawerGestures(drawer: DrawerControl): Modifier = pointerInput(drawer) {
+    val slop = viewConfiguration.touchSlop
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val startOpen = drawer.value > 0.5f
+        if (!startOpen && (!drawer.canOpen || drawer.value > 0.01f)) return@awaitEachGesture
+        val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
+        tracker.addPosition(down.uptimeMillis, down.position)
+        var last = down.position
+        var dx = 0f
+        var dy = 0f
+        var dragging = false
+        var cancelled = false
+        while (true) {
+            val ev = awaitPointerEvent(PointerEventPass.Initial)
+            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+            if (!ch.pressed) break
+            tracker.addPosition(ch.uptimeMillis, ch.position)
+            val d = ch.position - last
+            last = ch.position
+            if (!dragging) {
+                dx += d.x; dy += d.y
+                if (kotlin.math.abs(dy) > slop * 1.2f && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) { cancelled = true; break }
+                val wrongWay = if (startOpen) dx > slop else dx < -slop
+                if (wrongWay) { cancelled = true; break }
+                val go = if (startOpen) -dx > slop * 0.35f else dx > slop * 0.35f
+                if (go && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 0.7f) { dragging = true; drawer.drag(dx) } else continue
+            } else drawer.drag(d.x)
+            ch.consume()
+        }
+        if (dragging) drawer.settle(tracker.calculateVelocity().x)
+        else if (!cancelled && startOpen && down.position.x > drawer.widthPx) drawer.close()   // tap on the app side
+    }
+}
+

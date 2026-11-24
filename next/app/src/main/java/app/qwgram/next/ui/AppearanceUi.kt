@@ -18,6 +18,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Animation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.animation.animateColorAsState
@@ -229,33 +234,56 @@ fun TypePreview() = PreviewCard("шрифт") {
 
 // ------------------------------------------------------------------ settings: tiles & pages
 
-/** two big expressive tiles: Appearance and qwgram features (icon in a shape + title, nothing else) */
+/**
+ * Two big tiles: Appearance and qwgram features. Pressing one: the tile settles in a little, its corners soften,
+ * and the icon's shape blooms into a circle while turning — then springs back. Same height, one-line titles.
+ */
 @Composable
 fun QuickTiles2() {
     val cs = MaterialTheme.colorScheme
-    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val iconBg: Color, val iconFg: Color, val page: String)
-    val tiles = listOf(
-        Tile("Оформление", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, cs.primary, cs.onPrimary, "appearance"),
-        Tile("Функции qwgram", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, cs.onTertiary, "features"),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        tiles.forEach { t ->
-            MorphBox(
-                onClick = { Nav.push(Route.Page(t.page)) }, rest = 32.dp, pressed = 18.dp, squish = 0.97f,
-                color = t.bg, contentColor = t.fg, contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f).heightIn(min = 128.dp),
-            ) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    // the icon shape slowly turns: a quiet expressive touch
-                    val turn = rememberInfiniteTransition(label = "t").animateFloat(0f, 360f, infiniteRepeatable(tween(24000, easing = LinearEasing)), label = "r")
-                    Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        Box(Modifier.matchParentSize().graphicsLayer { rotationZ = if (Prefs.motion.value == "off") 0f else turn.value }.clip(t.shape.asShape()).background(t.iconBg))
-                        Icon(t.icon, null, tint = t.iconFg, modifier = Modifier.size(26.dp))
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text(t.title, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+        BloomTile("Оформление", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, cs.primary, cs.onPrimary, Modifier.weight(1f)) { Nav.push(Route.Page("appearance")) }
+        BloomTile("Функции", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, cs.onTertiary, Modifier.weight(1f)) { Nav.push(Route.Page("features")) }
+    }
+}
+
+@Composable
+private fun BloomTile(
+    title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, shape: androidx.graphics.shapes.RoundedPolygon,
+    bg: Color, fg: Color, iconBg: Color, iconFg: Color, modifier: Modifier, onClick: () -> Unit,
+) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val f = pressFactor()
+    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+    val bouncy = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.5f, stiffness = 380f * k)
+    val p by androidx.compose.animation.core.animateFloatAsState(if (pressed) 1f else 0f, if (pressed) androidx.compose.animation.core.spring(0.8f, 900f * k) else bouncy, label = "bloom")
+    val morph = remember(shape) { androidx.graphics.shapes.Morph(shape, MaterialShapes.Circle) }
+    val radius = (32.dp + 12.dp * p * f).rs()
+    Box(
+        modifier.fillMaxHeight().heightIn(min = 120.dp)
+            .graphicsLayer {
+                val sc = 1f - 0.04f * p * f
+                scaleX = sc; scaleY = sc
+                this.shape = RoundedCornerShape(radius.coerceAtLeast(0.dp)); clip = true
             }
+            .background(bg)
+            .drawWithContent { drawContent(); if (p > 0.001f) drawRect(fg.copy(alpha = 0.08f * p)) }   // state layer, inside the tile
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.matchParentSize().graphicsLayer {
+                    rotationZ = 45f * p * f
+                    val sc = 1f + 0.08f * p * f
+                    scaleX = sc; scaleY = sc
+                }.clip(MorphShape(morph, (p * f).coerceIn(0f, 1f))).background(iconBg))
+                Icon(icon, null, tint = iconFg, modifier = Modifier.size(28.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            FitText(title, MaterialTheme.typography.titleMedium, color = fg)
         }
     }
 }
@@ -365,6 +393,9 @@ fun ChatStylePage2() = PageScaffold("Чат и сообщения") {
 @Composable
 fun NavPage2() = PageScaffold("Панели и кнопки") {
     item { NavPreview() }
+    group("Кнопка на панели", footer = "«Поиск» вырастает в строку поиска прямо из кнопки.") {
+        segmented("Действие", Prefs.fabAction, listOf("compose" to "Написать", "search" to "Поиск"))
+    }
     group("Нижняя панель") {
         segmented("Вид", Prefs.navStyle, listOf("floating" to "Плавающая", "standard" to "Обычная"))
         switch("Подписи", Prefs.navLabels)

@@ -99,6 +99,10 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.draw.drawBehind
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ profile
@@ -379,11 +383,33 @@ fun SearchScreen() {
     }
     val cs = MaterialTheme.colorScheme
     fun open(c: TdApi.Chat) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) }
-    Column(Modifier.fillMaxSize().background(cs.surface)) {
+    // container transform: the bar grows out of the button that opened search (springy), the rest fades in after
+    val origin = remember { SearchMorph.origin.also { SearchMorph.origin = null } }
+    val grow = remember { androidx.compose.animation.core.Animatable(if (origin == null || Prefs.motion.value == "off") 1f else 0f) }
+    LaunchedEffect(Unit) {
+        grow.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+    }
+    var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    Column(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawRect(cs.surface.copy(alpha = grow.value.coerceIn(0f, 1f))) }) {
         // floating search pill + filters
         Column(Modifier.statusBarsPadding().padding(top = 6.dp)) {
-            Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 2.dp, modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+            Surface(
+                shape = RoundedCornerShape(28.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 2.dp,
+                modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)
+                    .onGloballyPositioned { hostPos = it.positionInRoot() }
+                    .layout { m, c ->
+                        val fw = c.maxWidth; val fh = c.maxHeight.coerceAtMost(56.dp.roundToPx())
+                        val p = grow.value
+                        val o = origin
+                        if (o == null) { val pl = m.measure(c); return@layout layout(pl.width, pl.height) { pl.place(0, 0) } }
+                        fun lerp(a: Float, b: Float) = a + (b - a) * p
+                        val w = lerp(o.width, fw.toFloat()).toInt().coerceAtLeast(1)
+                        val h = lerp(o.height, fh.toFloat()).toInt().coerceAtLeast(1)
+                        val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                        layout(fw, fh) { pl.place(lerp(o.left - hostPos.x, 0f).toInt(), lerp(o.top - hostPos.y, 0f).toInt()) }
+                    },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp).graphicsLayer { alpha = ((grow.value - 0.35f) / 0.5f).coerceIn(0f, 1f) }) {
                     MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
                     BasicTextField(
                         value = q, onValueChange = { q = it }, singleLine = true,
@@ -398,7 +424,7 @@ fun SearchScreen() {
                     if (busy) LoadingIndicator(Modifier.size(36.dp).padding(end = 4.dp))
                 }
             }
-            androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.foundation.lazy.LazyRow(Modifier.graphicsLayer { alpha = ((grow.value - 0.5f) / 0.5f).coerceIn(0f, 1f); translationY = (1f - grow.value.coerceIn(0f, 1f)) * -24.dp.toPx() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(SearchFilter.entries.toList()) { f ->
                     androidx.compose.material3.FilterChip(
                         selected = filter == f, onClick = { filter = f }, label = { Text(f.title) },
@@ -408,7 +434,7 @@ fun SearchScreen() {
                 }
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = ((grow.value - 0.55f) / 0.45f).coerceIn(0f, 1f) }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (q.isBlank()) {
                 val recentChats = recent.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
                 val topChats = top.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
@@ -525,7 +551,7 @@ fun ArchiveScreen() {
     val density = androidx.compose.ui.platform.LocalDensity.current
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-        ChatList(TdApi.ChatListArchive(), PaddingValues(top = headerH - 12.dp), showArchive = false) { actionChat = it }
+        ChatList(TdApi.ChatListArchive(), PaddingValues(top = headerH - headerOverlap()), showArchive = false) { actionChat = it }
         FadeHeader("Архив", Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "Чаты без уведомлений о новых сообщениях")
     }
     actionChat?.let { ChatActionsSheet(it) { actionChat = null } }
@@ -546,7 +572,7 @@ fun ContactsTab(pad: PaddingValues) {
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize()) {
         FadeHeader("Контакты", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "${users.size} " + Texts.plural(users.size, "контакт", "контакта", "контактов"), onBack = null)
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = headerH - 12.dp, bottom = pad.calculateBottomPadding() + 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 24.dp)) {
             item {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(52.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
