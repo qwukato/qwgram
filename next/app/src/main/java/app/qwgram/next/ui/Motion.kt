@@ -277,7 +277,7 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.62f, 170f * k) else androidx.compose.animation.core.spring(0.85f, 260f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.66f, 115f * k) else androidx.compose.animation.core.spring(0.9f, 190f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
         val radiusEnd = 16.dp.rs()

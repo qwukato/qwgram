@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -339,7 +340,7 @@ private fun Bubble(
         modifier = gestures.widthIn(max = maxW),
     ) {
         val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
-        Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if (hasReactionsOuter && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
+        Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if ((hasReactionsOuter || m.replyTo is TdApi.MessageReplyToMessage) && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
             val pad = if (media) Modifier.padding(horizontal = 8.dp) else Modifier.padding(horizontal = 12.dp)
             if (showName && (grp == Grp.Single || grp == Grp.Top)) {
                 val id = TdStore.senderId(m.senderId)
@@ -350,7 +351,7 @@ private fun Bubble(
                 Text("Переслано от " + originName(fi.origin), style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = pad.padding(top = 6.dp))
             }
-            if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) ReplyQuote(reply, m, fg, pad.padding(top = 6.dp).clickable {
+            if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) ReplyQuote(reply, m, fg, pad.padding(top = 6.dp).then(if (!media) Modifier.fillMaxWidth() else Modifier).clickable {
                 (m.replyTo as? TdApi.MessageReplyToMessage)?.let { r -> if (r.chatId == m.chatId || r.chatId == 0L) onReplyClick(r.messageId) }
             })
             val cap = Texts.caption(c)
@@ -426,20 +427,24 @@ private fun originName(o: TdApi.MessageOrigin): String = when (o) {
 private fun ReplyQuote(reply: TdApi.Message?, m: TdApi.Message, fg: Color, modifier: Modifier) {
     val r = m.replyTo as? TdApi.MessageReplyToMessage
     val name = when {
-        reply != null -> if (reply.isOutgoing) "Вы" else TdStore.senderName(reply.senderId)
+        reply != null -> if (reply.isOutgoing && reply.chatId == m.chatId) "Вы" else TdStore.senderName(reply.senderId)
         r?.origin != null -> originName(r.origin!!)
+        r != null && r.chatId != 0L && r.chatId != m.chatId -> TdStore.chats[r.chatId]?.title ?: ""
         else -> ""
     }
     val text = when {
-        r?.quote != null -> r.quote!!.text.text
+        r?.quote != null && r.quote!!.text.text.isNotBlank() -> r.quote!!.text.text
         reply != null -> Texts.preview(reply)
-        r?.content != null -> "Сообщение"
-        else -> "Сообщение"
+        // a reply to another chat carries the replied content itself
+        r?.content != null -> Texts.preview(TdApi.Message().apply { content = r.content; chatId = r.chatId })
+        else -> "Загрузка…"
     }
-    Row(modifier.clip(RoundedCornerShape(8.dp)).background(fg.copy(alpha = 0.10f)).padding(end = 10.dp)) {
-        Box(Modifier.width(3.dp).height(40.dp).background(fg.copy(alpha = 0.85f)))
-        Column(Modifier.padding(start = 8.dp, top = 3.dp, bottom = 3.dp)) {
-            Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val accent = if (reply != null) nameColor(TdStore.senderId(reply.senderId)) else fg
+    // Telegram's reply block: an accent bar, the author in the accent colour, one line of the message
+    Row(modifier.clip(RoundedCornerShape(10.dp.rs())).background(accent.copy(alpha = 0.12f)).height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
+        Column(Modifier.padding(start = 8.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
+            if (name.isNotBlank()) Text(name, style = MaterialTheme.typography.labelLarge, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = fg.copy(alpha = 0.85f))
         }
     }

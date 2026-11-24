@@ -46,6 +46,13 @@ import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.Flip
 import androidx.compose.material.icons.outlined.RotateLeft
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.material.icons.outlined.FormatColorFill
+import androidx.compose.material.icons.outlined.FormatColorText
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -82,6 +89,44 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/** a text or emoji-sticker layer on the picture; position is in image proportions, size relative to the image width */
+class EditLayer(val text: String, val color: Color, val emoji: Boolean, val bg: Boolean = false) {
+    var x by mutableFloatStateOf(0.5f)
+    var y by mutableFloatStateOf(0.5f)
+    var scale by mutableFloatStateOf(1f)
+    var rot by mutableFloatStateOf(0f)
+    /** base glyph size, fraction of the image width */
+    val base get() = if (emoji) 0.16f else 0.075f
+}
+
+/** draws [layers] onto the full-size picture (same maths as the on-screen preview) */
+internal fun drawLayers(c: Canvas, layers: List<EditLayer>, w: Int, h: Int) {
+    layers.forEach { l ->
+        val p = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = l.base * l.scale * w
+            color = l.color.toArgb()
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            if (!l.emoji && !l.bg) setShadowLayer(textSize * 0.08f, 0f, textSize * 0.04f, 0x80000000.toInt())
+        }
+        c.save()
+        c.translate(l.x * w, l.y * h); c.rotate(l.rot)
+        val fm = p.fontMetrics
+        val lines = l.text.split('\n')
+        val lh = fm.descent - fm.ascent
+        val total = lh * lines.size
+        if (l.bg) {
+            val bw = lines.maxOf { p.measureText(it) } + p.textSize * 0.7f
+            val bp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = (if (l.color.luminanceApprox() > 0.6f) 0xFF000000 else 0xFFFFFFFF).toInt() }
+            c.drawRoundRect(-bw / 2, -total / 2 - p.textSize * 0.2f, bw / 2, total / 2 + p.textSize * 0.2f, p.textSize * 0.4f, p.textSize * 0.4f, bp)
+        }
+        lines.forEachIndexed { i, s -> c.drawText(s, 0f, -total / 2 + i * lh - fm.ascent, p) }
+        c.restore()
+    }
+}
+
+private fun Color.luminanceApprox() = 0.299f * red + 0.587f * green + 0.114f * blue
 
 /** open the editor for a picture; [onDone] gets the edited copy */
 object PhotoEditor {
@@ -131,7 +176,11 @@ fun PhotoEditorHost() {
     val scope = rememberCoroutineScope()
     var src by remember(req) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(req) { src = withContext(Dispatchers.IO) { loadBitmap(ctx, req.first) } }
-    var tool by remember(req) { mutableStateOf(0) }           // 0 crop, 1 adjust, 2 draw
+    var tool by remember(req) { mutableStateOf(0) }           // 0 crop, 1 adjust, 2 draw, 3 text, 4 stickers
+    val layers = remember(req) { mutableStateListOf<EditLayer>() }
+    var textDraft by remember(req) { mutableStateOf("") }
+    var textColor by remember(req) { mutableStateOf(Color.White) }
+    var textBg by remember(req) { mutableStateOf(false) }
     var crop by remember(req) { mutableStateOf(Rect(0f, 0f, 1f, 1f)) }
     var aspect by remember(req) { mutableStateOf(0f) }         // 0 = free
     var bright by remember(req) { mutableFloatStateOf(0f) }
@@ -175,6 +224,7 @@ fun PhotoEditorHost() {
                         l.points.forEachIndexed { i, pt -> if (i == 0) path.moveTo(pt.x * b.width, pt.y * b.height) else path.lineTo(pt.x * b.width, pt.y * b.height) }
                         c.drawPath(path, p)
                     }
+                    drawLayers(c, layers, b.width, b.height)
                     val x = (crop.left * b.width).toInt().coerceIn(0, b.width - 1)
                     val y = (crop.top * b.height).toInt().coerceIn(0, b.height - 1)
                     val w = (crop.width * b.width).toInt().coerceIn(1, b.width - x)
@@ -201,6 +251,7 @@ fun PhotoEditorHost() {
             MorphIconButton(Icons.Outlined.Close, "Отмена", { close() }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
             Spacer(Modifier.weight(1f))
             if (tool == 2 && lines.isNotEmpty()) MorphIconButton(Icons.AutoMirrored.Outlined.Undo, "Отменить", { lines.removeAt(lines.lastIndex) }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
+            if (tool >= 3 && layers.isNotEmpty()) MorphIconButton(Icons.AutoMirrored.Outlined.Undo, "Убрать последний", { layers.removeAt(layers.lastIndex) }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
             Spacer(Modifier.width(6.dp))
             MorphBox(onClick = { if (!saving) render() }, rest = 24.dp, pressed = 12.dp, color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(48.dp)) {
                 Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -254,6 +305,41 @@ fun PhotoEditorHost() {
                     }
                 }
             }
+            // text / sticker layers: drag to move, pinch to scale and rotate (any tool except crop and drawing)
+            val dens = androidx.compose.ui.platform.LocalDensity.current
+            layers.forEach { l ->
+                androidx.compose.runtime.key(l) {
+                    val appear = remember { androidx.compose.animation.core.Animatable(0.4f) }
+                    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.5f, 420f)) }
+                    val fontPx = l.base * l.scale * dw
+                    Box(
+                        Modifier
+                            .layout { m, c ->
+                                val pl = m.measure(androidx.compose.ui.unit.Constraints())
+                                layout(c.maxWidth, c.maxHeight) { pl.place((ox + l.x * dw - pl.width / 2f).toInt(), (oy + l.y * dh - pl.height / 2f).toInt()) }
+                            }
+                            .graphicsLayer { rotationZ = l.rot; scaleX = appear.value; scaleY = appear.value }
+                            .then(if (tool != 0 && tool != 2) Modifier.pointerInput(l, dw, dh) {
+                                androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, rot ->
+                                    // pan arrives in the rotated frame: turn it back into screen space
+                                    val a = Math.toRadians(l.rot.toDouble())
+                                    val px = (pan.x * kotlin.math.cos(a) - pan.y * kotlin.math.sin(a)).toFloat() * l.scale
+                                    val py = (pan.x * kotlin.math.sin(a) + pan.y * kotlin.math.cos(a)).toFloat() * l.scale
+                                    l.x = (l.x + px / dw).coerceIn(0f, 1f); l.y = (l.y + py / dh).coerceIn(0f, 1f)
+                                    l.scale = (l.scale * zoom).coerceIn(0.3f, 6f); l.rot += rot
+                                }
+                            } else Modifier)
+                            .then(if (l.bg) Modifier.clip(RoundedCornerShape(with(dens) { (fontPx * 0.4f).toDp() })).background(if (l.color.luminanceApprox() > 0.6f) Color.Black else Color.White) else Modifier)
+                            .padding(horizontal = with(dens) { (fontPx * 0.35f).toDp() }, vertical = with(dens) { (fontPx * 0.2f).toDp() }),
+                    ) {
+                        Text(
+                            l.text, color = l.color, fontSize = with(dens) { fontPx.toSp() }, lineHeight = with(dens) { (fontPx * 1.17f).toSp() },
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            style = if (!l.emoji && !l.bg) androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, fontPx * 0.04f), fontPx * 0.08f)) else androidx.compose.ui.text.TextStyle.Default,
+                        )
+                    }
+                }
+            }
             // crop gesture: drag a corner/edge to resize (keeps the aspect if one is set), drag inside to move
             if (tool == 0) Box(Modifier.fillMaxSize().pointerInput(aspect, bmp) {
                 var mode = 0 // 1..4 corners, 5 move
@@ -302,11 +388,11 @@ fun PhotoEditorHost() {
                         0 -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             MorphIconButton(Icons.Outlined.RotateLeft, "Повернуть", {
                                 bmp?.let { b -> src = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(-90f) }, true) }
-                                crop = Rect(0f, 0f, 1f, 1f); lines.clear(); aspect = 0f
+                                crop = Rect(0f, 0f, 1f, 1f); lines.clear(); layers.clear(); aspect = 0f
                             }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
                             MorphIconButton(Icons.Outlined.Flip, "Отразить", {
                                 bmp?.let { b -> src = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postScale(-1f, 1f) }, true) }
-                                crop = Rect(1f - crop.right, crop.top, 1f - crop.left, crop.bottom); lines.clear()
+                                crop = Rect(1f - crop.right, crop.top, 1f - crop.left, crop.bottom); lines.clear(); layers.forEach { it.x = 1f - it.x; it.rot = -it.rot }
                             }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
                             listOf(0f to "Свободно", 1f to "1:1", 4f / 3f to "4:3", 3f / 4f to "3:4", 16f / 9f to "16:9").forEach { (a, label) ->
                                 val sel = aspect == a
@@ -326,6 +412,46 @@ fun PhotoEditorHost() {
                             adj("Контраст", contrast) { contrast = it }
                             adj("Насыщенность", sat) { sat = it }
                             adj("Тепло", warm) { warm = it }
+                        }
+                        3 -> Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.TextField(
+                                    textDraft, { textDraft = it }, placeholder = { Text("Текст", maxLines = 1) },
+                                    shape = RoundedCornerShape(24.dp), maxLines = 3,
+                                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.White.copy(alpha = 0.14f), unfocusedContainerColor = Color.White.copy(alpha = 0.14f),
+                                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                                        focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                MorphIconButton(if (textBg) Icons.Outlined.FormatColorFill else Icons.Outlined.FormatColorText, "Фон текста", { textBg = !textBg }, color = Color.White.copy(alpha = if (textBg) 0.3f else 0.14f), tint = Color.White)
+                                Spacer(Modifier.width(6.dp))
+                                MorphIconButton(Icons.Outlined.Add, "Добавить", {
+                                    if (textDraft.isNotBlank()) { layers.add(EditLayer(textDraft.trim(), textColor, emoji = false, bg = textBg)); textDraft = "" }
+                                }, color = cs.primary, tint = cs.onPrimary)
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                listOf(0xFFFFFFFF, 0xFF000000, 0xFFFF4D4D, 0xFFFF9F1C, 0xFFFFE14D, 0xFF4CD964, 0xFF34AADC, 0xFF5856D6, 0xFFFF2D95).forEach { c ->
+                                    val col = Color(c)
+                                    val sel = textColor == col
+                                    val sz by androidx.compose.animation.core.animateDpAsState(if (sel) 36.dp else 28.dp, androidx.compose.animation.core.spring(0.5f, 500f), label = "tc")
+                                    Box(Modifier.size(sz).clip(CircleShape).background(col).border(if (sel) 3.dp else 1.dp, Color.White, CircleShape).clickable { textColor = col })
+                                }
+                            }
+                        }
+                        4 -> androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
+                            androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), Modifier.fillMaxWidth().height(120.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(STICKER_EMOJI.size) { i ->
+                                val e = STICKER_EMOJI[i]
+                                Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).clickable { layers.add(EditLayer(e, Color.White, emoji = true)) }, contentAlignment = Alignment.Center) {
+                                    Text(e, fontSize = androidx.compose.ui.unit.TextUnit(32f, androidx.compose.ui.unit.TextUnitType.Sp))
+                                }
+                            }
                         }
                         else -> Column {
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -347,17 +473,21 @@ fun PhotoEditorHost() {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // tools: connected button group
+            // tools: connected button group — the selected one widens and shows its name
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf(Triple(Icons.Outlined.Crop, "Обрезка", 0), Triple(Icons.Outlined.Tune, "Настройка", 1), Triple(Icons.Outlined.Brush, "Рисование", 2)).forEachIndexed { i, (ic, label, id) ->
+                val tools = listOf(Triple(Icons.Outlined.Crop, "Обрезка", 0), Triple(Icons.Outlined.Tune, "Настройка", 1), Triple(Icons.Outlined.Brush, "Рисование", 2), Triple(Icons.Outlined.TextFields, "Текст", 3), Triple(Icons.Outlined.EmojiEmotions, "Стикеры", 4))
+                tools.forEachIndexed { i, (ic, label, id) ->
                     val sel = tool == id
                     val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), label = "t")
                     MorphBox(
-                        onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == 2) 22.dp else 8.dp, pressed = 14.dp,
+                        onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 8.dp, pressed = 14.dp,
                         color = bg, contentColor = if (sel) cs.onPrimary else Color.White, modifier = Modifier.height(52.dp),
                     ) {
-                        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(ic, null); Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(ic, label)
+                            androidx.compose.animation.AnimatedVisibility(sel, enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), clip = true) + fadeIn(), exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), clip = true) + fadeOut()) {
+                                Row { Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) }
+                            }
                         }
                     }
                 }
@@ -366,3 +496,9 @@ fun PhotoEditorHost() {
     }
     }
 }
+
+internal val STICKER_EMOJI = listOf(
+    "😀","😂","🥰","😍","😎","🤩","😭","😡","🤯","🥳","😴","🤔","🙈","👍","👎","👏","🙏","💪","🔥","✨",
+    "❤️","💔","💯","⭐","🌈","☀️","🌙","⚡","❄️","🎉","🎁","🎂","🍕","☕","🍓","🐶","🐱","🦊","🐼","🦄",
+    "🌸","🌻","🍀","🚀","✈️","🏖️","🎵","📸","💡","👑","💎","🏆","⚽","🎮","❗","❓","➡️","✅","❌","💤",
+)

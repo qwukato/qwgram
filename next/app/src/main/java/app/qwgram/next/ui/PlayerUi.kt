@@ -427,10 +427,10 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
         val stroke = 4.dp.toPx()
         val x = size.width * pr
         val gap = 6.dp.toPx()
-        val trackStart = if (x - gap > stroke * 2.5f) x + gap else 0f
+        val trackStart = x + gap
         drawLine(track, Offset(trackStart.coerceAtMost(size.width), cy), Offset(size.width, cy), stroke, StrokeCap.Round)
         // no stray round-cap dot at the very start: the wave appears once there is a real length to draw
-        if (x - gap > stroke * 2.5f) {
+        if (x - gap > 1f) {
             val path = Path()
             var px = 0f
             path.moveTo(0f, cy)
@@ -439,7 +439,7 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
                 path.lineTo(px, yy)
                 px += 2f
             }
-            drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round))
+            drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Butt))
         }
         drawLine(color, Offset(x, cy - 12.dp.toPx()), Offset(x, cy + 12.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
     }
@@ -448,7 +448,7 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
 @Composable
 private fun QueueSheet(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = cs.surfaceContainerLow) {
+    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false), containerColor = cs.surfaceContainerLow) {
         Text("Очередь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             items(Player.queue.size) { i ->

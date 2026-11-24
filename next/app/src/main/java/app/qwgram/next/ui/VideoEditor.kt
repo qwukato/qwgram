@@ -1,5 +1,13 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
@@ -91,7 +99,10 @@ fun VideoEditorHost() {
     val req = VideoEditor.request ?: return
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
-    var tool by remember(req) { mutableIntStateOf(0) }       // 0 trim, 1 frame, 2 colour
+    var tool by remember(req) { mutableIntStateOf(0) }       // 0 trim, 1 frame, 2 colour, 3 text & stickers
+    val layers = remember(req) { androidx.compose.runtime.mutableStateListOf<EditLayer>() }
+    var textDraft by remember(req) { mutableStateOf("") }
+    var textColor by remember(req) { mutableStateOf(Color.White) }
     var durMs by remember(req) { mutableLongStateOf(0L) }
     var trim by remember(req) { mutableStateOf(0f..1f) }
     var rotation by remember(req) { mutableIntStateOf(0) }
@@ -104,6 +115,14 @@ fun VideoEditorHost() {
     var videoW by remember(req) { mutableIntStateOf(1) }
     var videoH by remember(req) { mutableIntStateOf(1) }
     fun close() { VideoEditor.request = null }
+
+    /** the frame size after rotation and crop (what the exported video will be) */
+    fun outSize(): Pair<Int, Int> {
+        val (w, h) = if (rotation % 180 == 0) videoW to videoH else videoH to videoW
+        if (aspect <= 0f) return w to h
+        val cur = w.toFloat() / h
+        return if (cur > aspect) (h * aspect).toInt() to h else w to (w / aspect).toInt()
+    }
 
     fun effects(): List<Effect> = buildList {
         if (rotation != 0) add(ScaleAndRotateTransformation.Builder().setRotationDegrees(rotation.toFloat()).build())
@@ -156,7 +175,15 @@ fun VideoEditorHost() {
                 .setEndPositionMs(if (trim.endInclusive >= 0.999f) Long.MIN_VALUE else (trim.endInclusive * durMs).toLong())
                 .build(),
         ).build()
-        val edited = EditedMediaItem.Builder(item).setRemoveAudio(muted).setEffects(Effects(emptyList(), effects())).build()
+        val fx = effects().toMutableList()
+        if (layers.isNotEmpty()) runCatching {
+            // text and stickers: one transparent picture the size of the frame, laid over every frame
+            val (ow, oh) = outSize()
+            val bmp = android.graphics.Bitmap.createBitmap(ow.coerceAtLeast(2), oh.coerceAtLeast(2), android.graphics.Bitmap.Config.ARGB_8888)
+            drawLayers(android.graphics.Canvas(bmp), layers.toList(), bmp.width, bmp.height)
+            fx.add(androidx.media3.effect.OverlayEffect(com.google.common.collect.ImmutableList.of<androidx.media3.effect.TextureOverlay>(androidx.media3.effect.BitmapOverlay.createStaticBitmapOverlay(bmp))))
+        }
+        val edited = EditedMediaItem.Builder(item).setRemoveAudio(muted).setEffects(Effects(emptyList(), fx)).build()
         val transformer = Transformer.Builder(ctx).addListener(object : Transformer.Listener {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                 exporting = null
@@ -199,10 +226,50 @@ fun VideoEditorHost() {
                     }
                 }
             }
-            AndroidView(
-                factory = { c -> PlayerView(c).apply { useController = false; setShutterBackgroundColor(android.graphics.Color.BLACK); this.player = player } },
-                modifier = Modifier.fillMaxSize().padding(top = 96.dp, bottom = 230.dp).statusBarsPadding(),
-            )
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 230.dp).statusBarsPadding()) {
+                AndroidView(
+                    factory = { c -> PlayerView(c).apply { useController = false; setShutterBackgroundColor(android.graphics.Color.BLACK); this.player = player } },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // where the frame sits inside the player (fit, centred) — layers live in its proportions
+                val (ow, oh) = outSize()
+                val W = constraints.maxWidth.toFloat(); val H = constraints.maxHeight.toFloat()
+                val sc = minOf(W / ow.coerceAtLeast(1), H / oh.coerceAtLeast(1))
+                val dw = ow * sc; val dh = oh * sc
+                val ox = (W - dw) / 2f; val oy = (H - dh) / 2f
+                val dens = androidx.compose.ui.platform.LocalDensity.current
+                layers.forEach { l ->
+                    androidx.compose.runtime.key(l) {
+                        val appear = remember { androidx.compose.animation.core.Animatable(0.4f) }
+                        LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.5f, 420f)) }
+                        val fontPx = l.base * l.scale * dw
+                        Box(
+                            Modifier
+                                .layout { m, c ->
+                                    val pl = m.measure(androidx.compose.ui.unit.Constraints())
+                                    layout(c.maxWidth, c.maxHeight) { pl.place((ox + l.x * dw - pl.width / 2f).toInt(), (oy + l.y * dh - pl.height / 2f).toInt()) }
+                                }
+                                .graphicsLayer { rotationZ = l.rot; scaleX = appear.value; scaleY = appear.value }
+                                .pointerInput(l, dw, dh) {
+                                    androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, rot ->
+                                        val a = Math.toRadians(l.rot.toDouble())
+                                        val px = (pan.x * kotlin.math.cos(a) - pan.y * kotlin.math.sin(a)).toFloat() * l.scale
+                                        val py = (pan.x * kotlin.math.sin(a) + pan.y * kotlin.math.cos(a)).toFloat() * l.scale
+                                        l.x = (l.x + px / dw).coerceIn(0f, 1f); l.y = (l.y + py / dh).coerceIn(0f, 1f)
+                                        l.scale = (l.scale * zoom).coerceIn(0.3f, 6f); l.rot += rot
+                                    }
+                                }
+                                .padding(horizontal = with(dens) { (fontPx * 0.35f).toDp() }, vertical = with(dens) { (fontPx * 0.2f).toDp() }),
+                        ) {
+                            Text(
+                                l.text, color = l.color, fontSize = with(dens) { fontPx.toSp() }, lineHeight = with(dens) { (fontPx * 1.17f).toSp() },
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                style = if (!l.emoji) androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.5f), androidx.compose.ui.geometry.Offset(0f, fontPx * 0.04f), fontPx * 0.08f)) else androidx.compose.ui.text.TextStyle.Default,
+                            )
+                        }
+                    }
+                }
+            }
             Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 AnimatedContent(tool, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "vt") { t ->
                     Column(Modifier.fillMaxWidth().height(140.dp), verticalArrangement = Arrangement.Center) {
@@ -222,6 +289,37 @@ fun VideoEditorHost() {
                                     }
                                 }
                             }
+                            3 -> Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.TextField(
+                                        textDraft, { textDraft = it }, placeholder = { Text("Текст", maxLines = 1) },
+                                        shape = RoundedCornerShape(24.dp), singleLine = true,
+                                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                            focusedContainerColor = Color.White.copy(alpha = 0.14f), unfocusedContainerColor = Color.White.copy(alpha = 0.14f),
+                                            focusedTextColor = textColor, unfocusedTextColor = textColor,
+                                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    MorphIconButton(Icons.Outlined.Add, "Добавить", {
+                                        if (textDraft.isNotBlank()) { layers.add(EditLayer(textDraft.trim(), textColor, emoji = false)); textDraft = "" }
+                                    }, color = cs.primary, tint = cs.onPrimary)
+                                    if (layers.isNotEmpty()) { Spacer(Modifier.width(6.dp)); MorphIconButton(Icons.AutoMirrored.Outlined.Undo, "Убрать последний", { layers.removeAt(layers.lastIndex) }, color = Color.White.copy(alpha = 0.14f), tint = Color.White) }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    listOf(0xFFFFFFFF, 0xFF000000, 0xFFFF4D4D, 0xFFFFE14D, 0xFF4CD964, 0xFF34AADC, 0xFFFF2D95).forEach { c ->
+                                        val col = Color(c); val sel = textColor == col
+                                        Box(Modifier.size(if (sel) 32.dp else 26.dp).clip(CircleShape).background(col).border(if (sel) 3.dp else 1.dp, Color.White, CircleShape).clickable { textColor = col })
+                                    }
+                                    STICKER_EMOJI.forEach { e ->
+                                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).clickable { layers.add(EditLayer(e, Color.White, emoji = true)) }, contentAlignment = Alignment.Center) {
+                                            Text(e, fontSize = androidx.compose.ui.unit.TextUnit(26f, androidx.compose.ui.unit.TextUnitType.Sp))
+                                        }
+                                    }
+                                }
+                            }
                             else -> Column {
                                 @Composable fun adj(name: String, v: Float, set: (Float) -> Unit) = Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(name, color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(110.dp), maxLines = 1)
@@ -236,15 +334,19 @@ fun VideoEditorHost() {
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(Triple(Icons.Outlined.ContentCut, "Обрезка", 0), Triple(Icons.Outlined.Crop, "Кадр", 1), Triple(Icons.Outlined.Tune, "Цвет", 2)).forEachIndexed { i, (ic, label, id) ->
+                    val tools = listOf(Triple(Icons.Outlined.ContentCut, "Обрезка", 0), Triple(Icons.Outlined.Crop, "Кадр", 1), Triple(Icons.Outlined.Tune, "Цвет", 2), Triple(Icons.Outlined.TextFields, "Текст", 3))
+                    tools.forEachIndexed { i, (ic, label, id) ->
                         val sel = tool == id
                         val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), label = "t")
                         MorphBox(
-                            onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == 2) 22.dp else 8.dp, pressed = 14.dp,
+                            onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 8.dp, pressed = 14.dp,
                             color = bg, contentColor = if (sel) cs.onPrimary else Color.White, modifier = Modifier.height(52.dp),
                         ) {
-                            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(ic, null); Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(ic, label)
+                                androidx.compose.animation.AnimatedVisibility(sel, enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), clip = true) + fadeIn(), exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), clip = true) + fadeOut()) {
+                                    Row { Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) }
+                                }
                             }
                         }
                     }

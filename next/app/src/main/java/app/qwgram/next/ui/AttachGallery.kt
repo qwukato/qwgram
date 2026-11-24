@@ -163,7 +163,10 @@ fun AttachGallerySheet(
     LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // opens half-way; swiping up (or scrolling the grid) lifts it to full height — calm motion, no bounce
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // picking something lifts it fully, so the Send row at its bottom is on screen
+    LaunchedEffect(picked.isNotEmpty()) { if (picked.isNotEmpty()) runCatching { sheet.expand() } }
     // picking something lifts the sheet fully, so the "Send" button at its bottom is on screen
     CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
         Box {

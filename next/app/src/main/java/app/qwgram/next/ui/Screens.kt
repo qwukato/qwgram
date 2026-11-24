@@ -199,17 +199,23 @@ fun ProfileScreen(chatId: Long) {
                             ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
                         val uid = TdStore.privateUserId(chat)
                         // Telegram-like action tiles in an M3 Expressive connected group: equal widths, everything fits
-                        ActionTiles(buildList {
+                        ActionTiles(modifier = Modifier.appearIn(0), items = buildList {
                             add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
                                 if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
                             })
-                            add(GroupButton(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Вкл. звук" else "Без звука", selected = muted) { setMuted(chat, !muted) })
-                            add(GroupButton(Icons.Outlined.Search, "Поиск") { Nav.push(Route.Chat(chat.id)) })
+                            // live chat: the tile flips right away after the tap
+                            val liveMuted = TdStore.isMuted(TdStore.chats[chat.id] ?: chat)
+                            add(GroupButton(if (liveMuted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (liveMuted) "Вкл. звук" else "Без звука", selected = liveMuted) { setMuted(TdStore.chats[chat.id] ?: chat, !liveMuted) })
+                            // search: back to the chat with its search bar already open
+                            add(GroupButton(Icons.Outlined.Search, "Поиск") {
+                                ChatSearchRequest.chatId = chat.id
+                                if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                            })
                         })
                     }
-                    if (user != null) ProfileMusic(user.id)
+                    if (user != null) Box(Modifier.appearIn(1)) { ProfileMusic(user.id) }
                     Spacer(Modifier.height(16.dp))
-                    Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().appearIn(2)) {
                         Column(Modifier.padding(vertical = 4.dp)) {
                             val rows = buildList {
                                 if (user != null && user.phoneNumber.isNotBlank()) add(Triple(Icons.Outlined.Phone, if (me && Prefs.hidePhone.value) "Скрыт" else "+" + user.phoneNumber, "Телефон"))

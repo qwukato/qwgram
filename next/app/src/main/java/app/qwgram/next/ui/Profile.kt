@@ -79,14 +79,23 @@ fun ProfileBanner(
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = cs.surface.luminance() < 0.5f
-    // the colour the person picked for their profile in Telegram (Premium); none → plain page like in Telegram
+    // Telegram's order: a worn collectible gift (emoji status) paints the profile with its backdrop; else the
+    // gift-based profile colours; else the profile colour picked in Premium settings; else a plain page
+    val giftStatus = user?.emojiStatus?.type as? TdApi.EmojiStatusTypeUpgradedGift
     val colorId = user?.profileAccentColorId ?: chat?.profileAccentColorId ?: -1
     val pc = if (colorId >= 0) TdStore.profileColors[colorId] else null
-    // a collectible gift's colours win (Telegram shows the gift backdrop), then the chosen profile colour
     val giftColors = (user?.upgradedGiftColors ?: chat?.upgradedGiftColors)?.let { g -> (if (dark) g.darkThemeColors else g.lightThemeColors).map(::argb) }?.takeIf { it.isNotEmpty() }
-    val bannerColors = giftColors ?: pc?.let { (if (dark) it.darkThemeColors else it.lightThemeColors).backgroundColors.map(::argb) }?.takeIf { it.isNotEmpty() }
+    val bannerColors: List<Color>? = giftStatus?.backdropColors?.let { listOf(argb(it.centerColor), argb(it.edgeColor)) }
+        ?: giftColors
+        ?: pc?.let { (if (dark) it.darkThemeColors else it.lightThemeColors).backgroundColors.map(::argb) }?.takeIf { it.isNotEmpty() }
+    // the little pattern around the avatar: the gift's symbol, or the profile background emoji the person chose
+    val patternId = giftStatus?.symbolCustomEmojiId?.takeIf { it != 0L }
+        ?: user?.profileBackgroundCustomEmojiId?.takeIf { it != 0L } ?: chat?.profileBackgroundCustomEmojiId?.takeIf { it != 0L }
     val verified = (user?.verificationStatus?.isVerified == true)
     val onBanner = if (bannerColors != null) Color.White else cs.onSurface
+    // the whole header settles in: the avatar springs up from 85%, the texts follow a beat later
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.7f, 260f)) }
     Box(
         Modifier
             // full width (out of the 16dp page padding) and up under the header and the status bar
@@ -98,32 +107,72 @@ fun ProfileBanner(
             }
             .then(
                 if (bannerColors == null) Modifier
-                // Telegram draws the profile colour as a soft radial glow: inner colour around the avatar, outer to the edges
-                else Modifier.drawBehind {
-                    val inner = bannerColors.first()
-                    val outer = bannerColors.getOrNull(1) ?: bannerColors.first()
-                    drawRect(outer)
-                    drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.42f), radius = size.maxDimension * 0.62f))
-                },
+                else Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 36.dp.rs(), bottomEnd = 36.dp.rs()))
+                    // Telegram draws the profile colour as a soft radial glow: inner colour around the avatar, outer to the edges
+                    .drawBehind {
+                        val inner = bannerColors.first()
+                        val outer = bannerColors.getOrNull(1) ?: bannerColors.first()
+                        drawRect(outer)
+                        drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.6f))
+                    },
             )
-            .padding(top = topInset + 8.dp, bottom = if (bannerColors != null) 24.dp else 8.dp),
+            .padding(top = topInset + 8.dp, bottom = if (bannerColors != null) 28.dp else 8.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(contentAlignment = Alignment.BottomEnd) {
-                Box(Modifier.size(124.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                    if (chat == null) UserAvatar(user, 124.dp) else ChatAvatar(chat, 124.dp)
+            Box(contentAlignment = Alignment.Center) {
+                // pattern: rings of the chosen emoji around the avatar, fading outwards (Telegram Premium profile)
+                if (patternId != null && bannerColors != null) {
+                    val ring = remember { listOf(
+                        Triple(-118f, -30f, 0.55f), Triple(118f, -30f, 0.55f), Triple(-96f, 62f, 0.5f), Triple(96f, 62f, 0.5f),
+                        Triple(-60f, -96f, 0.45f), Triple(60f, -96f, 0.45f), Triple(0f, -122f, 0.4f), Triple(-150f, 30f, 0.32f),
+                        Triple(150f, 30f, 0.32f), Triple(-160f, -78f, 0.25f), Triple(160f, -78f, 0.25f), Triple(-128f, 112f, 0.25f), Triple(128f, 112f, 0.25f),
+                    ) }
+                    ring.forEach { (x, y, a) ->
+                        Box(Modifier.size(22.dp).graphicsLayer {
+                            translationX = x.dp.toPx() * (0.7f + 0.3f * appear.value); translationY = y.dp.toPx() * (0.7f + 0.3f * appear.value)
+                            alpha = a * appear.value
+                        }) { CustomEmojiImage(patternId, 22.dp) }
+                    }
                 }
-                if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
+                Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
+                    Box(Modifier.size(124.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                        if (chat == null) UserAvatar(user, 124.dp) else ChatAvatar(chat, 124.dp)
+                    }
+                    if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
+                }
             }
             Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (verified) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Verified, "Подтверждён", tint = if (bannerColors != null) Color.White else cs.primary, modifier = Modifier.size(22.dp)) }
-                EmojiStatusMark(user, 26.dp, tint = if (bannerColors != null) Color.White else cs.primary, gap = 6.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.graphicsLayer { alpha = ((appear.value - 0.2f) / 0.8f).coerceIn(0f, 1f); translationY = (1f - appear.value) * 16.dp.toPx() },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (verified) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Verified, "Подтверждён", tint = if (bannerColors != null) Color.White else cs.primary, modifier = Modifier.size(22.dp)) }
+                    EmojiStatusMark(user, 26.dp, tint = if (bannerColors != null) Color.White else cs.primary, gap = 6.dp)
+                }
+                // the status line rolls when it changes ("в сети" ⇄ "был(а) …")
+                androidx.compose.animation.AnimatedContent(status, transitionSpec = {
+                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220, 60)) + androidx.compose.animation.slideInVertically { it / 2 })
+                        .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.slideOutVertically { -it / 2 })
+                }, label = "st") { st ->
+                    if (st.isNotBlank()) Text(st, style = MaterialTheme.typography.bodyLarge, color = onBanner.copy(alpha = if (st == "в сети") 1f else 0.8f), textAlign = TextAlign.Center)
+                }
             }
-            if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyLarge, color = onBanner.copy(alpha = if (status == "в сети") 1f else 0.78f), textAlign = TextAlign.Center)
         }
     }
+}
+
+/** profile sections slide up one after another when the page opens */
+@Composable
+fun Modifier.appearIn(order: Int): Modifier {
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(90L + order * 55L)
+        a.animateTo(1f, androidx.compose.animation.core.spring(0.78f, 300f))
+    }
+    return graphicsLayer { alpha = a.value.coerceIn(0f, 1f); translationY = (1f - a.value) * 28.dp.toPx() }
 }
 
 /** ⋮ in the profile header: every less-common action, growing out of the button (M3 Expressive menu) */

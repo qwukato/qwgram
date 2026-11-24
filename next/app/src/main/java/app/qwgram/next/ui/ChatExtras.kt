@@ -96,6 +96,7 @@ import app.qwgram.next.td.Td
 import app.qwgram.next.td.rememberFileBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import org.drinkless.tdlib.TdApi
@@ -434,18 +435,22 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
                         val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
                         layout(fw, fh) { pl.place(lerp(o.left - hostPos.x, 0f).toInt(), lerp(o.top - hostPos.y, 0f).toInt()) }
                     }
-                    .clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp),
+                    .clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp).clipToBounds(),
                 contentAlignment = Alignment.CenterStart,
             ) {
+                // the field's content is laid out at its final width and only revealed as the pill grows
+                // (no re-wrapping of "Поиск в чате" into a tiny box), and fades in during the second half
+                Box(Modifier.fillMaxWidth().graphicsLayer { alpha = ((grow() - 0.5f) / 0.5f).coerceIn(0f, 1f) }) {
                 BasicTextField(
                     s.query, { s.query = it }, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface), cursorBrush = SolidColor(cs.primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
-                    decorationBox = { inner -> if (s.query.isEmpty()) Text("Поиск в чате", color = cs.onSurfaceVariant); inner() },
+                    decorationBox = { inner -> if (s.query.isEmpty()) Text("Поиск в чате", color = cs.onSurfaceVariant, maxLines = 1, softWrap = false); inner() },
                 )
+                }
             }
-            if (s.results.isNotEmpty()) {
+            if (s.results.isNotEmpty() && grow() > 0.9f) {
                 Text("${s.index + 1}/${s.total}", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
                 MorphIconButton(Icons.Outlined.KeyboardArrowUp, "Раньше", { onStep(1) }, enabled = s.index < s.results.size - 1)
                 MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Позже", { onStep(-1) }, enabled = s.index > 0)

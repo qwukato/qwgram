@@ -244,12 +244,19 @@ class ChatController(val chatId: Long) {
     fun fetchReply(m: TdApi.Message) {
         val r = m.replyTo as? TdApi.MessageReplyToMessage ?: return
         if (r.messageId == 0L || replies.containsKey(m.id)) return
-        Td.send(TdApi.GetRepliedMessage(m.chatId, m.id)) { res -> if (res is TdApi.Message) replies[m.id] = res }
+        // already loaded in this chat → no request
+        if (r.chatId == 0L || r.chatId == m.chatId) messages.firstOrNull { it.id == r.messageId }?.let { replies[m.id] = it; return }
+        Td.send(TdApi.GetRepliedMessage(m.chatId, m.id)) { res ->
+            if (res is TdApi.Message) replies[m.id] = res
+            // not in TDLib's cache yet: fetch it directly (server request)
+            else Td.send(TdApi.GetMessage(if (r.chatId != 0L) r.chatId else m.chatId, r.messageId)) { res2 -> if (res2 is TdApi.Message) replies[m.id] = res2 }
+        }
     }
 
     fun onEvent(u: TdApi.Update) {
         when (u) {
             is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && !hasNewer && messages.none { it.id == u.message.id }) {
+                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) flyIn.add(u.message.id)
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -274,7 +281,13 @@ class ChatController(val chatId: Long) {
         }
     }
 
+    /** sent message's real id → the temporary id it had while sending: the list row keeps its key (no re-enter blink) */
+    val keyAlias = HashMap<Long, Long>()
+    /** temporary ids of messages sent from this screen: they fly in from the composer */
+    val flyIn = HashSet<Long>()
+
     private fun replace(oldId: Long, m: TdApi.Message) {
+        if (oldId != m.id) keyAlias[m.id] = keyAlias[oldId] ?: oldId
         val i = messages.indexOfFirst { it.id == oldId }
         if (i >= 0) messages[i] = m else if (messages.none { it.id == m.id }) messages.add(0, m)
     }
@@ -298,7 +311,7 @@ class ChatController(val chatId: Long) {
 
 private sealed interface Entry {
     val key: String
-    data class Msg(val m: TdApi.Message, val grp: Grp) : Entry { override val key get() = "m${m.id}" }
+    data class Msg(val m: TdApi.Message, val grp: Grp, val k: Long = m.id) : Entry { override val key get() = "m$k" }
     data class Day(val date: Int) : Entry { override val key get() = "d$date" }
     data object Unread : Entry { override val key get() = "unread" }
 }
@@ -346,7 +359,8 @@ fun ChatScreen(chatId: Long) {
     var panelSwapToKb by remember { mutableStateOf(false) }
     LaunchedEffect(imeNow, panelHolding) {
         val kb = Prefs.kbHeight.value
-        if (panelHolding && (kb <= 0 || imeNow >= kb * 0.92f)) { panelSwapToKb = true; panel = false; panelHolding = false }
+        // hand over only when the keyboard has fully arrived (its animation finished): no last-frame jump
+        if (panelHolding && imeTarget > 0 && imeNow >= imeTarget - 1) { panelSwapToKb = true; panel = false; panelHolding = false }
     }
     val panelHeight = with(density) {
         val kb = Prefs.kbHeight.value
@@ -357,7 +371,8 @@ fun ChatScreen(chatId: Long) {
     val panelAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     val panelPx = with(density) { panelHeight.toPx() }
     LaunchedEffect(panel, panelPx) {
-        val smooth = androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 420f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)
+        // the keyboard's own curve (M3 emphasized decelerate), so the panel feels like a keyboard
+        val smooth = androidx.compose.animation.core.tween<Float>((300 / Prefs.motionSpeed.value).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
         if (panel) {
             if (imeNow > 0 || Prefs.motion.value == "off") panelAnim.snapTo(panelPx) else panelAnim.animateTo(panelPx, smooth)
         } else {
@@ -408,7 +423,7 @@ fun ChatScreen(chatId: Long) {
                     down -> Grp.Top
                     else -> Grp.Single
                 }
-                out.add(Entry.Msg(m, g))
+                out.add(Entry.Msg(m, g, ctl.keyAlias[m.id] ?: m.id))
                 if (firstUnreadId != 0L && m.id > firstUnreadId && (older == null || older.id <= firstUnreadId) && !m.isOutgoing) out.add(Entry.Unread)
                 if (older == null || !Texts.sameDay(older.date, m.date)) out.add(Entry.Day(m.date))
             }
@@ -533,6 +548,10 @@ fun ChatScreen(chatId: Long) {
             searchGrow.animateTo(1f, androidx.compose.animation.core.spring(0.72f, 360f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
         }
     }
+    // opened from the profile's "Поиск": start with the search bar
+    LaunchedEffect(chatId, ChatSearchRequest.chatId) {
+        if (ChatSearchRequest.chatId == chatId) { ChatSearchRequest.chatId = 0L; kotlinx.coroutines.delay(320); openChatSearch(null) }
+    }
     fun closeChatSearch() {
         scope.launch {
             keyboard?.hide()
@@ -573,15 +592,10 @@ fun ChatScreen(chatId: Long) {
                     .onSizeChanged { topH = with(density) { it.height.toDp() } },
             ) {
             AnimatedContent(
-                targetState = when { selecting -> 2; searching -> 1; else -> 0 },
+                targetState = if (selecting) 2 else 0,
                 transitionSpec = {
-                    when {
-                        // search draws its own grow/shrink: the bar under it just fades quickly
-                        targetState == 1 -> fadeIn(androidx.compose.animation.core.snap()).togetherWith(fadeOut(androidx.compose.animation.core.tween(140)))
-                        initialState == 1 -> fadeIn(androidx.compose.animation.core.tween(160)).togetherWith(fadeOut(androidx.compose.animation.core.snap()))
-                        else -> (fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 90)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(200, delayMillis = 90), initialScale = 0.96f))
-                            .togetherWith(fadeOut(androidx.compose.animation.core.tween(90)))
-                    }
+                    (fadeIn(androidx.compose.animation.core.tween(220, delayMillis = 60)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.8f, 380f), initialScale = 0.96f))
+                        .togetherWith(fadeOut(androidx.compose.animation.core.tween(110)))
                 },
                 label = "topbar",
             ) { mode ->
@@ -598,13 +612,19 @@ fun ChatScreen(chatId: Long) {
                         onForward = { forward = ctl.messages.filter { it.id in selected }.sortedBy { it.id }; selected.clear() },
                         onDelete = { deleteFor = ctl.messages.filter { it.id in selected } },
                     )
-                    1 -> ChatSearchBar(
-                        search, origin = searchOrigin, grow = { searchGrow.value },
-                        onClose = { closeChatSearch() },
-                        onSubmit = { scope.launch { search.run(); search.current?.let { jump(it.id) } } },
-                        onStep = { d -> search.index = (search.index + d).coerceIn(0, search.results.size - 1); search.current?.let { jump(it.id) } },
-                    )
-                    else -> ChatTopBar(chat, onSearch = { r -> openChatSearch(r) })
+                    // the header stays underneath while the search bar grows over it: it fades out as the bar grows
+                    // and back in as the bar shrinks into the button — one continuous container transform
+                    else -> Box {
+                        Box(Modifier.graphicsLayer { alpha = if (searching) (1f - searchGrow.value * 1.4f).coerceIn(0f, 1f) else 1f }) {
+                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) })
+                        }
+                        if (searching) ChatSearchBar(
+                            search, origin = searchOrigin, grow = { searchGrow.value },
+                            onClose = { closeChatSearch() },
+                            onSubmit = { scope.launch { search.run(); search.current?.let { jump(it.id) } } },
+                            onStep = { d -> search.index = (search.index + d).coerceIn(0, search.results.size - 1); search.current?.let { jump(it.id) } },
+                        )
+                    }
                 }
             }
             ctl.pinned?.let { p ->
@@ -633,7 +653,7 @@ fun ChatScreen(chatId: Long) {
                                 MessageItem(
                                     m = e.m, grp = e.grp, chat = chat, group = group,
                                     reply = ctl.replies[id],
-                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                                    modifier = Modifier.flyFromComposer(e.k in ctl.flyIn) { ctl.flyIn.remove(e.k) }.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
@@ -1192,6 +1212,9 @@ fun RollingBadge(count: Int, modifier: Modifier = Modifier) {
     }
 }
 
+/** "search in this chat" asked from another screen (profile) */
+object ChatSearchRequest { var chatId by mutableStateOf(0L) }
+
 private var readErrorShown = false
 
 /** marks messages read; if Telegram refuses, says why once (helps to find the cause instead of silently failing) */
@@ -1333,11 +1356,14 @@ private fun Composer(
                 val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
                 val morphP by androidx.compose.animation.core.animateFloatAsState(if (ready) 1f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 420f * k), label = "sm")
                 val spin by androidx.compose.animation.core.animateFloatAsState(if (ready) 120f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f * k), label = "spin")
+                // colours blend over the same spring as the shape, so mic → send and send → mic are mirror images
+                val sendBg by androidx.compose.animation.animateColorAsState(if (ready || recording) cs.primary else cs.primaryContainer, androidx.compose.animation.core.tween(260), label = "sbg")
+                val sendFg by androidx.compose.animation.animateColorAsState(if (ready || recording) cs.onPrimary else cs.onPrimaryContainer, androidx.compose.animation.core.tween(260), label = "sfg")
                 Surface(
-                    shape = MorphShape(sendMorph, morphP),
+                    shape = MorphShape(sendMorph, morphP.coerceIn(-0.15f, 1.15f)),
                     shadowElevation = if (floating) 3.dp else 0.dp,
-                    color = if (ready || recording) cs.primary else cs.primaryContainer,
-                    contentColor = if (ready || recording) cs.onPrimary else cs.onPrimaryContainer,
+                    color = sendBg,
+                    contentColor = sendFg,
                     modifier = Modifier.size(52.dp)
                         .graphicsLayer { scaleX = scale; scaleY = scale; translationX = dragX.value; rotationZ = spin }
                         .pointerInput(ready) {
@@ -1396,7 +1422,13 @@ private fun Composer(
                     Box(Modifier.graphicsLayer { rotationZ = -spin }, contentAlignment = Alignment.Center) {
                         AnimatedContent(
                             targetState = when { editing != null -> 2; ready -> 1; else -> 0 },
-                            transitionSpec = { (scaleIn(Springs.fastSpatial()) + fadeIn(Springs.effects())).togetherWith(scaleOut(Springs.exit()) + fadeOut(Springs.exit())) },
+                            // one icon at a time: the old one spins out and vanishes quickly, the new one springs in a beat
+                            // later — they never overlap, and it is the same both ways
+                            transitionSpec = {
+                                (scaleIn(androidx.compose.animation.core.spring(0.55f, 520f), initialScale = 0.3f) + fadeIn(androidx.compose.animation.core.tween(120, delayMillis = 110)))
+                                    .togetherWith(scaleOut(androidx.compose.animation.core.tween(110), targetScale = 0.3f) + fadeOut(androidx.compose.animation.core.tween(90)))
+                                    .using(androidx.compose.animation.SizeTransform(clip = false))
+                            },
                             label = "sendicon",
                         ) { s ->
                             when (s) {
@@ -1702,5 +1734,29 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+
+/**
+ * A freshly sent message rises out of the input field into its place on a spring (Telegram-style):
+ * starts lower and a bit smaller, from the right edge where the send button is, and settles with a slight bounce.
+ */
+@Composable
+private fun Modifier.flyFromComposer(active: Boolean, done: () -> Unit): Modifier {
+    if (!active || Prefs.motion.value == "off") return this
+    val p = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+        p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 380f * k))
+        done()
+    }
+    return graphicsLayer {
+        val t = p.value
+        translationY = (1f - t) * 72.dp.toPx()
+        val sc = 0.86f + 0.14f * t
+        scaleX = sc; scaleY = sc
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
+        alpha = (t * 2.2f).coerceIn(0f, 1f)
     }
 }

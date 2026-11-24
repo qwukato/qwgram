@@ -131,6 +131,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.SideEffect
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -304,33 +305,36 @@ private fun FloatingNavPill() {
         add(Triple(HomeTab.Settings, "Настройки", Icons.Filled.Settings to Icons.Outlined.Settings))
     }
     val cs = MaterialTheme.colorScheme
-    val labels = Prefs.navLabels.value
-    // M3 Expressive floating bar: every tab keeps a fixed slot (icon in its indicator, label under it), so nothing
-    // grows, shifts or gets cut when switching; the indicator springs in behind the chosen icon
-    Surface(shape = RoundedCornerShape(36.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            tabs.forEach { (t, title, icons) ->
-                val sel = HomeState.tab == t
-                val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                val haptic = rememberHaptic()
-                val ind by androidx.compose.animation.core.animateFloatAsState(if (sel) 1f else 0f, androidx.compose.animation.core.spring(0.6f, 420f), label = "ind")
-                val pressed by interaction.collectIsPressedAsState()
-                val sc by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.9f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "ps")
-                Column(
-                    Modifier.width(76.dp).clip(RoundedCornerShape(20.dp)).clickable(interaction, indication = null) { if (!sel) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick); HomeState.tab = t }
-                        .padding(vertical = 4.dp).graphicsLayer { scaleX = sc; scaleY = sc },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(Modifier.size(56.dp, 32.dp), contentAlignment = Alignment.Center) {
-                        // the indicator pill grows out from the icon's centre
-                        Box(Modifier.matchParentSize().graphicsLayer { scaleX = 0.4f + 0.6f * ind; alpha = ind.coerceIn(0f, 1f) }.clip(CircleShape).background(cs.secondaryContainer))
-                        CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) {
+    // the floating pill: the chosen tab widens into a pill with its label (springy), the others are icons.
+    // The label's room is measured first, so the pill never grows past the space beside the FAB
+    androidx.compose.foundation.layout.BoxWithConstraints {
+        val labelMax = maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 40.dp
+        val labels = Prefs.navLabels.value && labelMax >= 56.dp
+        Surface(shape = RoundedCornerShape(32.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
+            Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                tabs.forEach { (t, title, icons) ->
+                    val sel = HomeState.tab == t
+                    val haptic = rememberHaptic()
+                    val bg by androidx.compose.animation.animateColorAsState(if (sel) cs.secondaryContainer else cs.surfaceContainerHigh.copy(alpha = 0f), Springs.effects(), label = "nb")
+                    MorphBox(
+                        onClick = { if (!sel) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick); HomeState.tab = t }, rest = 26.dp, pressed = 14.dp, color = bg,
+                        contentColor = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant,
+                        modifier = Modifier.fillMaxHeight().widthIn(min = 56.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             NavIcon(t, unread, if (sel) icons.first else icons.second, title)
+                            // the label is measured at its full width and revealed by the expanding clip
+                            androidx.compose.animation.AnimatedVisibility(
+                                sel && labels,
+                                enter = androidx.compose.animation.expandHorizontally(androidx.compose.animation.core.spring(0.82f, 420f), expandFrom = Alignment.Start, clip = true) + fadeIn(androidx.compose.animation.core.tween(180, 60)),
+                                exit = androidx.compose.animation.shrinkHorizontally(androidx.compose.animation.core.spring(1f, 520f), shrinkTowards = Alignment.Start, clip = true) + fadeOut(androidx.compose.animation.core.tween(90)),
+                            ) {
+                                Row {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
+                                }
+                            }
                         }
-                    }
-                    if (labels) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(title, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false, color = if (sel) cs.onSurface else cs.onSurfaceVariant)
                     }
                 }
             }
@@ -460,7 +464,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
                 ),
         ) {
             if (Prefs.topBar.value == "search") {
-                SearchBarHeader(openDrawer)
+                SearchBarHeader(openDrawer, tabs.getOrNull(pager.currentPage)?.title)
             } else {
                 Row(Modifier.statusBarsPadding().fillMaxWidth().height(64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (Prefs.drawer.value) HeaderIcon(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(48.dp))
@@ -486,7 +490,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
 private fun MaterialTheme_springPager() = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.85f, stiffness = 500f)
 
 @Composable
-private fun SearchBarHeader(openDrawer: () -> Unit) {
+private fun SearchBarHeader(openDrawer: () -> Unit, folderTitle: String?) {
     // M3 Expressive top bar: menu, the big "qwgram" title (or the connection state), search that grows into the
     // search bar, and your avatar; on the fade in floating mode, on a solid bar in classic mode
     val me = TdStore.me
@@ -499,17 +503,7 @@ private fun SearchBarHeader(openDrawer: () -> Unit) {
     ) {
         if (Prefs.drawer.value) HeaderIcon(Icons.Outlined.Menu, "Меню", openDrawer) else Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) {
-            AnimatedContent(connecting, transitionSpec = { (fadeIn(Springs.effects()) + androidx.compose.animation.slideInVertically(Springs.smooth()) { it / 2 }).togetherWith(fadeOut(Springs.exit()) + androidx.compose.animation.slideOutVertically(Springs.exit()) { -it / 2 }) }, label = "sb") { c ->
-                if (c) Row(verticalAlignment = Alignment.CenterVertically) {
-                    LoadingIndicator(Modifier.size(28.dp))
-                    Spacer(Modifier.width(8.dp))
-                    FitText(if (conn is TdApi.ConnectionStateWaitingForNetwork) "Ожидание сети…" else if (conn is TdApi.ConnectionStateUpdating) "Обновление…" else "Соединение…", MaterialTheme.typography.titleLarge, color = cs.onSurface, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
-                } else Text(
-                    "qwgram", maxLines = 1,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
-                    color = cs.primary,
-                )
-            }
+            ConnectionTitle(folderTitle)
         }
         SearchButton()
         Spacer(Modifier.width(4.dp))
@@ -541,11 +535,17 @@ fun ConnectionTitle(folderTitle: String?) {
                 "folder" -> folderTitle ?: "Чаты"
                 else -> "qwgram"
             }
-            Text(
-                title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
-                color = if (title == "qwgram") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            )
+            // the title text rolls to the new one (folder switch, setting change) instead of jumping
+            AnimatedContent(title, transitionSpec = {
+                (fadeIn(androidx.compose.animation.core.tween(220, 60)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(0.8f, 380f)) { it / 2 })
+                    .togetherWith(fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.spring(1f, 500f)) { -it / 2 })
+            }, label = "title") { t ->
+                Text(
+                    t, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    color = if (t == "qwgram") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
@@ -704,7 +704,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.cascadeIn(idx, cascade).followFinger(idx, state, pageOffset).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, pageOffset).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
                 ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
             }
         }
@@ -940,26 +940,34 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
 }
 
 /**
- * Folder swipe cascade: while a folder page slides under the finger, its rows trail one after another — the top row
- * moves with the page, each next one lags a little more and settles on the same spring (parallax), fading slightly
- * as the page leaves. Pure graphics transform: no relayout, no extra composition.
+ * Folder swipe cascade (ColorOS-style "layers bounce apart"): every row follows the page through its OWN spring —
+ * the top row is stiff and keeps up with the finger, each next row is softer, so the rows trail one after another
+ * and bounce into place when the page lands. A tap on a folder makes the rows fly in the same way. Rows stay
+ * inside their page (the page clips), and at rest nothing is moved.
  */
-private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float): Modifier = graphicsLayer {
-    if (Prefs.motion.value == "off") return@graphicsLayer
-    val d = pageOffset()
-    val a = kotlin.math.abs(d).coerceAtMost(1f)
-    if (a < 0.0005f || a > 0.9995f) return@graphicsLayer   // at rest (this page or a neighbour): untouched
-    // bell curve: 0 at rest, strongest mid-swipe — rows never drift into a page that is standing still
-    val bell = 4f * a * (1f - a)
-    val rel = (index - state.firstVisibleItemIndex).coerceIn(0, 12) / 12f
-    val dir = if (d > 0f) 1f else -1f
-    // lower rows trail the finger more (cascade), and the rows spread apart a little vertically (two layers
-    // bouncing apart), then close up again as the page lands
-    translationX = -dir * size.width * 0.22f * bell * rel
-    translationY = bell * rel * 10.dp.toPx() * (index - state.firstVisibleItemIndex).coerceIn(0, 12) / 6f
-    val sc = 1f - 0.05f * bell
-    scaleX = sc; scaleY = sc
-    alpha = 1f - 0.25f * bell * rel
+@Composable
+private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float): Modifier {
+    if (Prefs.motion.value == "off") return this
+    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 12) } }
+    val lagged = remember { androidx.compose.animation.core.Animatable(pageOffset()) }
+    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+    LaunchedEffect(rel) {
+        val stiff = (1100f / (1f + rel * 0.42f)) * k
+        snapshotFlow { pageOffset() }.collectLatest { t ->
+            lagged.animateTo(t, androidx.compose.animation.core.spring(dampingRatio = 0.66f, stiffness = stiff))
+        }
+    }
+    return graphicsLayer {
+        val d = pageOffset()
+        val lag = (lagged.value - d).coerceIn(-0.45f, 0.45f)   // in pages
+        if (kotlin.math.abs(lag) < 0.0005f) return@graphicsLayer
+        translationX = lag * size.width
+        val a = kotlin.math.abs(lag)
+        // the trailing rows also drift apart a touch vertically and dip slightly — then close up as they land
+        translationY = a * rel * 5.dp.toPx()
+        val sc = 1f - 0.08f * a
+        scaleX = sc; scaleY = sc
+    }
 }
 
 /** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */
