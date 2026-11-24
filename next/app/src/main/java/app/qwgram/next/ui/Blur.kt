@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
@@ -165,49 +167,77 @@ fun Modifier.glassScrim(base: Color, part: Prefs.B = Prefs.blurMenus, state: Haz
 enum class FadeEdge { Bottom, Top }
 
 /**
- * Header / bottom-bar glass: the blur and the tint are strongest at the screen edge and melt away towards
- * [open] (progressive blur), so the content dissolves under the bar instead of being cut off.
+ * Header / bottom-bar glass. Put it on a BACKGROUND layer only (a `matchParentSize()` sibling behind the bar's
+ * content — never on the bar itself, or its buttons would be faded out with it). The blur and the tint are
+ * strongest at the screen edge and melt away towards [open]; with a fade length over 100% the glass reaches past
+ * the bar into the content, for a long, soft transition.
  */
 @OptIn(ExperimentalHazeApi::class)
 @Composable
-fun Modifier.glassFade(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true, sourceZ: Float? = null, state: HazeState? = LocalHaze.current): Modifier {
+fun Modifier.glassFade(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true, state: HazeState? = LocalHaze.current): Modifier {
     if (state == null || !blurOn(part) || !inMainWindow()) return this
     val tone = glassTone(base)
     val tint = Prefs.blurTint.value
     var h by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     val radius = Prefs.blurRadius.value.dp
     val noise = Prefs.blurNoise.value
-    val fade = Prefs.blurFade.value
-    val len = Prefs.blurFadeLen.value.coerceIn(0.2f, 1f)
+    val fading = Prefs.blurFade.value && fadeOut
+    val len = Prefs.blurFadeLen.value.coerceIn(0.3f, 3f)
+    val ext = if (fading) maxOf(1f, len) else 1f      // the layer grows past the bar for long transitions
+    val reach = if (fading) minOf(1f, len) else 1f      // a short transition ends inside the bar
     val ease = curve()
     val q = quality()
     val hh = h   // read here: a new size recomposes with the right gradient
     // the tint melts away with the blur: the whole glass is masked by a soft gradient towards the open edge
-    val mask = if (fade && fadeOut) {
-        val stops = if (open == FadeEdge.Bottom) arrayOf(0f to Color.Black, len * 0.45f to Color.Black, len * 0.8f to Color.Black.copy(alpha = 0.45f), len to Color.Transparent)
-        else arrayOf(0f to Color.Transparent, (1f - len) to Color.Transparent, (1f - len * 0.8f) to Color.Black.copy(alpha = 0.45f), (1f - len * 0.45f) to Color.Black, 1f to Color.Black)
-        androidx.compose.ui.graphics.Brush.verticalGradient(*stops)
+    val mask = if (fading) {
+        // solid near the edge, then an eased fall-off (several stops: no visible banding)
+        val n = 8
+        val pts = (0..n).map { i ->
+            val f = i / n.toFloat()
+            val a = 1f - ease.transform(f)
+            val pos = 0.35f * reach + f * 0.65f * reach
+            pos to Color.Black.copy(alpha = a)
+        }
+        val stops = if (open == FadeEdge.Bottom) (listOf(0f to Color.Black) + pts + listOf(1f to Color.Transparent)).distinctBy { it.first }
+        else (listOf(0f to Color.Transparent) + pts.reversed().map { (1f - it.first) to it.second } + listOf(1f to Color.Black)).distinctBy { it.first }
+        androidx.compose.ui.graphics.Brush.verticalGradient(*stops.sortedBy { it.first }.toTypedArray())
     } else null
     return this
-        // a bar can also be a source (higher z): full-screen blurs (menus) then show it blurred too
-        .then(if (sourceZ != null) Modifier.hazeSource(state, zIndex = sourceZ) else Modifier)
+        .layout { m, c ->
+            // extend the glass beyond the bar (downwards for a header, upwards for a bottom bar)
+            val baseH = c.maxHeight.takeIf { it != androidx.compose.ui.unit.Constraints.Infinity } ?: c.minHeight
+            val full = (baseH * ext).toInt().coerceAtLeast(1)
+            val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(c.maxWidth, full))
+            layout(c.maxWidth, baseH) { pl.place(0, if (open == FadeEdge.Top) baseH - full else 0) }
+        }
         .then(if (mask != null) Modifier
             .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
             .drawWithContent { drawContent(); drawRect(mask, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn) }
         else Modifier)
-        .onSizeChanged { h = it.height.toFloat() }.hazeEffect(state) {
-        blurRadius = radius
-        backgroundColor = base
-        tints = if (tone.alpha == 0f) emptyList() else listOf(HazeTint(tone.copy(alpha = tint * tone.alpha)))
-        noiseFactor = noise
-        inputScale = q
-        if (fade && fadeOut) {
-            progressive = if (open == FadeEdge.Bottom)
-                HazeProgressive.verticalGradient(easing = ease, startY = 0f, startIntensity = 1f, endY = (hh * len).coerceAtLeast(1f), endIntensity = 0f, preferPerformance = true)
-            else
-                HazeProgressive.verticalGradient(easing = ease, startY = hh * (1f - len), startIntensity = 0f, endY = hh.coerceAtLeast(1f), endIntensity = 1f, preferPerformance = true)
+        .onSizeChanged { h = it.height.toFloat() }
+        .hazeEffect(state) {
+            blurRadius = radius
+            backgroundColor = base
+            tints = if (tone.alpha == 0f) emptyList() else listOf(HazeTint(tone.copy(alpha = tint * tone.alpha)))
+            noiseFactor = noise
+            inputScale = q
+            // content layers only: never the bar this glass belongs to (bars can be sources for menu blurs)
+            canDrawArea = { area -> area.zIndex < CHROME_Z }
+            if (fading) {
+                // the blur radius itself falls off too (true progressive blur), a little later than the mask
+                progressive = if (open == FadeEdge.Bottom)
+                    HazeProgressive.verticalGradient(easing = ease, startY = hh * 0.3f * reach, startIntensity = 1f, endY = (hh * reach).coerceAtLeast(1f), endIntensity = 0f, preferPerformance = true)
+                else
+                    HazeProgressive.verticalGradient(easing = ease, startY = hh * (1f - reach), startIntensity = 0f, endY = (hh * (1f - 0.3f * reach)).coerceAtLeast(1f), endIntensity = 1f, preferPerformance = true)
+            }
         }
-    }
+}
+
+/** the glass background layer of a bar: a sibling behind its content (see [glassFade]) */
+@Composable
+fun androidx.compose.foundation.layout.BoxScope.GlassFadeLayer(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true) {
+    if (!blurOn(part) || LocalHaze.current == null) return
+    Box(Modifier.matchParentSize().glassFade(open, base, part, fadeOut))
 }
 
 /**

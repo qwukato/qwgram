@@ -275,11 +275,14 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
     Box(
         modifier.fillMaxWidth()
             .then(
-                // glass: progressive blur rising from the bottom edge under the floating bar
-                if (blurOn(Prefs.blurBars)) Modifier.glassFade(FadeEdge.Top, cs.surface, Prefs.blurBars)
+                if (blurOn(Prefs.blurBars)) Modifier
                 else Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface)),
-            )
-            .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
+            ),
+    ) {
+    // glass: progressive blur rising from the bottom edge (a background layer: the pill and FAB stay crisp above)
+    GlassFadeLayer(FadeEdge.Top, cs.surface, Prefs.blurBars)
+    Box(
+        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -299,6 +302,7 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
                 layout(w, h) { pl?.place(w - pl.width, 0) }
             }
         }
+    }
     }
 }
 
@@ -467,15 +471,17 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             }
         }
         val cs = MaterialTheme.colorScheme
-        Column(
+        Box(
             Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
                 .then(
-                    // glass: the chats blur under the header, fading out downwards (Appearance → Blur)
-                    if (blurOn(Prefs.blurHeaders)) Modifier.glassFade(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value), fadeOut = floating)
+                    if (blurOn(Prefs.blurHeaders)) Modifier
                     else if (floating) Modifier.topFade(cs.surface)
                     else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value)) },
                 ),
         ) {
+        // glass: the chats blur under the header, fading out downwards (a background layer: buttons stay crisp)
+        GlassFadeLayer(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value), Prefs.blurHeaders, fadeOut = floating)
+        Column(Modifier.fillMaxWidth()) {
             if (Prefs.topBar.value == "search") {
                 SearchBarHeader(openDrawer, tabs.getOrNull(pager.currentPage)?.title)
             } else {
@@ -495,6 +501,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
                 }
             }
             if (floating) Spacer(Modifier.height(14.dp))
+        }
         }
     }
     actionChat?.let { c -> ChatActionsSheet(c) { actionChat = null } }

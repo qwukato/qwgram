@@ -117,8 +117,9 @@ private fun ProfileCard(me: TdApi.User?) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Box(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp.rs())).background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(cs.primaryContainer, cs.tertiaryContainer)))) {
-            val turn = androidx.compose.animation.core.rememberInfiniteTransition(label = "pc")
-                .animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(40000, easing = androidx.compose.animation.core.LinearEasing)), label = "r")
+            // the decorative shape eases into place once (no endless rotation: it kept the screen redrawing)
+            val turn = remember { androidx.compose.animation.core.Animatable(-40f) }
+            LaunchedEffect(Unit) { turn.animateTo(20f, androidx.compose.animation.core.spring(0.7f, 60f)) }
             Box(
                 Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-50).dp).size(200.dp)
                     .graphicsLayer { rotationZ = if (Prefs.motion.value == "off") 20f else turn.value; alpha = 0.16f }

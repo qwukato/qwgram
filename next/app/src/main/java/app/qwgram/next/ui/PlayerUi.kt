@@ -245,7 +245,8 @@ fun PlayerHost() {
             val coverX = lerpDp(10.dp, 24.dp, p)
             val coverY = lerpDp(10.dp, top + 84.dp, p)
             val coverR = lerpDp(22.dp, 32.dp, p)
-            val spin = rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(16000, easing = LinearEasing)), label = "s")
+            // turns only while it plays in the pill: a stopped animation draws nothing (battery)
+            val spin = loopPhase(p < 0.02f && Player.playing && !off, 16000, 360f)
             Box(
                 Modifier
                     .layout { m, _ ->
@@ -379,8 +380,9 @@ fun PlayMorphButton(playing: Boolean, size: Dp, bg: Color, fg: Color, wide: Bool
 /** circular progress with a gentle wave while playing (expressive ring around the mini play button) */
 @Composable
 fun WavyRing(progress: Float, playing: Boolean, color: Color, track: Color, modifier: Modifier) {
-    val phase = rememberInfiniteTransition(label = "w").animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "ph")
     val amp by animateFloatAsState(if (playing) 1f else 0f, label = "amp")
+    // the wave moves only while playing (and while it settles): no endless redraws when paused
+    val phase = loopPhase(playing || amp > 0.01f, 1400, (2 * PI).toFloat())
     Canvas(modifier) {
         val stroke = 3.dp.toPx()
         val r = size.minDimension / 2f - stroke * 1.6f
@@ -404,8 +406,8 @@ fun WavyRing(progress: Float, playing: Boolean, color: Color, track: Color, modi
 @Composable
 fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, modifier: Modifier, onSeek: (Float) -> Unit) {
     var dragging by remember { mutableStateOf<Float?>(null) }
-    val phase = rememberInfiniteTransition(label = "sw").animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1600, easing = LinearEasing)), label = "ph")
     val amp by animateFloatAsState(if (playing && dragging == null) 1f else 0f, label = "a")
+    val phase = loopPhase(amp > 0.01f || (playing && dragging == null), 1600, (2 * PI).toFloat())
     Canvas(
         modifier
             .pointerInput(Unit) { detectTapGestures { onSeek((it.x / size.width).coerceIn(0f, 1f)) } }

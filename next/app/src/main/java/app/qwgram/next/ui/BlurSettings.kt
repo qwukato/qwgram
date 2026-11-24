@@ -62,7 +62,7 @@ fun BlurPage() = PageScaffold("Размытие фона") {
     }
     group("Переход (прогрессивное размытие)", footer = "Заголовки и нижние панели размывают сильнее всего у края экрана и плавно растворяются к контенту.") {
         switch("Плавный переход", Prefs.blurFade)
-        sliderFloat("Длина перехода", Prefs.blurFadeLen, 0.2f..1f, steps = 7) { "${(it * 100).toInt()}%" }
+        sliderFloat("Длина перехода", Prefs.blurFadeLen, 0.3f..3f, steps = 26) { "${(it * 100).toInt()}%" }
         segmented("Кривая", Prefs.blurCurve, listOf("soft" to "Мягкая", "linear" to "Ровная", "sharp" to "Резкая"))
     }
     group("Где размывать") {

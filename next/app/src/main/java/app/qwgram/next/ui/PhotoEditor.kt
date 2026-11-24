@@ -567,27 +567,22 @@ internal fun EditorStickerPicker(onEmoji: (String) -> Unit, onSticker: (org.drin
 }
 
 /**
- * The editor's tool bar: equal buttons, icon over a short label (every label fits on any phone), the chosen one
- * fills with primary and rounds into a pill; outer corners big, inner small (M3 Expressive connected group).
+ * The editor's tool bar (M3 Expressive connected button group, icons only): the chosen tool widens into a pill and
+ * fills with primary, the others are round; big outer corners, small inner ones; everything springs.
  */
 @Composable
 internal fun EditorTools(tools: List<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, Int>>, selected: Int, onSelect: (Int) -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
         tools.forEachIndexed { i, (ic, label, id) ->
             val sel = selected == id
             val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), Springs.effects(), label = "t")
             val fg by animateColorAsState(if (sel) cs.onPrimary else Color.White, Springs.effects(), label = "tf")
+            val w by androidx.compose.animation.core.animateDpAsState(if (sel) 84.dp else 54.dp, androidx.compose.animation.core.spring(0.7f, 420f), label = "tw")
             MorphBox(
-                onClick = { onSelect(id) }, rest = if (sel) 30.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 10.dp, pressed = 14.dp,
-                color = bg, contentColor = fg, modifier = Modifier.weight(1f).height(62.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(ic, null, Modifier.size(22.dp))
-                    Spacer(Modifier.height(3.dp))
-                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                }
-            }
+                onClick = { onSelect(id) }, rest = if (sel) 27.dp else if (i == 0 || i == tools.lastIndex) 27.dp else 12.dp, pressed = 14.dp,
+                color = bg, contentColor = fg, modifier = Modifier.height(54.dp).width(w),
+            ) { Icon(ic, label, Modifier.size(24.dp)) }
         }
     }
 }

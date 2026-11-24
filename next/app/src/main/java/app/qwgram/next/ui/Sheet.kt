@@ -89,18 +89,20 @@ fun QSheet(
             fun animateTo(target: Float, velocity: Float = 0f, then: () -> Unit = {}) {
                 job?.cancel()
                 job = scope.launch {
-                    animate(off, target, velocity, spring(dampingRatio = 1f, stiffness = 520f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
+                    animate(off, target, velocity, spring(dampingRatio = 0.92f, stiffness = 460f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
                     then()
                 }
             }
             fun close() { if (closing) return; closing = true; animateTo(H) { onDismiss() } }
             fun expand() { if (!closing) animateTo(fullY) }
             fun settle(v: Float) {
+                // light to flick: where the sheet *would* land with this speed decides, so a small fling is enough
                 val anchors = listOf(fullY, halfY, H).distinct().sorted()
+                val projected = off + v * 0.22f
                 val target = when {
-                    v < -900f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
-                    v > 900f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
-                    else -> anchors.minBy { kotlin.math.abs(it - off) }
+                    v < -450f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
+                    v > 450f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
+                    else -> anchors.minBy { kotlin.math.abs(it - projected) }
                 }
                 if (target >= H - 1f) close() else animateTo(target, v)
             }
@@ -155,7 +157,7 @@ fun QSheet(
                 Column(Modifier.fillMaxSize()) {
                     // handle: drag the sheet itself
                     Box(
-                        Modifier.fillMaxWidth().height(28.dp)
+                        Modifier.fillMaxWidth().height(36.dp)
                             .draggable(
                                 rememberDraggableState { d -> if (!closing) { job?.cancel(); off = (off + d).coerceIn(fullY, H) } },
                                 Orientation.Vertical,

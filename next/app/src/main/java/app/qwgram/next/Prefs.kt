@@ -181,13 +181,13 @@ object Prefs {
 
     // ---- background blur (glass) ----
     val blurOn = B("blur_on", false)                   // master switch: off until the user turns it on
-    val blurRadius = I("blur_radius", 28)              // dp
+    val blurRadius = I("blur_radius", 32)              // dp
     val blurTint = F("blur_tint", 0.62f)               // how much of the panel colour lies over the blur
     val blurTone = S("blur_tone", "surface")           // surface | container | accent | dark | light | none
     val blurNoise = F("blur_noise", 0.04f)             // film grain over the glass
     val blurQuality = S("blur_quality", "balanced")    // speed | balanced | best
     val blurFade = B("blur_fade", true)                // progressive (gradient) blur on headers / bottom bars
-    val blurFadeLen = F("blur_fade_len", 1f)           // how far down (up) the gradient reaches, × bar height
+    val blurFadeLen = F("blur_fade_len2", 1.4f)        // how far the transition reaches, × bar height (past the bar when > 1)
     val blurCurve = S("blur_curve", "soft")            // soft | linear | sharp
     val blurEdge = B("blur_edge", true)                // a hairline light edge on glass buttons
     val blurHeaders = B("blur_headers", true)

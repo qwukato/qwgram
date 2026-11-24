@@ -1,5 +1,8 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.material.icons.outlined.Collections
 import android.Manifest
 import android.content.ClipData
@@ -585,7 +588,8 @@ fun ChatScreen(chatId: Long) {
     // the chat recedes a little behind the open menu (no blur): slight zoom-out, the scrim dims it
     val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
     val wallHaze = remember { dev.chrisbanes.haze.HazeState() }
-    androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze) {
+    val sendFlight = remember { SendFlight() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze, LocalSendFlight provides sendFlight) {
     Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
         // the wallpaper: blurred by the chrome (with the history) and, alone, by dates / service plates / bubbles
         Box(Modifier.fillMaxSize().blurSource(0f).blurSource(0f, wallHaze)) { ChatBackdrop(chat) { ChatWallpaper() } }
@@ -596,10 +600,12 @@ fun ChatScreen(chatId: Long) {
         val chatLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollForward) 1f else 0f, androidx.compose.animation.core.tween(220), label = "cl")
         Box(Modifier.fillMaxSize().padding(bottom = bottomInset).consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomInset))) {
             // ---- top: bars over a fade (content scrolls underneath, like Telegram)
-            Column(
+            Box(
                 Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
+                    // the bar is a source too (above the history): a menu's full-screen blur shows it frosted
+                    .blurSource(CHROME_Z)
                     .then(
-                        if (blurOn(Prefs.blurHeaders)) Modifier.glassFade(FadeEdge.Bottom, if (Prefs.floatingBars.value) fade else androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, chatLift.value), fadeOut = Prefs.floatingBars.value, sourceZ = 2f)
+                        if (blurOn(Prefs.blurHeaders)) Modifier
                         else if (Prefs.floatingBars.value) Modifier.topFade(fade)
                         else {
                             val cs2 = MaterialTheme.colorScheme
@@ -608,6 +614,9 @@ fun ChatScreen(chatId: Long) {
                     )
                     .onSizeChanged { topH = with(density) { it.height.toDp() } },
             ) {
+            // glass under the bar (a background layer: the bar's own buttons stay crisp above it)
+            GlassFadeLayer(FadeEdge.Bottom, if (Prefs.floatingBars.value) fade else androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, chatLift.value), Prefs.blurHeaders, fadeOut = Prefs.floatingBars.value)
+            Column(Modifier.fillMaxWidth()) {
             AnimatedContent(
                 targetState = if (selecting) 2 else 0,
                 transitionSpec = {
@@ -648,6 +657,7 @@ fun ChatScreen(chatId: Long) {
                 PinnedBar(p, onClick = { jump(p.id) }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
             }
             Spacer(Modifier.height(18.dp))
+            }
             }
             Box(
                 Modifier.fillMaxSize()
@@ -746,15 +756,18 @@ fun ChatScreen(chatId: Long) {
                 }
             }
             // ---- bottom: composer (+ panel) over a fade
-            Column(
+            Box(
                 Modifier.zIndex(2f).align(Alignment.BottomCenter).fillMaxWidth()
+                    .blurSource(CHROME_Z + 1f)
                     .then(
-                        // glass: the history blurs progressively under the composer, strongest at the bottom edge
-                        if (blurOn(Prefs.blurComposer)) Modifier.glassFade(FadeEdge.Top, fade, Prefs.blurComposer, sourceZ = 3f)
+                        if (blurOn(Prefs.blurComposer)) Modifier
                         else Modifier.background(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f), 1f to fade)),
                     )
                     .onSizeChanged { bottomH = with(density) { it.height.toDp() } },
             ) {
+            // glass: the history blurs progressively under the composer, strongest at the bottom edge
+            GlassFadeLayer(FadeEdge.Top, fade, Prefs.blurComposer)
+            Column(Modifier.fillMaxWidth()) {
             Spacer(Modifier.height(18.dp))
             if (canSend) {
                 fun send(silent: Boolean? = null, at: Int = 0) {
@@ -789,6 +802,7 @@ fun ChatScreen(chatId: Long) {
                 )
             } else ChannelBar(chat)
             }
+            }
         }
         // the panel is built once, quietly, a moment after the chat opens (height 0): opening it later is only a
         // slide, with no first-frame stall from building the emoji/sticker grids
@@ -806,6 +820,8 @@ fun ChatScreen(chatId: Long) {
                 )
             }
         }
+        // the message being sent, drawn above the input panel while it flies to its place
+        SendFlightOverlay(sendFlight)
     }
     }
 
@@ -1785,36 +1801,73 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
 object SendFly { var from: androidx.compose.ui.geometry.Rect? = null }
 
 /**
- * Telegram-style send: the new bubble starts where the text was typed (its text over the field's text) and flies
- * along a spring to its place in the list. Media sent from the gallery takes the same path.
+ * The bubble that is flying out of the composer right now. Telegram draws it ABOVE the input panel while it
+ * travels, so the real list item records itself into a graphics layer (drawing nothing in place), and an overlay
+ * above the composer draws that layer from the input text's spot to the item's live position.
  */
+class SendFlight {
+    var token by mutableStateOf<Any?>(null)
+    var layer by mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null)
+    var bubble by mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
+    var start by mutableStateOf(Offset.Zero)
+    val p = androidx.compose.animation.core.Animatable(1f)
+}
+
+val LocalSendFlight = androidx.compose.runtime.staticCompositionLocalOf<SendFlight?> { null }
+
 @Composable
 private fun Modifier.flyFromField(done: () -> Unit): Modifier {
+    val flight = LocalSendFlight.current
     val from = remember { SendFly.from }
-    if (from == null || Prefs.motion.value == "off") { LaunchedEffect(Unit) { done() }; return this }
-    val p = remember { androidx.compose.animation.core.Animatable(0f) }
+    if (flight == null || from == null || Prefs.motion.value == "off") { LaunchedEffect(Unit) { done() }; return this }
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val token = remember { Any() }
     var start by remember { mutableStateOf<Offset?>(null) }
+    var rect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val dens = LocalDensity.current
     val pad = remember(dens) { with(dens) { Offset(12.dp.toPx(), 9.dp.toPx()) } }
+    var finished by remember { mutableStateOf(false) }
     LaunchedEffect(start != null) {
-        if (start == null) return@LaunchedEffect
+        val s0 = start ?: return@LaunchedEffect
+        flight.token = token; flight.layer = layer; flight.start = s0; flight.bubble = rect
+        flight.p.snapTo(0f)
         val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-        p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.74f, stiffness = 260f * k))
+        flight.p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 240f * k, visibilityThreshold = 0.001f))
+        if (flight.token === token) { flight.token = null; flight.layer = null }
+        finished = true
         done()
     }
     return this
         .onGloballyPositioned { c ->
-            if (start == null) { val b = c.boundsInRoot(); start = Offset(from.left - pad.x - b.left, from.top - pad.y - b.top) }
+            val b = c.boundsInRoot()
+            rect = b
+            if (flight.token === token) flight.bubble = b
+            if (start == null) start = Offset(from.left - pad.x - b.left, from.top - pad.y - b.top)
         }
-        .graphicsLayer {
-            val s0 = start
-            if (s0 == null) { alpha = 0f; return@graphicsLayer }
-            val t = p.value
-            // x settles a little faster than y, so the bubble curves up into place like in Telegram
-            val tx = (t * 1.15f).coerceAtMost(1f + (t - 1f).coerceAtLeast(0f))
-            translationX = s0.x * (1f - tx)
-            translationY = s0.y * (1f - t)
+        .drawWithContent {
+            when {
+                finished -> drawContent()
+                start == null -> Unit                          // first frame: not placed yet, show nothing
+                flight.token === token -> layer.record { this@drawWithContent.drawContent() }   // drawn by the overlay
+                else -> drawContent()
+            }
         }
+}
+
+/** draws the flying bubble above the composer (put it last in the chat's box) */
+@Composable
+private fun SendFlightOverlay(flight: SendFlight) {
+    val layer = flight.layer ?: return
+    if (flight.token == null) return
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInRoot().topLeft }) {
+        val t = flight.p.value
+        // x settles a touch faster than y: the bubble arcs up into place
+        val tx = (t * 1.12f).coerceAtMost(maxOf(1f, t))
+        val x = flight.bubble.left - origin.x + flight.start.x * (1f - tx)
+        val y = flight.bubble.top - origin.y + flight.start.y * (1f - t)
+        translate(x, y) { drawLayer(layer) }
+    }
 }
 
 

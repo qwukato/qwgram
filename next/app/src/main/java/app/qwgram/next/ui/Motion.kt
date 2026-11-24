@@ -284,28 +284,29 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.48f, 150f * k) else androidx.compose.animation.core.spring(0.85f, 240f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 300f * k) else androidx.compose.animation.core.spring(0.95f, 520f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
         // the screen behind the menu frosts while it is open (Appearance → Blur → menus; Android 12+)
         WindowBlurBehind(Prefs.blurMenus) { p }
         val radiusEnd = 16.dp.rs()
         Column(
-            modifier.widthIn(min = 200.dp, max = 300.dp)
+            // as wide as the longest item (no empty band on the right), within M3's 112–280dp
+            modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)
                 .graphicsLayer {
                     // the whole menu — its fill AND its items together — unfolds from the button's corner on one
                     // spring and overshoots a little (nothing moves on its own inside it)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
                     val q = p.coerceAtLeast(0f)
-                    scaleX = 0.55f + 0.45f * q
-                    scaleY = 0.25f + 0.75f * q
+                    scaleX = 0.7f + 0.3f * q
+                    scaleY = 0.45f + 0.55f * q
                     alpha = (p * 3f).coerceIn(0f, 1f)
                     shape = RoundedCornerShape(radiusEnd)
                     clip = true
                     shadowElevation = 6.dp.toPx() * p.coerceIn(0f, 1f)
                 }
                 .background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHighest, cs.surfaceContainer, p.coerceIn(0f, 1f)))
-                .padding(vertical = 6.dp),
+                .padding(vertical = 4.dp),
         ) {
             // items arrive a beat after the container has grown
             Column(Modifier.graphicsLayer { alpha = ((p - 0.2f) / 0.5f).coerceIn(0f, 1f) }) {
@@ -616,4 +617,24 @@ fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, a
             }
         }
     }
+}
+
+
+/**
+ * A 0→[max] linear loop that runs only while [running] (and motion is on). Unlike an infinite transition it
+ * stops completely when not needed, so a paused player or a hidden card costs no frames at all.
+ */
+@Composable
+fun loopPhase(running: Boolean, periodMs: Int, max: Float): androidx.compose.runtime.State<Float> {
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    val on = running && Prefs.motion.value != "off"
+    LaunchedEffect(on) {
+        if (!on) return@LaunchedEffect
+        while (true) {
+            val left = ((max - a.value) / max * periodMs).toInt().coerceAtLeast(16)
+            a.animateTo(max, androidx.compose.animation.core.tween(left, easing = androidx.compose.animation.core.LinearEasing))
+            a.snapTo(0f)
+        }
+    }
+    return a.asState()
 }

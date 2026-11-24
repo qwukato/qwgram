@@ -182,12 +182,17 @@ fun VideoEditorHost() {
     fun export() {
         exporting = 0f
         val out = File(File(ctx.cacheDir, "edited").apply { mkdirs() }, "video_${System.currentTimeMillis()}.mp4")
-        val item = MediaItem.Builder().setUri(req.first).setClippingConfiguration(
-            MediaItem.ClippingConfiguration.Builder()
-                .setStartPositionMs((trim.start * durMs).toLong())
-                .setEndPositionMs(if (trim.endInclusive >= 0.999f) Long.MIN_VALUE else (trim.endInclusive * durMs).toLong())
-                .build(),
-        ).build()
+        // the real length (the player may not have reported it yet when the user is quick)
+        val total = if (durMs > 0) durMs else player.duration.takeIf { it > 0 } ?: 0L
+        val trimmed = total > 0 && (trim.start > 0.001f || trim.endInclusive < 0.999f)
+        val item = MediaItem.Builder().setUri(req.first).apply {
+            if (trimmed) setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs((trim.start * total).toLong())
+                    .setEndPositionMs(if (trim.endInclusive >= 0.999f) androidx.media3.common.C.TIME_END_OF_SOURCE else (trim.endInclusive * total).toLong())
+                    .build(),
+            )
+        }.build()
         val fx = effects().toMutableList()
         if (layers.isNotEmpty()) runCatching {
             // text and stickers: one transparent picture the size of the frame, laid over every frame
@@ -197,7 +202,10 @@ fun VideoEditorHost() {
             fx.add(androidx.media3.effect.OverlayEffect(com.google.common.collect.ImmutableList.of<androidx.media3.effect.TextureOverlay>(androidx.media3.effect.BitmapOverlay.createStaticBitmapOverlay(bmp))))
         }
         val edited = EditedMediaItem.Builder(item).setRemoveAudio(muted).setEffects(Effects(emptyList(), fx)).build()
-        val transformer = Transformer.Builder(ctx).addListener(object : Transformer.Listener {
+        val transformer = Transformer.Builder(ctx)
+            // frame-accurate trim: the cut starts exactly at the chosen moment, not at the previous keyframe
+            .experimentalSetTrimOptimizationEnabled(trimmed && fx.isEmpty())
+            .addListener(object : Transformer.Listener {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                 exporting = null
                 req.second(Uri.fromFile(out)); close()
@@ -309,7 +317,13 @@ fun VideoEditorHost() {
                             0 -> {
                                 val s = (trim.start * durMs / 1000).toInt(); val e = (trim.endInclusive * durMs / 1000).toInt()
                                 Text("${app.qwgram.next.td.Texts.duration(s)} – ${app.qwgram.next.td.Texts.duration(e)}  ·  ${app.qwgram.next.td.Texts.duration(e - s)}", color = Color.White, style = MaterialTheme.typography.titleSmall)
-                                RangeSlider(trim, { trim = it; player.seekTo((it.start * durMs).toLong()) }, valueRange = 0f..1f, modifier = Modifier.fillMaxWidth().noSwipeBack())
+                                // the preview jumps to whichever end you move, so you see exactly where it cuts
+                                RangeSlider(trim, { nt ->
+                                    val movedEnd = kotlin.math.abs(nt.endInclusive - trim.endInclusive) > kotlin.math.abs(nt.start - trim.start)
+                                    trim = nt
+                                    player.pause()
+                                    player.seekTo(((if (movedEnd) nt.endInclusive else nt.start) * durMs).toLong())
+                                }, onValueChangeFinished = { player.seekTo((trim.start * durMs).toLong()); player.play() }, valueRange = 0f..1f, modifier = Modifier.fillMaxWidth().noSwipeBack())
                             }
                             1 -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 MorphIconButton(Icons.Outlined.RotateLeft, "Повернуть", { rotation = (rotation + 90) % 360 }, color = Color.White.copy(alpha = 0.14f), tint = Color.White)
