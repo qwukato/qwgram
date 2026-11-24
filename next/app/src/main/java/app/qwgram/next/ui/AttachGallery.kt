@@ -216,7 +216,7 @@ fun AttachGallerySheet(
                 }
             }
             // "Send N": springs in from the bottom when something is picked
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 picked.isNotEmpty(),
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
                 enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
@@ -283,7 +283,7 @@ private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
                 .border(2.dp, if (sel) cs.onPrimary else Color.White, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            AnimatedVisibility(sel, enter = scaleIn(spring(0.5f, 600f)), exit = scaleOut()) {
+            androidx.compose.animation.AnimatedVisibility(sel, enter = scaleIn(spring(0.5f, 600f)), exit = scaleOut()) {
                 Text("${order + 1}", style = MaterialTheme.typography.labelMedium, color = cs.onPrimary)
             }
         }
