@@ -317,7 +317,7 @@ private fun Bubble(
             if (c is TdApi.MessageSticker) StickerView(c.sticker)
             else if (c is TdApi.MessageAnimatedEmoji && c.animatedEmoji?.sticker != null) {
                 // Telegram's animated emoji (a single emoji sent alone) plays like a small sticker
-                StickerContent(c.animatedEmoji.sticker, Modifier.size(132.dp)) {
+                StickerContent(c.animatedEmoji.sticker!!, Modifier.size(132.dp)) {
                     Text(c.emoji, fontSize = (Prefs.textSize.value * 3).sp)
                 }
             }
