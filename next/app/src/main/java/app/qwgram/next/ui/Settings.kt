@@ -94,6 +94,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ settings tab

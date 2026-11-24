@@ -27,6 +27,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
 import app.qwgram.next.td.Images
+import app.qwgram.next.td.rememberFileBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,7 +120,8 @@ fun ChatBackdrop(chat: TdApi.Chat?, fallback: @Composable () -> Unit) {
         when (val t = bg.type) {
             is TdApi.BackgroundTypeWallpaper -> {
                 val bmp = rememberFileBitmap(bg.document?.document, maxSide = 1600)
-                if (bmp != null) { PhotoWallpaper(bmp, (chat.background.darkThemeDimming / 100f) * 0.8f, blurred = t.isBlurred); return }
+                val dimming = chat.background?.darkThemeDimming ?: 0
+                if (bmp != null) { PhotoWallpaper(bmp, (dimming / 100f) * 0.8f, blurred = t.isBlurred); return }
             }
             is TdApi.BackgroundTypeFill -> fillBrush(t.fill)?.let { b -> Box(Modifier.fillMaxSize().background(b)); return }
             is TdApi.BackgroundTypePattern -> fillBrush(t.fill)?.let { b ->
