@@ -60,6 +60,7 @@ object TdStore {
                 listVersion++
             }
             is TdApi.UpdateChatTitle -> edit(obj.chatId) { it.title = obj.title }
+            is TdApi.UpdateChatBackground -> edit(obj.chatId) { it.background = obj.background }
             is TdApi.UpdateChatPhoto -> edit(obj.chatId) { it.photo = obj.photo }
             is TdApi.UpdateChatLastMessage -> {
                 edit(obj.chatId) {
@@ -154,6 +155,13 @@ object TdStore {
         n.emojiStatus = c.emojiStatus; n.draftMessage = c.draftMessage; n.actionBar = c.actionBar
         n.replyMarkupMessageId = c.replyMarkupMessageId; n.clientData = c.clientData
         n.defaultDisableNotification = c.defaultDisableNotification
+        n.background = c.background; n.theme = c.theme; n.profileAccentColorId = c.profileAccentColorId
+        n.backgroundCustomEmojiId = c.backgroundCustomEmojiId; n.profileBackgroundCustomEmojiId = c.profileBackgroundCustomEmojiId
+        n.upgradedGiftColors = c.upgradedGiftColors; n.isTranslatable = c.isTranslatable; n.viewAsTopics = c.viewAsTopics
+        n.hasScheduledMessages = c.hasScheduledMessages; n.canBeReported = c.canBeReported; n.messageAutoDeleteTime = c.messageAutoDeleteTime
+        n.videoChat = c.videoChat; n.pendingJoinRequests = c.pendingJoinRequests; n.businessBotManageBar = c.businessBotManageBar
+        n.unreadPollVoteCount = c.unreadPollVoteCount; n.hasWelcomeMessages = c.hasWelcomeMessages
+        n.textCompositionParameters = c.textCompositionParameters
     }
 
     private fun setPosition(c: TdApi.Chat, p: TdApi.ChatPosition) {

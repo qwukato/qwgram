@@ -54,7 +54,7 @@ object Td {
             systemLanguageCode = Locale.getDefault().language.ifEmpty { "ru" }
             deviceModel = (Build.MANUFACTURER.replaceFirstChar { it.uppercase() } + " " + Build.MODEL).trim()
             systemVersion = "Android " + Build.VERSION.RELEASE
-            applicationVersion = "qwgram " + BuildConfig.VERSION_NAME
+            applicationVersion = BuildConfig.VERSION_NAME
         }
     }
 

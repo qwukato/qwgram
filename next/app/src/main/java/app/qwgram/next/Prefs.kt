@@ -18,6 +18,14 @@ object Prefs {
     private val all = mutableListOf<Item<*>>()
 
     /** where each chat was left: "<messageId>:<offsetPx>" (not part of the settings) */
+    /** own wallpaper for one chat: a file path, or null */
+    fun chatWallpaper(chatId: Long): String? = sp.getString("wp_$chatId", null)?.takeIf { java.io.File(it).exists() }
+    fun setChatWallpaper(chatId: Long, path: String?) {
+        sp.edit().apply { if (path == null) remove("wp_$chatId") else putString("wp_$chatId", path) }.apply()
+        chatWallpaperVersion.intValue++
+    }
+    val chatWallpaperVersion = androidx.compose.runtime.mutableIntStateOf(0)
+
     fun chatPos(chatId: Long): Pair<Long, Int>? = sp.getString("pos_$chatId", null)?.split(':')?.let { p ->
         val id = p.getOrNull(0)?.toLongOrNull() ?: return null
         id to (p.getOrNull(1)?.toIntOrNull() ?: 0)
@@ -75,14 +83,15 @@ object Prefs {
     // ---- theme & colour ----
     val themeMode = S("theme_mode", "system")          // system | light | dark
     val amoled = B("amoled", false)
-    val dynamicColor = B("dynamic_color", false)        // Android 12+ wallpaper colours
+    val dynamicColor = B("dynamic_color", true)        // Android 12+ wallpaper colours
     val seed = I("seed", 0xFF6750A4.toInt())
     val paletteStyle = I("palette_style", 0)           // SeedScheme.VARIANT_*
     val contrast = I("contrast", 0)
 
     // ---- shapes ----
     val avatarShape = S("avatar_shape", "circle")
-    val uiRound = I("ui_round", 1)                     // 0 small, 1 standard, 2 large
+    val uiRound = I("ui_round", 1)                     // legacy, superseded by corner_scale
+    val cornerScale = F("corner_scale", 1f)             // global corner radius multiplier 0…2 (buttons, panels, headers)
 
     // ---- chat list ----
     val listStyle = S("list_style", "flat")             // flat | cards
@@ -107,7 +116,11 @@ object Prefs {
     val textSize = I("text_size", 16)
     val bubbleTail = B("bubble_tail", true)
     val bubbleWidth = I("bubble_width", 82)
-    val wallpaper = S("wallpaper", "shapes")            // plain | tonal | shapes | dots
+    val wallpaper = S("wallpaper", "shapes")            // plain | tonal | shapes | dots | image
+    val wallpaperImage = S("wallpaper_image", "")         // own photo (copied into app files)
+    val wallpaperEverywhere = B("wallpaper_everywhere", false) // the photo behind every screen, not only chats
+    val wallpaperDim = F("wallpaper_dim", 0.35f)          // scrim over the photo (readability)
+    val tgWallpapers = B("tg_wallpapers", true)           // show wallpapers set in Telegram for a chat
     val messageEnter = S("message_enter", "spring")     // spring | fade | none
     val bigEmoji = B("big_emoji", true)
     val groupAvatars = B("group_avatars", true)
@@ -151,8 +164,8 @@ object Prefs {
     val predictiveBack = B("predictive_back", true)
     val uiScale = F("ui_scale", 1f)
     val font = S("font", "google")                      // google (Google Sans Flex) | system | serif | mono
-    val textWeight = S("text_weight", "regular")          // regular | medium | bold — body text
-    val headWeight = S("head_weight", "heavy")            // normal | bold | heavy — titles and headers
+    val bodyWeight = I("body_weight", 400)                // 300…700, body text (any font; variable fonts are exact)
+    val headWeight = I("head_weight_v", 800)              // 400…900, headers and titles
     val haptics = B("haptics", true)
 
     // ---- client features ----

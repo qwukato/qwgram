@@ -18,6 +18,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Animation
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -219,28 +229,31 @@ fun TypePreview() = PreviewCard("шрифт") {
 
 // ------------------------------------------------------------------ settings: tiles & pages
 
-/** two big expressive tiles: Appearance and qwgram features */
+/** two big expressive tiles: Appearance and qwgram features (icon in a shape + title, nothing else) */
 @Composable
 fun QuickTiles2() {
     val cs = MaterialTheme.colorScheme
-    data class Tile(val title: String, val sub: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val iconBg: Color, val iconFg: Color, val page: String)
+    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val iconBg: Color, val iconFg: Color, val page: String)
     val tiles = listOf(
-        Tile("Оформление", "Тема, шрифт, анимации", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, cs.primary, cs.onPrimary, "appearance"),
-        Tile("Функции qwgram", "Призрак, удалённые и др.", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, cs.onTertiary, "features"),
+        Tile("Оформление", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, cs.primary, cs.onPrimary, "appearance"),
+        Tile("Функции qwgram", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, cs.onTertiary, "features"),
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        tiles.forEachIndexed { i, t ->
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        tiles.forEach { t ->
             MorphBox(
-                onClick = { Nav.push(Route.Page(t.page)) }, rest = 28.dp, pressed = 16.dp, squish = 0.96f,
-                color = t.bg, contentColor = t.fg, contentAlignment = Alignment.TopStart,
-                modifier = Modifier.weight(1f).height(132.dp),
+                onClick = { Nav.push(Route.Page(t.page)) }, rest = 32.dp, pressed = 18.dp, squish = 0.97f,
+                color = t.bg, contentColor = t.fg, contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).heightIn(min = 128.dp),
             ) {
-                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    Box(Modifier.size(48.dp).clip(t.shape.asShape()).background(t.iconBg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.iconFg) }
-                    Column {
-                        Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, lineHeight = 20.sp)
-                        Text(t.sub, style = MaterialTheme.typography.bodySmall, color = t.fg.copy(alpha = 0.75f), maxLines = 2)
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // the icon shape slowly turns: a quiet expressive touch
+                    val turn = rememberInfiniteTransition(label = "t").animateFloat(0f, 360f, infiniteRepeatable(tween(24000, easing = LinearEasing)), label = "r")
+                    Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.matchParentSize().graphicsLayer { rotationZ = if (Prefs.motion.value == "off") 0f else turn.value }.clip(t.shape.asShape()).background(t.iconBg))
+                        Icon(t.icon, null, tint = t.iconFg, modifier = Modifier.size(26.dp))
                     }
+                    Spacer(Modifier.height(12.dp))
+                    Text(t.title, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         }
@@ -259,7 +272,8 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
     group("Цвет и форма") {
         nav("Тема и цвета", "Светлая или тёмная, акцент, палитра", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("ap-theme")) }
         nav("Формы и аватарки", "26 форм, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
-        nav("Шрифт и масштаб", "Начертание, размер текста", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
+        nav("Шрифт и масштаб", "Начертание, жирность, размер", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
+        nav("Эмодзи", "Twemoji, Noto или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
     }
     group("Экраны") {
         nav("Список чатов", "Строки, счётчики, свайпы, архив", Icons.Outlined.ViewAgenda) { Nav.push(Route.Page("ap-list")) }
@@ -330,8 +344,15 @@ fun ChatStylePage2() = PageScaffold("Чат и сообщения") {
         switch("Крупные эмодзи", Prefs.bigEmoji, "Сообщение из одних эмодзи — без пузыря")
         switch("Секунды во времени", Prefs.seconds)
     }
-    group("Фон") {
-        segmented("Фон чата", Prefs.wallpaper, listOf("plain" to "Обычный", "tonal" to "Тон", "shapes" to "Фигуры", "dots" to "Точки"))
+    item { GroupHeader("Обои") }
+    item { WallpaperCard() }
+    group(footer = "Свои обои для одного чата: меню ⋮ в чате → «Обои чата».") {
+        pick("Фон чатов", Prefs.wallpaper, listOf("plain" to "Обычный", "tonal" to "Тональный", "shapes" to "Фигуры", "dots" to "Точки", "image" to "Своё фото"))
+        switch("Обои из Telegram", Prefs.tgWallpapers, "Если собеседник поставил обои для чата")
+        if (Prefs.wallpaperImage.value.isNotEmpty()) {
+            switch("Фото на весь интерфейс", Prefs.wallpaperEverywhere, "Список чатов, настройки и все экраны")
+            sliderFloat("Затемнение фото", Prefs.wallpaperDim, 0f..0.9f, 8) { "${(it * 100).toInt()}%" }
+        }
     }
     group("Жесты") {
         pick("Двойной тап", Prefs.doubleTap, listOf("react" to "Реакция", "reply" to "Ответить", "none" to "Ничего"))
@@ -352,6 +373,9 @@ fun NavPage2() = PageScaffold("Панели и кнопки") {
     group("Кнопка «Написать»", footer = "Нажатие открывает меню: сообщение, группа, канал, контакт.") {
         segmented("Показывать", Prefs.fabStyle, listOf("extended" to "Да", "none" to "Нет"))
         segmented("Форма", Prefs.fabShape, listOf("cookie" to "Печенье", "sunny" to "Солнце", "circle" to "Круг", "square" to "Квадрат"))
+    }
+    group("Скругление", footer = "Одно значение для кнопок, панелей, шапок и плиток во всём приложении.") {
+        sliderFloat("Скругление интерфейса", Prefs.cornerScale, 0f..2f, 19) { if (it < 0.05f) "Квадратное" else "${(it * 100).toInt()}%" }
     }
     group("Шапки и панели", footer = "Плавающие: заголовок лежит на растворении, кнопки и папки — отдельные круглые кнопки с морфингом. Выключите, чтобы вернуть обычные прямоугольные панели везде.") {
         switch("Плавающие шапки и панели", Prefs.floatingBars)
@@ -384,18 +408,149 @@ fun MotionPage2() = PageScaffold("Анимации и жесты") {
 @Composable
 fun TextPage2() = PageScaffold("Шрифт и масштаб") {
     item { TypePreview() }
-    group("Шрифт") {
-        segmented("Начертание", Prefs.font, listOf("google" to "Google Sans", "system" to "Системный", "serif" to "Засечки", "mono" to "Моно"))
-        segmented("Жирность текста", Prefs.textWeight, listOf("regular" to "Обычный", "medium" to "Средний", "bold" to "Жирный"))
-        segmented("Заголовки", Prefs.headWeight, listOf("normal" to "Обычные", "bold" to "Жирные", "heavy" to "Очень жирные"))
-    }
-    group("Эмодзи", footer = "Twemoji — эмодзи Twitter/X (Android 13+). Noto — набор Google, применится после перезапуска qwgram. Эмодзи Apple встроить нельзя: они принадлежат Apple.") {
-        segmented("Стиль", Prefs.emojiStyle, listOf("twemoji" to "Twemoji", "noto" to "Noto", "system" to "Системные"))
+    item { GroupHeader("Шрифт") }
+    item { FontCards() }
+    group("Жирность", footer = "Работает для любого шрифта. Google Sans меняет толщину плавно, остальные — ступенями.") {
+        sliderInt("Обычный текст", Prefs.bodyWeight, 300..700, 50) { weightName(it) }
+        sliderInt("Заголовки", Prefs.headWeight, 400..900, 50) { weightName(it) }
     }
     group("Масштаб") {
         sliderFloat("Размер интерфейса", Prefs.uiScale, 0.85f..1.15f, 5) { "${(it * 100).toInt()}%" }
         sliderInt("Текст сообщений", Prefs.textSize, 12..22, 1) { "$it sp" }
     }
+}
+
+private fun weightName(w: Int) = when {
+    w < 350 -> "Тонкий"; w < 450 -> "Обычный"; w < 550 -> "Средний"; w < 650 -> "Полужирный"; w < 750 -> "Жирный"; w < 850 -> "Очень жирный"; else -> "Чёрный"
+} + " · $w"
+
+/** font picker: each card shows "Аа" in its own font, the selected one morphs into a pill-ish primary container */
+@Composable
+private fun FontCards() {
+    val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val opts = listOf("google" to "Google Sans", "system" to "Системный", "serif" to "С засечками", "mono" to "Моноширинный")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        opts.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { (k, title) ->
+                    val sel = Prefs.font.value == k
+                    val fam = remember(k) {
+                        when (k) { "serif" -> androidx.compose.ui.text.font.FontFamily.Serif; "mono" -> androidx.compose.ui.text.font.FontFamily.Monospace
+                            else -> Fonts.family(ctx, k, "system") ?: androidx.compose.ui.text.font.FontFamily.Default }
+                    }
+                    val bg by animateColorAsState(if (sel) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "fb")
+                    MorphBox(
+                        onClick = { Prefs.font.value = k }, rest = if (sel) 32.dp else 18.dp, pressed = 10.dp,
+                        color = bg, contentColor = if (sel) cs.onPrimaryContainer else cs.onSurface, contentAlignment = Alignment.Center,
+                        modifier = Modifier.weight(1f).heightIn(min = 96.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(10.dp)) {
+                            Text("Аа", fontFamily = fam, fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(Prefs.headWeight.value))
+                            Text(title, style = MaterialTheme.typography.labelLarge, fontFamily = fam, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** the own photo: preview tile with pick / remove */
+@Composable
+private fun WallpaperCard() {
+    val cs = MaterialTheme.colorScheme
+    val pick = rememberWallpaperPicker("global") { path -> Prefs.wallpaperImage.value = path; Prefs.wallpaper.value = "image" }
+    val bmp = rememberPathBitmap(Prefs.wallpaperImage.value, 800)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        MorphBox(
+            onClick = pick, rest = 28.dp, pressed = 16.dp, color = cs.surfaceContainerHigh, contentAlignment = Alignment.Center,
+            modifier = Modifier.weight(1f).height(150.dp),
+        ) {
+            if (bmp != null) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp.rs()))) { PhotoWallpaper(bmp, Prefs.wallpaperDim.value * 0.6f) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
+                Icon(Icons.Outlined.AddPhotoAlternate, null)
+                Spacer(Modifier.height(6.dp))
+                Text(if (bmp == null) "Выбрать фото" else "Заменить фото", style = MaterialTheme.typography.titleSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        }
+        if (bmp != null) MorphBox(
+            onClick = { Prefs.wallpaperImage.value = ""; Prefs.wallpaperEverywhere.value = false; if (Prefs.wallpaper.value == "image") Prefs.wallpaper.value = "shapes" },
+            rest = 28.dp, pressed = 16.dp, color = cs.errorContainer, contentColor = cs.onErrorContainer, contentAlignment = Alignment.Center,
+            modifier = Modifier.width(96.dp).height(150.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
+                Icon(Icons.Outlined.Delete, null)
+                Spacer(Modifier.height(6.dp))
+                Text("Убрать", style = MaterialTheme.typography.titleSmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun EmojiPage() = PageScaffold("Эмодзи") {
+    item { EmojiCards() }
+    item {
+        val ctx = LocalContext.current
+        val needRestart = (Prefs.emojiStyle.value == "noto") != (app.qwgram.next.startEmoji == "noto")
+        androidx.compose.animation.AnimatedVisibility(
+            needRestart,
+            enter = androidx.compose.animation.expandVertically(Springs.smooth()) + androidx.compose.animation.fadeIn(Springs.effects()),
+            exit = androidx.compose.animation.shrinkVertically(Springs.smooth()) + androidx.compose.animation.fadeOut(Springs.exit()),
+        ) {
+            MorphBox(
+                onClick = { restartApp(ctx) }, rest = 28.dp, pressed = 14.dp,
+                color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(top = 12.dp).fillMaxWidth().heightIn(min = 56.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Icon(Icons.Outlined.RestartAlt, null)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Перезапустить qwgram, чтобы применить", style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
+    }
+    item {
+        Text(
+            "Twemoji — набор Twitter/X, цветной на Android 13+. Noto — набор Google, одинаковый на всех устройствах. Эмодзи Apple встроить нельзя: они принадлежат Apple.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun EmojiCards() {
+    val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val opts = listOf("twemoji" to "Twemoji", "noto" to "Noto", "system" to "Системные")
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        opts.forEach { (k, title) ->
+            val sel = Prefs.emojiStyle.value == k
+            // Twemoji is previewed through its own font; Noto/system show the current system rendering
+            val fam = remember(k) { if (k == "twemoji") Fonts.family(ctx, "system", "twemoji") else null }
+            val bg by animateColorAsState(if (sel) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "eb")
+            MorphBox(
+                onClick = { Prefs.emojiStyle.value = k }, rest = if (sel) 32.dp else 18.dp, pressed = 10.dp,
+                color = bg, contentColor = if (sel) cs.onPrimaryContainer else cs.onSurface, contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).heightIn(min = 104.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
+                    Text("😀🔥", fontSize = 28.sp, fontFamily = fam)
+                    Spacer(Modifier.height(6.dp))
+                    Text(title, style = MaterialTheme.typography.labelLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+fun restartApp(ctx: android.content.Context) {
+    val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK) ?: return
+    ctx.startActivity(i)
+    Runtime.getRuntime().exit(0)
 }
 
 @Composable

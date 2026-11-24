@@ -148,7 +148,7 @@ fun MorphBox(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val m = rememberPressMorph(interaction, rest, pressed, squish)
+    val m = rememberPressMorph(interaction, rest.rs(), pressed.rs(), squish)
     Box(
         modifier
             .graphicsLayer {
@@ -223,6 +223,9 @@ fun MorphIconButton(
     ) { Icon(icon, desc, Modifier.size(24.dp)) }
 }
 
+/** global corner radius (Appearance → Shapes): every container radius goes through this */
+fun Dp.rs(): Dp = this * Prefs.cornerScale.value
+
 /** Text button with the expressive press morph (pill → squarer while pressed, springs back) */
 @Composable
 fun QTextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
@@ -282,7 +285,7 @@ fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, heig
             val fg = if (b.selected) cs.onPrimary else cs.onSecondaryContainer
             Box(
                 Modifier.height(height).defaultMinSize(minWidth = height + grow)
-                    .graphicsLayer { shape = RoundedCornerShape(r.coerceAtLeast(0.dp)); clip = true }
+                    .graphicsLayer { shape = RoundedCornerShape(r.rs().coerceAtLeast(0.dp)); clip = true }
                     .background(bg)
                     .clickable(interactionSource = interaction, indication = ripple(), onClick = b.onClick)
                     .padding(horizontal = if (b.label != null) 16.dp + grow / 2 else 0.dp),
@@ -309,8 +312,8 @@ fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) {
         items.forEachIndexed { i, b ->
             val interaction = remember { MutableInteractionSource() }
             val pressed by interaction.collectIsPressedAsState()
-            val outer = 22.dp
-            val inner = 8.dp
+            val outer = 22.dp.rs()
+            val inner = 8.dp.rs()
             val pr by animateDpAsState(if (pressed) 30.dp else 0.dp, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "tp")
             val start = (if (i == 0) outer else inner) + pr * (if (i == 0) 0.3f else 1f)
             val end = (if (i == items.lastIndex) outer else inner) + pr * (if (i == items.lastIndex) 0.3f else 1f)

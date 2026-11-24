@@ -194,6 +194,7 @@ fun HomeScreen() {
             bottomBar = { if (floatingNav) Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).height(84.dp)) else BottomNav(Modifier) },
             floatingActionButton = { if (!floatingNav) fab() },
             contentWindowInsets = WindowInsets(0),
+            containerColor = if (appWallpaperOn()) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.surface,
         ) { pad ->
             Box(Modifier.fillMaxSize().nestedScroll(fabConn)) {
                 AnimatedContent(
@@ -556,7 +557,7 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
                         .graphicsLayer {
                             val sc = squeeze * pop.value
                             scaleX = sc; scaleY = sc
-                            shape = RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end)
+                            shape = RoundedCornerShape(topStart = start.rs(), bottomStart = start.rs(), topEnd = end.rs(), bottomEnd = end.rs())
                             clip = true
                             shadowElevation = if (floating) 2.dp.toPx() else 0f
                         }
@@ -912,6 +913,7 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
                 shadowElevation = 24.dp.toPx() * p
             },
         ) {
+            if (appWallpaperOn()) AppWallpaper()
             content()
             if (open) Box(
                 Modifier.matchParentSize()

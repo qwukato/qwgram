@@ -90,9 +90,62 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
 import org.drinkless.tdlib.TdApi
 
 // ------------------------------------------------------------------ settings tab
+
+/**
+ * Settings header card: tonal gradient with a slowly turning expressive shape behind, big avatar with a ring,
+ * name, @username / phone, Premium mark; tap opens your profile, the pencil edits the account.
+ */
+/** our own sessions read "qwgram <version>" whatever title the API id was registered with; old builds sent "qwgram x.y" as the version */
+private fun sessionTitle(s: TdApi.Session): String =
+    if (s.apiId == BuildConfig.TG_APP_ID) "qwgram " + s.applicationVersion.removePrefix("qwgram ").trim()
+    else (s.applicationName + " " + s.applicationVersion).trim()
+
+@Composable
+private fun ProfileCard(me: TdApi.User?) {
+    val cs = MaterialTheme.colorScheme
+    MorphBox(
+        onClick = { Nav.push(Route.Me) }, rest = 32.dp, pressed = 32.dp, squish = 0.985f,
+        color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, contentAlignment = Alignment.TopStart,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp.rs())).background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(cs.primaryContainer, cs.tertiaryContainer)))) {
+            val turn = androidx.compose.animation.core.rememberInfiniteTransition(label = "pc")
+                .animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(40000, easing = androidx.compose.animation.core.LinearEasing)), label = "r")
+            Box(
+                Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-50).dp).size(200.dp)
+                    .graphicsLayer { rotationZ = if (Prefs.motion.value == "off") 20f else turn.value; alpha = 0.16f }
+                    .clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.asShape()).background(cs.primary),
+            )
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(84.dp).clip(CircleShape).background(cs.surface.copy(alpha = 0.6f)).padding(4.dp)) { UserAvatar(me, 76.dp) }
+                    Spacer(Modifier.weight(1f))
+                    MorphIconButton(Icons.Outlined.Edit, "Изменить", { Nav.push(Route.Page("account")) }, color = cs.surface.copy(alpha = 0.55f), tint = cs.onSurface)
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(me?.let { TdStore.fullName(it) } ?: "", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f, fill = false))
+                    if (me?.isPremium == true) {
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Filled.Star, "Premium", tint = cs.primary, modifier = Modifier.size(22.dp))
+                    }
+                }
+                val line = listOfNotNull(
+                    me?.usernames?.activeUsernames?.firstOrNull()?.let { "@$it" },
+                    if (Prefs.hidePhone.value) null else me?.phoneNumber?.takeIf { it.isNotBlank() }?.let { "+$it" },
+                ).joinToString(" · ")
+                if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.bodyLarge, color = cs.onPrimaryContainer.copy(alpha = 0.8f))
+            }
+        }
+    }
+}
 
 @Composable
 fun SettingsHome(pad: PaddingValues) {
@@ -109,24 +162,7 @@ fun SettingsHome(pad: PaddingValues) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - 12.dp, bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            item {
-                MorphBox(onClick = { Nav.push(Route.Me) }, rest = 28.dp, pressed = 16.dp, squish = 0.98f, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        UserAvatar(me, 64.dp)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text(me?.let { TdStore.fullName(it) } ?: "", style = MaterialTheme.typography.titleLarge)
-                            Text(
-                                listOfNotNull(
-                                    if (Prefs.hidePhone.value) null else me?.phoneNumber?.let { "+$it" },
-                                    me?.usernames?.activeUsernames?.firstOrNull()?.let { "@$it" },
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
+            item { ProfileCard(me) }
             item { Spacer(Modifier.height(10.dp)) }
             item { QuickTiles2() }
             group("Аккаунт") {
@@ -177,6 +213,7 @@ fun SettingsPage(id: String) {
         "ap-nav" -> NavPage2()
         "ap-motion" -> MotionPage2()
         "ap-text" -> TextPage2()
+        "ap-emoji" -> EmojiPage()
         "features" -> FeaturesPage2()
         "account" -> AccountPage()
         "notifications" -> NotificationsPage()
@@ -331,7 +368,7 @@ private fun ShapesPage() = PageScaffold("Формы и аватарки", action
     item { ShapePicker() }
     group("Размеры") {
         sliderInt("Аватарки в списке чатов", Prefs.avatarSize, 40..64, 2) { "$it dp" }
-        segmented("Скругление интерфейса", Prefs.uiRound, listOf(0 to "Скромное", 1 to "Обычное", 2 to "Сильное"))
+        sliderFloat("Скругление всего интерфейса", Prefs.cornerScale, 0f..2f, 19) { if (it < 0.05f) "Квадратное" else "${(it * 100).toInt()}%" }
     }
     group("Детали") {
         switch("Значок «в сети»", Prefs.showOnlineDot)
@@ -564,7 +601,7 @@ private fun SessionsPage() {
     PageScaffold("Устройства") {
         val cur = sessions.firstOrNull { it.isCurrent }
         if (cur != null) group("Это устройство") {
-            row { BaseRow(cur.applicationName + " " + cur.applicationVersion, "${cur.deviceModel} · ${cur.location}".trim(' ', '·'), Icons.Outlined.Devices, 0) }
+            row { BaseRow(sessionTitle(cur), "${cur.deviceModel} · ${cur.location}".trim(' ', '·'), Icons.Outlined.Devices, 0) }
         }
         val others = sessions.filterNot { it.isCurrent }
         if (others.isNotEmpty()) {
@@ -576,7 +613,7 @@ private fun SessionsPage() {
             group("Активные сеансы") {
                 others.forEach { s ->
                     row {
-                        BaseRow(s.applicationName + " " + s.applicationVersion, "${s.deviceModel} · ${s.location} · ${Texts.listDate(s.lastActiveDate)}", Icons.Outlined.Devices) {
+                        BaseRow(sessionTitle(s), "${s.deviceModel} · ${s.location} · ${Texts.listDate(s.lastActiveDate)}", Icons.Outlined.Devices) {
                             QTextButton(onClick = { scope.launch { Td.callOrNull(TdApi.TerminateSession(s.id)); reload() } }) { Text("Завершить", color = MaterialTheme.colorScheme.error) }
                         }
                     }

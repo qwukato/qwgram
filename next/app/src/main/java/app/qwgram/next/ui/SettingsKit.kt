@@ -184,9 +184,9 @@ fun LazyListScope.group(header: String? = null, footer: String? = null, build: G
     val n = g.rows.size
     g.rows.forEachIndexed { i, r ->
         item {
-            val big = (when (Prefs.uiRound.value) { 0 -> 12; 2 -> 28; else -> 20 }).dp
-            val top = if (i == 0) big else 4.dp
-            val bottom = if (i == n - 1) big else 4.dp
+            val big = 24.dp.rs()
+            val top = if (i == 0) big else 4.dp.rs()
+            val bottom = if (i == n - 1) big else 4.dp.rs()
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(rowColor())) {
                 r(Modifier)
             }
@@ -284,7 +284,7 @@ fun <T> ConnectedGroup(options: List<Pair<T, String>>, selected: T, onSelect: (T
             val fg = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant
             Box(
                 Modifier.weight(weight).fillMaxHeight()
-                    .clip(RoundedCornerShape(topStart = start, topEnd = end, bottomEnd = end, bottomStart = start))
+                    .clip(RoundedCornerShape(topStart = start.rs().coerceAtLeast(0.dp), topEnd = end.rs().coerceAtLeast(0.dp), bottomEnd = end.rs().coerceAtLeast(0.dp), bottomStart = start.rs().coerceAtLeast(0.dp)))
                     .background(bg)
                     .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple()) { haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick); onSelect(v) }
                     .padding(horizontal = 8.dp),

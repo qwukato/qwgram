@@ -110,9 +110,9 @@ fun QwTheme(content: @Composable () -> Unit) {
     val motionPref = Prefs.motion.state.value
     val speed = Prefs.motionSpeed.state.value
     val motion = remember(motionPref, speed) { QwMotion(motionPref == "expressive", speed, motionPref == "off") }
-    val round = Prefs.uiRound.state.value
+    val round = Prefs.cornerScale.state.value
     val shapes = remember(round) {
-        val k = when (round) { 0 -> 0.6f; 2 -> 1.4f; else -> 1f }
+        val k = round
         Shapes(
             extraSmall = RoundedCornerShape((4 * k).dp), small = RoundedCornerShape((8 * k).dp),
             medium = RoundedCornerShape((12 * k).dp), large = RoundedCornerShape((16 * k).dp),
@@ -121,7 +121,7 @@ fun QwTheme(content: @Composable () -> Unit) {
     }
     val fontPref = Prefs.font.state.value
     val emojiPref = Prefs.emojiStyle.state.value
-    val bodyW = Prefs.textWeight.state.value
+    val bodyW = Prefs.bodyWeight.state.value
     val headW = Prefs.headWeight.state.value
     val typography = remember(fontPref, emojiPref, bodyW, headW) {
         val family = when (fontPref) {
@@ -129,11 +129,11 @@ fun QwTheme(content: @Composable () -> Unit) {
             "mono" -> FontFamily.Monospace
             else -> Fonts.family(ctx, fontPref, emojiPref) ?: FontFamily.Default
         }
-        val body = when (bodyW) { "medium" -> FontWeight.Medium; "bold" -> FontWeight.SemiBold; else -> FontWeight.Normal }
-        // headers / titles: heavy Google Sans by default (M3 Expressive emphasised type)
-        val head = when (headW) { "normal" -> null; "bold" -> FontWeight.Bold; else -> FontWeight.ExtraBold }
-        val title = when (headW) { "normal" -> null; "bold" -> FontWeight.SemiBold; else -> FontWeight.Bold }
-        val label = when (headW) { "normal" -> null; else -> FontWeight.SemiBold }
+        val body = FontWeight(bodyW.coerceIn(100, 900))
+        // headers / titles: heavy by default (M3 Expressive emphasised type); smaller titles a step lighter
+        val head = FontWeight(headW.coerceIn(100, 900))
+        val title = FontWeight((headW - 100).coerceIn(bodyW, 900))
+        val label = FontWeight((headW - 200).coerceIn(bodyW, 900))
         val t = Typography()
         fun androidx.compose.ui.text.TextStyle.f(w: FontWeight?) = copy(fontFamily = family, fontWeight = w ?: fontWeight)
         Typography(

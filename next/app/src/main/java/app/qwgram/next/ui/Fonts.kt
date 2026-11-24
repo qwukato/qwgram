@@ -19,7 +19,7 @@ object Fonts {
     private const val SANS = "fonts/gsflex.ttf"
     private const val EMOJI = "fonts/twemoji.ttf"
     private val WEIGHTS = intArrayOf(300, 400, 500, 600, 700, 800, 900)
-    private var cache: Pair<String, FontFamily?>? = null
+    private val cache = HashMap<String, FontFamily?>()
 
     private fun has(ctx: Context, path: String) = runCatching { ctx.assets.open(path).close(); true }.getOrDefault(false)
 
@@ -36,9 +36,9 @@ object Fonts {
     @OptIn(ExperimentalTextApi::class)
     fun family(ctx: Context, font: String, emoji: String): FontFamily? {
         val key = "$font/$emoji"
-        cache?.let { if (it.first == key) return it.second }
+        if (cache.containsKey(key)) return cache[key]
         val f = runCatching { build(ctx, font, emoji) }.getOrNull()
-        cache = key to f
+        cache[key] = f
         return f
     }
 

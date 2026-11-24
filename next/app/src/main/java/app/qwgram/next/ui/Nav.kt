@@ -119,6 +119,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
     val corner = screenCornerRadius()
     val surface = MaterialTheme.colorScheme.surface
     val onSurface = MaterialTheme.colorScheme.onSurface
+    val wpAll = appWallpaperOn()
     // surface (not black) behind the stack: fade/scale transitions never flash a dark half-screen
     Box(Modifier.fillMaxSize().background(surface)) {
         entries.takeLast(2).forEach { e ->
@@ -158,9 +159,10 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                                 }
                             }
                         }
-                        .background(surface)
+                        .then(if (wpAll) Modifier else Modifier.background(surface))
                         .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
+                    if (wpAll) AppWallpaper()
                     // text/icons get the right colour everywhere, even on screens without a Surface
                     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides onSurface) {
                         holder.SaveableStateProvider(e.id) { content(e.route) }

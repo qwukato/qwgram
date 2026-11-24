@@ -99,6 +99,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
+import androidx.compose.material.icons.outlined.Wallpaper
+import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.clipToBounds
@@ -530,7 +532,7 @@ fun ChatScreen(chatId: Long) {
     // the chat recedes a little behind the open menu (no blur): slight zoom-out, the scrim dims it
     val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
     Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
-        ChatWallpaper()
+        ChatBackdrop(chat) { ChatWallpaper() }
         var topH by remember { mutableStateOf(0.dp) }
         var bottomH by remember { mutableStateOf(0.dp) }
         val fade = wallpaperBase()
@@ -882,6 +884,8 @@ private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 @Composable
 private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    val pickWp = rememberWallpaperPicker("chat${chat.id}") { path -> Prefs.setChatWallpaper(chat.id, path) }
+    val hasOwnWp = remember(Prefs.chatWallpaperVersion.intValue) { Prefs.chatWallpaper(chat.id) != null }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
@@ -921,6 +925,8 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
                     )
                     DropdownMenuItem(text = { Text("Профиль") }, leadingIcon = { Icon(Icons.Outlined.Info, null) }, onClick = { menu = false; Nav.push(Route.Profile(chat.id)) })
                     DropdownMenuItem(text = { Text("Отложенные") }, leadingIcon = { Icon(Icons.Outlined.Schedule, null) }, onClick = { menu = false; Nav.push(Route.Page("sched:${chat.id}")) })
+                    DropdownMenuItem(text = { Text("Обои чата…") }, leadingIcon = { Icon(Icons.Outlined.Wallpaper, null) }, onClick = { menu = false; pickWp() })
+                    if (hasOwnWp) DropdownMenuItem(text = { Text("Убрать обои чата") }, leadingIcon = { Icon(Icons.Outlined.HideImage, null) }, onClick = { menu = false; Prefs.setChatWallpaper(chat.id, null) })
                     DropdownMenuItem(
                         text = { Text(if (chat.isMarkedAsUnread) "Прочитано" else "Отметить непрочитанным") },
                         leadingIcon = { Icon(Icons.Outlined.MarkChatUnread, null) },
