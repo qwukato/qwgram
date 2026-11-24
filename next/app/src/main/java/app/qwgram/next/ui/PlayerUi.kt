@@ -164,6 +164,7 @@ fun PlayerHost() {
         val radius = lerpDp(32.dp, screenCornerRadius(), p).coerceAtLeast(0.dp)
         var swipeX by remember { mutableFloatStateOf(0f) }
         val swipeAnim = remember { Animatable(0f) }
+        val miniGlass = p < 0.02f && blurOn(Prefs.blurBars) && BlurHost.top != null
         Box(
             Modifier
                 .layout { m, c ->
@@ -172,10 +173,12 @@ fun PlayerHost() {
                 }
                 .graphicsLayer {
                     shape = RoundedCornerShape(radius); clip = true
-                    shadowElevation = with(density) { lerpF(6.dp.toPx(), 0f, p) }
+                    shadowElevation = if (miniGlass) 0f else with(density) { lerpF(6.dp.toPx(), 0f, p) }
                     alpha = 1f - (abs(swipeX + swipeAnim.value) / (size.width * 0.9f)).coerceIn(0f, 0.6f)
                 }
-                .background(lerp(cs.surfaceContainerHigh, fullBg, p))
+                // the mini player is frosted glass over the screen under it (Appearance → Blur); the full player stays solid
+                .then(if (miniGlass) Modifier.glass(RoundedCornerShape(radius), cs.surfaceContainerHigh, state = BlurHost.top) else Modifier)
+                .background(if (miniGlass) Color.Transparent else lerp(cs.surfaceContainerHigh, fullBg, p))
                 // gestures: on the pill — tap opens, sideways = next/prev, pull down opens; on the full player — pull down closes
                 .pointerInput(Unit) {
                     val slop = viewConfiguration.touchSlop

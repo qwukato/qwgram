@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.BlurOn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -302,6 +303,7 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
         nav("Формы и аватарки", "26 форм, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
         nav("Шрифт и масштаб", "Начертание, жирность, размер", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
         nav("Эмодзи", "Twemoji, Noto или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
+        nav("Размытие фона", if (Prefs.blurOn.value) "Включено · стекло, переходы, качество" else "Стеклянные панели и прогрессивное размытие", Icons.Outlined.BlurOn) { Nav.push(Route.Page("ap-blur")) }
     }
     group("Экраны") {
         nav("Список чатов", "Строки, счётчики, свайпы, архив", Icons.Outlined.ViewAgenda) { Nav.push(Route.Page("ap-list")) }
@@ -319,7 +321,7 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
         if (askReset) androidx.compose.material3.AlertDialog(
             onDismissRequest = { askReset = false },
             icon = { Icon(Icons.Outlined.RestartAlt, null) },
-            title = { Text("Сбросить оформление?") },
+            title = { WindowBlurBehind();  Text("Сбросить оформление?") },
             text = { Text("Все настройки внешнего вида вернутся к стандартным.") },
             confirmButton = { QTextButton(onClick = { askReset = false; Prefs.resetAppearance() }) { Text("Сбросить", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { QTextButton(onClick = { askReset = false }) { Text("Отмена") } },

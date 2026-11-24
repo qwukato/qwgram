@@ -187,7 +187,7 @@ fun ProfileScreen(chatId: Long) {
             }, actions = { ProfileMenu(chat, user, me) })
         },
     ) { pad ->
-        LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize().blurSource(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     ProfileBanner(
@@ -589,7 +589,7 @@ fun ContactsTab(pad: PaddingValues) {
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize()) {
         FadeHeader("Контакты", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "${users.size} " + Texts.plural(users.size, "контакт", "контакта", "контактов"), onBack = null)
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize().blurSource(), contentPadding = PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 24.dp)) {
             item {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(52.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {

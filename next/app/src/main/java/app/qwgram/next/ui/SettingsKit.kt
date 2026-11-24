@@ -81,7 +81,7 @@ fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, @Suppress("UNUSE
 @Composable
 fun HeaderIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
-    if (Prefs.floatingBars.value) MorphIconButton(icon, desc, onClick, modifier.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp)
+    if (Prefs.floatingBars.value) MorphIconButton(icon, desc, onClick, modifier.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp, glass = true)
     else MorphIconButton(icon, desc, onClick, modifier)
 }
 
@@ -104,10 +104,19 @@ fun FadeHeader(
     val cs = MaterialTheme.colorScheme
     val floating = Prefs.floatingBars.value
     val center = Prefs.centerTitle.value
+    val glassy = blurOn(Prefs.blurHeaders) && LocalHaze.current != null
+    Box(modifier.fillMaxWidth()) {
+    // glass: the page blurs under the header, strongest at the top edge and melting away below (progressive)
+    if (glassy) Box(
+        Modifier.matchParentSize()
+            .graphicsLayer { alpha = (backgroundAlpha?.invoke() ?: 1f).coerceIn(0f, 1f) }
+            .glassFade(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, lifted?.invoke() ?: 0f), fadeOut = floating),
+    )
     Box(
-        modifier.fillMaxWidth()
+        Modifier.fillMaxWidth()
             .then(
-                if (backgroundAlpha != null) Modifier.drawBehind {
+                if (glassy) Modifier
+                else if (backgroundAlpha != null) Modifier.drawBehind {
                     // transparent over a banner, fills in as the page scrolls
                     val a = backgroundAlpha().coerceIn(0f, 1f)
                     if (a > 0f) {
@@ -142,6 +151,7 @@ fun FadeHeader(
             }
         }
     }
+}
 }
 
 /**
@@ -188,7 +198,7 @@ fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: L
     val lift by androidx.compose.animation.core.animateFloatAsState(if (scrolled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "lift")
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         LazyColumn(
-            Modifier.fillMaxSize(), state = listState,
+            Modifier.fillMaxSize().blurSource(), state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) { content() }
@@ -354,7 +364,7 @@ fun <T> GroupScope.pick(title: String, pref: Prefs.Item<T>, options: List<Pair<T
 fun <T> RadioDialog(title: String, options: List<Pair<T, String>>, selected: T, onPick: (T) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { WindowBlurBehind();  Text(title) },
         text = {
             Column {
                 options.forEach { (v, label) ->

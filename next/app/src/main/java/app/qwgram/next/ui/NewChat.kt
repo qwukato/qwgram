@@ -203,7 +203,7 @@ fun NameDialog(title: String, label: String, withDescription: Boolean, onDismiss
     var desc by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { WindowBlurBehind();  Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text(label) }, singleLine = true)

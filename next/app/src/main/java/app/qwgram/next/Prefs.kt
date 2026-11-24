@@ -179,6 +179,27 @@ object Prefs {
     val showOnlineDot = B("online_dot", true)
     val markReadOnOpen = B("mark_read", true)
 
+    // ---- background blur (glass) ----
+    val blurOn = B("blur_on", false)                   // master switch: off until the user turns it on
+    val blurRadius = I("blur_radius", 28)              // dp
+    val blurTint = F("blur_tint", 0.62f)               // how much of the panel colour lies over the blur
+    val blurTone = S("blur_tone", "surface")           // surface | container | accent | dark | light | none
+    val blurNoise = F("blur_noise", 0.04f)             // film grain over the glass
+    val blurQuality = S("blur_quality", "balanced")    // speed | balanced | best
+    val blurFade = B("blur_fade", true)                // progressive (gradient) blur on headers / bottom bars
+    val blurFadeLen = F("blur_fade_len", 1f)           // how far down (up) the gradient reaches, × bar height
+    val blurCurve = S("blur_curve", "soft")            // soft | linear | sharp
+    val blurEdge = B("blur_edge", true)                // a hairline light edge on glass buttons
+    val blurHeaders = B("blur_headers", true)
+    val blurBars = B("blur_bars", true)                // bottom panel, FAB, floating buttons
+    val blurComposer = B("blur_composer", true)
+    val blurChips = B("blur_chips", true)              // dates and service plates over chat wallpaper
+    val blurBubbles = B("blur_bubbles", false)         // frosted message bubbles over the wallpaper
+    val blurBubbleAlpha = F("blur_bubble_alpha", 0.72f)
+    val blurMenus = B("blur_menus", true)              // the chat behind a message menu
+    val blurWindows = B("blur_windows", true)          // behind sheets, dialogs and popups (Android 12+)
+    val blurWindowRadius = I("blur_window_radius", 24) // dp
+
     fun resetAppearance() {
         all.filter { it.key !in setOf(
             "hide_phone", "strip_tracking", "silent_default", "confirm_delete", "keep_alive", "notify_preview", "mark_read",

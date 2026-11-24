@@ -160,22 +160,27 @@ fun MorphBox(
     squish: Float = 0.97f,
     onLongClick: (() -> Unit)? = null,
     contentAlignment: Alignment = Alignment.Center,
+    /** floating chrome: becomes frosted glass when the background blur is on (Appearance → Blur) */
+    glass: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val m = rememberPressMorph(interaction, rest.rs(), pressed.rs(), squish)
+    val glassy = glass && color.alpha > 0f && blurOn(Prefs.blurBars) && LocalHaze.current != null && inMainWindow()
     Box(
         modifier
             .graphicsLayer {
                 shape = RoundedCornerShape(m.radius.value.coerceAtLeast(0.dp))
                 clip = true
-                shadowElevation = elevation.toPx()
+                // glass has no drop shadow (it would show through the frosted body)
+                shadowElevation = if (glassy) 0f else elevation.toPx()
             }
+            .then(if (glassy) Modifier.glass(RoundedCornerShape(m.radius.value.coerceAtLeast(0.dp)), color) else Modifier)
             .drawBehind {
                 val s = m.scale.value
                 val r = m.radius.value.toPx().coerceIn(0f, size.minDimension / 2f)
                 scale(s) {
-                    drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+                    if (!glassy) drawRoundRect(color, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
                     // the press state layer lives inside the (squeezed) container, never outside it
                     val pa = m.press.value
                     if (pa > 0.001f) drawRoundRect(contentColor.copy(alpha = 0.12f * pa), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
@@ -201,10 +206,11 @@ fun MorphFab(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
+    glass: Boolean = false,
 ) {
     MorphBox(
         onClick = onClick, modifier = modifier.defaultMinSize(56.dp, 56.dp), rest = 16.dp, pressed = 28.dp,
-        color = color, contentColor = contentColor, elevation = 3.dp,
+        color = color, contentColor = contentColor, elevation = 3.dp, glass = glass,
     ) {
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, text, Modifier.size(24.dp))
@@ -235,11 +241,12 @@ fun MorphIconButton(
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
     elevation: Dp = 0.dp,
+    glass: Boolean = false,
 ) {
     MorphBox(
         onClick = onClick, onLongClick = onLongClick, enabled = enabled,
         modifier = modifier.size(size), rest = size / 2, pressed = size / 4,
-        color = color, contentColor = tint, squish = 0.92f, elevation = elevation,
+        color = color, contentColor = tint, squish = 0.92f, elevation = elevation, glass = glass,
     ) { Icon(icon, desc, Modifier.size(24.dp)) }
 }
 
@@ -280,6 +287,8 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
             transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.48f, 150f * k) else androidx.compose.animation.core.spring(0.85f, 240f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
+        // the screen behind the menu frosts while it is open (Appearance → Blur → menus; Android 12+)
+        WindowBlurBehind(Prefs.blurMenus) { p }
         val radiusEnd = 16.dp.rs()
         Column(
             modifier.widthIn(min = 200.dp, max = 300.dp)
@@ -343,7 +352,7 @@ fun SearchButton(modifier: Modifier = Modifier, floating: Boolean = Prefs.floati
     var rect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val cs = MaterialTheme.colorScheme
     val m = modifier.onGloballyPositioned { rect = it.boundsInRoot() }
-    if (floating) MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp)
+    if (floating) MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp, glass = true)
     else MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m)
 }
 
@@ -566,7 +575,7 @@ fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, a
             ) {
                 MorphBox(
                     onClick = { onToggle(false); a.onClick() }, rest = 28.dp, pressed = 14.dp,
-                    color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, elevation = 3.dp,
+                    color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, elevation = 3.dp, glass = true,
                     modifier = Modifier.height(56.dp),
                 ) {
                     Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {

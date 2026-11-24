@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.graphics.Color
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -241,7 +242,8 @@ fun HomeScreen() {
                 val scrimA by androidx.compose.animation.core.animateFloatAsState(if (fabOpen) 1f else 0f, Springs.effects(), label = "fs")
                 if (scrimA > 0.01f) Box(
                     Modifier.fillMaxSize().graphicsLayer { alpha = scrimA }
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                        .glassScrim(MaterialTheme.colorScheme.surface)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = if (blurOn(Prefs.blurMenus)) 0.35f else 0.75f))
                         .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { fabOpen = false },
                 )
                 if (floatingNav) {
@@ -272,7 +274,11 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
     )
     Box(
         modifier.fillMaxWidth()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface))
+            .then(
+                // glass: progressive blur rising from the bottom edge under the floating bar
+                if (blurOn(Prefs.blurBars)) Modifier.glassFade(FadeEdge.Top, cs.surface, Prefs.blurBars)
+                else Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface)),
+            )
             .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -311,7 +317,11 @@ private fun FloatingNavPill() {
         // room left for the label beside the icons (never below a short word's width)
         val labelMax = (maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 24.dp).coerceAtLeast(72.dp)
         val labels = Prefs.navLabels.value
-        Surface(shape = RoundedCornerShape(32.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
+        val glassy = blurOn(Prefs.blurBars) && LocalHaze.current != null
+        Surface(
+            shape = RoundedCornerShape(32.dp.rs()), color = if (glassy) Color.Transparent else cs.surfaceContainerHigh, shadowElevation = if (glassy) 0.dp else 4.dp,
+            modifier = Modifier.glass(RoundedCornerShape(32.dp.rs()), cs.surfaceContainerHigh),
+        ) {
             Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 tabs.forEach { (t, title, icons) ->
                     val sel = HomeState.tab == t
@@ -447,7 +457,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
         HorizontalPager(
             state = pager,
             userScrollEnabled = Prefs.folderSwipe.value && Prefs.listSwipe.value != "actions",
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().blurSource(),
             key = { tabs.getOrNull(it)?.title ?: it },
             beyondViewportPageCount = 1,
         ) { page ->
@@ -460,7 +470,9 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
         Column(
             Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
                 .then(
-                    if (floating) Modifier.topFade(cs.surface)
+                    // glass: the chats blur under the header, fading out downwards (Appearance → Blur)
+                    if (blurOn(Prefs.blurHeaders)) Modifier.glassFade(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value), fadeOut = floating)
+                    else if (floating) Modifier.topFade(cs.surface)
                     else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value)) },
                 ),
         ) {

@@ -199,6 +199,7 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
     val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
     val unread = chat.unreadCount > 0 || chat.isMarkedAsUnread
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = cs.surfaceContainerLow) {
+        WindowBlurBehind()
         // header card: tap opens the profile
         MorphBox(
             onClick = { onDismiss(); Nav.push(Route.Profile(chat.id)) }, rest = 28.dp, pressed = 18.dp, squish = 0.98f,
@@ -246,7 +247,7 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             icon = { Icon(Icons.Outlined.Delete, null) },
-            title = { Text("Удалить чат?") },
+            title = { WindowBlurBehind();  Text("Удалить чат?") },
             text = { Text("«${chat.title}» исчезнет из списка чатов. Историю нельзя будет вернуть.") },
             confirmButton = {
                 QTextButton(onClick = {

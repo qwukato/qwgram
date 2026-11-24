@@ -176,7 +176,7 @@ fun FolderEditPage(folderId: Int?) {
     if (picker) ChatPickerSheet(included.toSet(), onDismiss = { picker = false }) { set -> included.clear(); included.addAll(set) }
     if (confirmDelete && folderId != null) AlertDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text("Удалить папку «$name»?") },
+        title = { WindowBlurBehind();  Text("Удалить папку «$name»?") },
         text = { Text("Чаты останутся, удалится только папка.") },
         confirmButton = { QTextButton(onClick = { Td.send(TdApi.DeleteChatFolder(folderId, longArrayOf())); confirmDelete = false; Nav.pop() }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { QTextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
@@ -188,6 +188,7 @@ fun ChatPickerSheet(initial: Set<Long>, onDismiss: () -> Unit, onDone: (Set<Long
     val sel = remember { mutableStateListOf<Long>().apply { addAll(initial) } }
     val chats = remember { TdStore.chatsIn(TdApi.ChatListMain()) }
     ModalBottomSheet(onDismissRequest = { onDone(sel.toSet()); onDismiss() }) {
+        WindowBlurBehind()
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Выберите чаты", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             QTextButton(onClick = { onDone(sel.toSet()); onDismiss() }) { Text("Готово") }
@@ -281,7 +282,7 @@ private fun AddProxyDialog(onDismiss: () -> Unit, onAdd: (TdApi.Proxy) -> Unit) 
     val ok = server.isNotBlank() && port.toIntOrNull() != null && (type != "mtproto" || secret.isNotBlank())
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый прокси") },
+        title = { WindowBlurBehind();  Text("Новый прокси") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ConnectedGroup(listOf("socks5" to "SOCKS5", "mtproto" to "MTProto", "http" to "HTTP"), type) { type = it }
@@ -319,7 +320,7 @@ fun PollDialog(onDismiss: () -> Unit, onSend: (TdApi.InputMessageContent) -> Uni
     val valid = question.isNotBlank() && options.count { it.isNotBlank() } >= 2
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый опрос") },
+        title = { WindowBlurBehind();  Text("Новый опрос") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(question, { question = it.take(255) }, label = { Text("Вопрос") })
@@ -361,7 +362,7 @@ fun AddContactDialog(onDismiss: () -> Unit) {
     var phone by remember { mutableStateOf("+") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый контакт") },
+        title = { WindowBlurBehind();  Text("Новый контакт") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(first, { first = it }, label = { Text("Имя") }, singleLine = true)
@@ -475,7 +476,7 @@ fun GroupInfo(chat: TdApi.Chat) {
         var d by remember { mutableStateOf(desc) }
         AlertDialog(
             onDismissRequest = { edit = false },
-            title = { Text("Изменить") },
+            title = { WindowBlurBehind();  Text("Изменить") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(title, { title = it }, label = { Text("Название") }, singleLine = true)

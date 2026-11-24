@@ -584,8 +584,11 @@ fun ChatScreen(chatId: Long) {
     val menuOpen = menuFor != null
     // the chat recedes a little behind the open menu (no blur): slight zoom-out, the scrim dims it
     val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
+    val wallHaze = remember { dev.chrisbanes.haze.HazeState() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze) {
     Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
-        ChatBackdrop(chat) { ChatWallpaper() }
+        // the wallpaper: blurred by the chrome (with the history) and, alone, by dates / service plates / bubbles
+        Box(Modifier.fillMaxSize().blurSource(0f).blurSource(0f, wallHaze)) { ChatBackdrop(chat) { ChatWallpaper() } }
         var topH by remember { mutableStateOf(0.dp) }
         var bottomH by remember { mutableStateOf(0.dp) }
         val fade = wallpaperBase()
@@ -596,7 +599,8 @@ fun ChatScreen(chatId: Long) {
             Column(
                 Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
                     .then(
-                        if (Prefs.floatingBars.value) Modifier.topFade(fade)
+                        if (blurOn(Prefs.blurHeaders)) Modifier.glassFade(FadeEdge.Bottom, if (Prefs.floatingBars.value) fade else androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, chatLift.value), fadeOut = Prefs.floatingBars.value, sourceZ = 2f)
+                        else if (Prefs.floatingBars.value) Modifier.topFade(fade)
                         else {
                             val cs2 = MaterialTheme.colorScheme
                             Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs2.surface, cs2.surfaceContainer, chatLift.value)) }
@@ -653,7 +657,7 @@ fun ChatScreen(chatId: Long) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().blurSource(1f),
                     // no side padding: selection highlights span the whole width; rows pad their own content
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - headerOverlap()).coerceAtLeast(8.dp), bottom = (bottomH - if (Prefs.floatingBars.value) 10.dp else 0.dp).coerceAtLeast(8.dp)),
                 ) {
@@ -720,7 +724,7 @@ fun ChatScreen(chatId: Long) {
                                         }
                                     },
                                     modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
-                                    color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, elevation = 3.dp,
+                                    color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, elevation = 3.dp, glass = true,
                                 ) { Text(label, style = MaterialTheme.typography.titleMedium) }
                                 RollingBadge(count, Modifier.align(Alignment.TopEnd))
                             }
@@ -735,7 +739,7 @@ fun ChatScreen(chatId: Long) {
                         MorphBox(
                             onClick = { scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) } },
                             modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh, elevation = 3.dp,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh, elevation = 3.dp, glass = true,
                         ) { Icon(Icons.Filled.KeyboardArrowDown, "Вниз") }
                         RollingBadge(chat.unreadCount, Modifier.align(Alignment.TopEnd))
                     }
@@ -744,7 +748,11 @@ fun ChatScreen(chatId: Long) {
             // ---- bottom: composer (+ panel) over a fade
             Column(
                 Modifier.zIndex(2f).align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f), 1f to fade))
+                    .then(
+                        // glass: the history blurs progressively under the composer, strongest at the bottom edge
+                        if (blurOn(Prefs.blurComposer)) Modifier.glassFade(FadeEdge.Top, fade, Prefs.blurComposer, sourceZ = 3f)
+                        else Modifier.background(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f), 1f to fade)),
+                    )
                     .onSizeChanged { bottomH = with(density) { it.height.toDp() } },
             ) {
             Spacer(Modifier.height(18.dp))
@@ -799,6 +807,7 @@ fun ChatScreen(chatId: Long) {
             }
         }
     }
+    }
 
     menuFor?.let { m ->
         MessageMenu(
@@ -828,7 +837,7 @@ fun ChatScreen(chatId: Long) {
     confirmSend?.let { content ->
         AlertDialog(
             onDismissRequest = { confirmSend = null },
-            title = { Text(if (content is TdApi.InputMessageSticker) "Отправить стикер?" else "Отправить GIF?") },
+            title = { WindowBlurBehind();  Text(if (content is TdApi.InputMessageSticker) "Отправить стикер?" else "Отправить GIF?") },
             confirmButton = { QTextButton(onClick = { sendContent(chatId, content, replyTo); replyTo = null; confirmSend = null }) { Text("Отправить") } },
             dismissButton = { QTextButton(onClick = { confirmSend = null }) { Text("Отмена") } },
         )
@@ -1049,7 +1058,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false },
         icon = { Icon(Icons.Outlined.DeleteSweep, null) },
-        title = { Text("Очистить историю?") },
+        title = { WindowBlurBehind();  Text("Очистить историю?") },
         text = { Text("Все сообщения в этом чате будут удалены у вас.") },
         confirmButton = { QTextButton(onClick = { Td.send(TdApi.DeleteChatHistory(chat.id, false, false)); confirmClear = false }) { Text("Очистить") } },
         dismissButton = { QTextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
@@ -1057,7 +1066,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
     if (confirmBlock && privateUser != null) AlertDialog(
         onDismissRequest = { confirmBlock = false },
         icon = { Icon(Icons.Outlined.Block, null) },
-        title = { Text("Заблокировать ${chat.title}?") },
+        title = { WindowBlurBehind();  Text("Заблокировать ${chat.title}?") },
         text = { Text("Пользователь не сможет писать вам и звонить.") },
         confirmButton = {
             QTextButton(onClick = {
@@ -1069,7 +1078,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
     if (confirmLeave) AlertDialog(
         onDismissRequest = { confirmLeave = false },
         icon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) },
-        title = { Text(if (TdStore.isChannel(chat)) "Покинуть канал?" else "Покинуть группу?") },
+        title = { WindowBlurBehind();  Text(if (TdStore.isChannel(chat)) "Покинуть канал?" else "Покинуть группу?") },
         confirmButton = {
             QTextButton(onClick = { Td.send(TdApi.LeaveChat(chat.id)); confirmLeave = false; Nav.pop() }) { Text("Покинуть", color = MaterialTheme.colorScheme.error) }
         },
@@ -1082,7 +1091,7 @@ private fun PinnedBar(m: TdApi.Message, onClick: () -> Unit, onClose: () -> Unit
     val cs = MaterialTheme.colorScheme
     // floating M3 card under the app bar
     MorphBox(
-        onClick = onClick, rest = 20.dp, pressed = 12.dp, color = cs.surfaceContainerHigh, elevation = 2.dp,
+        onClick = onClick, rest = 20.dp, pressed = 12.dp, color = cs.surfaceContainerHigh, elevation = 2.dp, glass = true,
         contentAlignment = Alignment.CenterStart,
         modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp).fillMaxWidth(),
     ) {
@@ -1101,7 +1110,8 @@ private fun PinnedBar(m: TdApi.Message, onClick: () -> Unit, onClose: () -> Unit
 @Composable
 private fun DayChip(text: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        val g = blurOn(Prefs.blurChips) && LocalWallHaze.current != null
+        Surface(shape = CircleShape, color = if (g) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.glass(CircleShape, MaterialTheme.colorScheme.surfaceContainerHighest, Prefs.blurChips, state = LocalWallHaze.current, edge = false)) {
             Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
     }
@@ -1121,7 +1131,7 @@ private fun ChannelBar(chat: TdApi.Chat) {
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp), contentAlignment = Alignment.Center) {
         val bg by androidx.compose.animation.animateColorAsState(if (muted) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "cb")
         MorphBox(
-            onClick = { setMuted(chat, !muted) }, rest = 28.dp, pressed = 14.dp, elevation = 4.dp,
+            onClick = { setMuted(chat, !muted) }, rest = 28.dp, pressed = 14.dp, elevation = 4.dp, glass = true,
             color = bg, contentColor = if (muted) cs.onPrimaryContainer else cs.onSurface,
             modifier = Modifier.height(56.dp),
         ) {
@@ -1299,7 +1309,8 @@ private fun Composer(
         Column(Modifier.then(if (panelOpen) Modifier else Modifier.navigationBarsPadding()).padding(horizontal = 8.dp, vertical = 6.dp)) {
             AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
                 val m = editing ?: replyTo
-                Surface(shape = RoundedCornerShape(20.dp), color = cs.surfaceContainerHigh, shadowElevation = if (floating) 2.dp else 0.dp, modifier = Modifier.padding(bottom = 6.dp)) {
+                val glassReply = blurOn(Prefs.blurComposer) && LocalHaze.current != null
+                Surface(shape = RoundedCornerShape(20.dp), color = if (glassReply) Color.Transparent else cs.surfaceContainerHigh, shadowElevation = if (floating && !glassReply) 2.dp else 0.dp, modifier = Modifier.padding(bottom = 6.dp).glass(RoundedCornerShape(20.dp), cs.surfaceContainerHigh, Prefs.blurComposer)) {
                     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (editing != null) Icons.Outlined.Edit else Icons.AutoMirrored.Filled.Reply, null, tint = cs.primary)
                         Spacer(Modifier.width(12.dp))
@@ -1324,10 +1335,11 @@ private fun Composer(
                 )
             }
             Row(verticalAlignment = Alignment.Bottom) {
+                val glassField = blurOn(Prefs.blurComposer) && LocalHaze.current != null
                 Surface(
-                    shape = RoundedCornerShape(26.dp), color = cs.surfaceContainerHigh,
-                    shadowElevation = if (floating) 3.dp else 0.dp,
-                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(26.dp), color = if (glassField) Color.Transparent else cs.surfaceContainerHigh,
+                    shadowElevation = if (floating && !glassField) 3.dp else 0.dp,
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp).glass(RoundedCornerShape(26.dp), cs.surfaceContainerHigh, Prefs.blurComposer),
                 ) {
                     Box {
                         Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp)) {
@@ -1606,7 +1618,9 @@ private fun MessageMenu(
         Modifier.fillMaxSize()
             .onGloballyPositioned { origin = it.positionInRoot() }
             .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+            // with blur on: the whole chat (bars included) frosts behind the menu, like Telegram
+            .glassScrim(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = if (blurOn(Prefs.blurMenus)) 0.18f else 0.32f))
             .pointerInput(Unit) { detectTapGestures { close() } },
     )
     androidx.compose.ui.layout.Layout(
@@ -1703,7 +1717,7 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
     AlertDialog(
         onDismissRequest = onDone,
         icon = { Icon(Icons.Outlined.Delete, null) },
-        title = { Text(if (n == 1) "Удалить сообщение?" else "Удалить $n " + Texts.plural(n, "сообщение", "сообщения", "сообщений") + "?") },
+        title = { WindowBlurBehind();  Text(if (n == 1) "Удалить сообщение?" else "Удалить $n " + Texts.plural(n, "сообщение", "сообщения", "сообщений") + "?") },
         text = {
             if (canAll) Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { forAll = !forAll }.padding(vertical = 4.dp),
@@ -1729,6 +1743,7 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
     var noAuthor by remember { mutableStateOf(Prefs.forwardNoAuthor.value) }
     var noCaption by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        WindowBlurBehind()
         Text("Переслать в…", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         // qwgram: forward as a copy (no "Forwarded from") and optionally without captions
         Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

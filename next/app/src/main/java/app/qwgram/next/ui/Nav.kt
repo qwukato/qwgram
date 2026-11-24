@@ -176,10 +176,15 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                         .then(if (wpAll || e.route is Route.Search) Modifier else Modifier.background(surface))
                         .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
-                    if (wpAll) AppWallpaper()
-                    // text/icons get the right colour everywhere, even on screens without a Surface
-                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides onSurface) {
-                        holder.SaveableStateProvider(e.id) { content(e.route) }
+                    // each screen blurs its own content under its own chrome (Appearance → Blur)
+                    val haze = androidx.compose.runtime.remember(e.id) { dev.chrisbanes.haze.HazeState() }
+                    if (isTop) androidx.compose.runtime.SideEffect { BlurHost.top = haze }
+                    androidx.compose.runtime.CompositionLocalProvider(LocalHaze provides haze) {
+                        if (wpAll) AppWallpaper(Modifier.blurSource(-1f))
+                        // text/icons get the right colour everywhere, even on screens without a Surface
+                        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides onSurface) {
+                            holder.SaveableStateProvider(e.id) { content(e.route) }
+                        }
                     }
                 }
             }

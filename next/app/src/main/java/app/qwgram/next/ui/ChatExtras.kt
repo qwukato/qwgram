@@ -327,6 +327,7 @@ fun gifContent(a: TdApi.Animation): TdApi.InputMessageContent = TdApi.InputMessa
 fun SendOptionsSheet(onDismiss: () -> Unit, onSilent: () -> Unit, onSchedule: (Int) -> Unit) {
     var pickDate by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        WindowBlurBehind()
         ListItem(headlineContent = { Text("Отправить без звука") }, supportingContent = { Text("Получатель не услышит уведомление") },
             leadingContent = { Icon(Icons.Outlined.NotificationsOff, null) }, modifier = Modifier.clickable { onSilent(); onDismiss() })
         ListItem(headlineContent = { Text("Отправить позже") }, supportingContent = { Text("Выбрать дату и время") },
@@ -356,7 +357,7 @@ private fun ScheduleDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     } else {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Время отправки") },
+            title = { WindowBlurBehind();  Text("Время отправки") },
             text = { TimePicker(time) },
             confirmButton = {
                 QTextButton(onClick = {

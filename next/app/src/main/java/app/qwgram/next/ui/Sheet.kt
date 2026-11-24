@@ -140,9 +140,11 @@ fun QSheet(
             }
             val sheetScope = remember { QSheetScope({ close() }, { expand() }, { ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f) }) }
             val progress = ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f)
+            // the app behind the sheet frosts as it rises (Appearance → Blur → windows)
+            WindowBlurBehind { ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f) }
             // scrim
             Box(
-                Modifier.fillMaxSize().graphicsLayer { alpha = progress }.background(Color.Black.copy(alpha = 0.42f))
+                Modifier.fillMaxSize().graphicsLayer { alpha = progress }.background(Color.Black.copy(alpha = if (blurOn(Prefs.blurWindows)) 0.24f else 0.42f))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() },
             )
             val sheetH = with(density) { (H - fullY).toDp() }

@@ -196,6 +196,7 @@ fun StickerPreview(s: TdApi.Sticker, onDismiss: () -> Unit, onSend: (() -> Unit)
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = androidx.compose.ui.platform.LocalView.current
         androidx.compose.runtime.SideEffect { (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.setDimAmount(0f) }
+        WindowBlurBehind { appear.value }
         Box(
             Modifier.fillMaxSize().graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }.background(Color.Black.copy(alpha = 0.55f))
                 .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { close() },
@@ -246,7 +247,7 @@ fun AddStickerSetDialog(onDismiss: () -> Unit) {
     val name = stickerSetName(q)
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Добавить набор") },
+        title = { WindowBlurBehind();  Text("Добавить набор") },
         text = {
             Column {
                 Text("Вставьте ссылку t.me/addstickers/… или имя набора", style = MaterialTheme.typography.bodyMedium)

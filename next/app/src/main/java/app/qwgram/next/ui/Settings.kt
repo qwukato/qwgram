@@ -159,7 +159,7 @@ fun SettingsHome(pad: PaddingValues) {
             SearchButton()
         }
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier.fillMaxSize().blurSource(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -190,7 +190,7 @@ fun SettingsHome(pad: PaddingValues) {
     if (logout) AlertDialog(
         onDismissRequest = { logout = false },
         icon = { Icon(Icons.Outlined.Logout, null) },
-        title = { Text("Выйти из аккаунта?") },
+        title = { WindowBlurBehind();  Text("Выйти из аккаунта?") },
         text = { Text("Чаты останутся в облаке Telegram. Чтобы вернуться, понадобится код подтверждения.") },
         confirmButton = { QTextButton(onClick = { logout = false; Td.send(TdApi.LogOut()) }) { Text("Выйти", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { QTextButton(onClick = { logout = false }) { Text("Отмена") } },
@@ -215,6 +215,7 @@ fun SettingsPage(id: String) {
         "ap-motion" -> MotionPage2()
         "ap-text" -> TextPage2()
         "ap-emoji" -> EmojiPage()
+        "ap-blur" -> BlurPage()
         "features" -> FeaturesPage2()
         "account" -> AccountPage()
         "notifications" -> NotificationsPage()
@@ -237,7 +238,7 @@ private fun ResetAction() {
     if (ask) AlertDialog(
         onDismissRequest = { ask = false },
         icon = { Icon(Icons.Outlined.RestartAlt, null) },
-        title = { Text("Сбросить оформление?") },
+        title = { WindowBlurBehind();  Text("Сбросить оформление?") },
         text = { Text("Цвета, формы, панели и анимации вернутся к стандартным.") },
         confirmButton = { QTextButton(onClick = { Prefs.resetAppearance(); ask = false }) { Text("Сбросить") } },
         dismissButton = { QTextButton(onClick = { ask = false }) { Text("Отмена") } },
@@ -353,7 +354,7 @@ private fun HexDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Outlined.Colorize, null) },
-        title = { Text("Свой цвет") },
+        title = { WindowBlurBehind();  Text("Свой цвет") },
         text = { OutlinedTextField(v, { v = it.take(7) }, label = { Text("HEX, например #6750A4") }, isError = !ok, singleLine = true) },
         confirmButton = {
             QTextButton(enabled = ok, onClick = {
@@ -467,7 +468,7 @@ private fun TextDialog(title: String, fields: List<Pair<String, String>>, onDone
     val values = remember { fields.map { mutableStateOf(it.second) } }
     AlertDialog(
         onDismissRequest = { onDone(null) },
-        title = { Text(title) },
+        title = { WindowBlurBehind();  Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 fields.forEachIndexed { i, (label, _) -> OutlinedTextField(values[i].value, { values[i].value = it }, label = { Text(label) }) }

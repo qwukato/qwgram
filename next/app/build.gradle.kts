@@ -88,6 +88,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.graphics:graphics-shapes:1.0.1")
     implementation("androidx.emoji2:emoji2:1.5.0")
+    implementation("dev.chrisbanes.haze:haze:1.7.2")                 // background blur (glass panels, progressive blur)
     implementation("com.airbnb.android:lottie-compose:6.6.2")        // animated stickers / emoji (TGS = gzipped Lottie)
     implementation("androidx.media3:media3-exoplayer:1.5.1")         // video playback
     implementation("androidx.media3:media3-ui:1.5.1")

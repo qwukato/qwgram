@@ -145,7 +145,10 @@ fun MessageItem(
     val service = Texts.service(m)
     if (service != null) {
         Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            // service plate: frosted over the wallpaper when the blur is on
+            val g = blurOn(Prefs.blurChips) && LocalWallHaze.current != null
+            Surface(shape = CircleShape, color = if (g) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.glass(CircleShape, MaterialTheme.colorScheme.surfaceContainerHigh, Prefs.blurChips, state = LocalWallHaze.current, edge = false)) {
                 Text(service, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
             }
         }
@@ -328,7 +331,9 @@ private fun Bubble(
                 (c as? TdApi.MessageText)?.text?.text ?: (c as TdApi.MessageAnimatedEmoji).emoji,
                 fontSize = (Prefs.textSize.value * 3).sp, lineHeight = (Prefs.textSize.value * 3.4).sp,
             )
-            val metaPill: @Composable () -> Unit = { Surface(shape = CircleShape, color = cs.surfaceContainerHigh) { Meta(m, chat, cs.onSurfaceVariant, Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) } }
+            val metaPill: @Composable () -> Unit = {
+                val g = blurOn(Prefs.blurChips) && LocalWallHaze.current != null
+                Surface(shape = CircleShape, color = if (g) Color.Transparent else cs.surfaceContainerHigh, modifier = Modifier.glass(CircleShape, cs.surfaceContainerHigh, Prefs.blurChips, state = LocalWallHaze.current, edge = false)) { Meta(m, chat, cs.onSurfaceVariant, Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) } }
             if (m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value) ReactionsMeta(m, Modifier.padding(top = 4.dp), metaPill)
             else metaPill()
         }
@@ -336,10 +341,13 @@ private fun Bubble(
     }
 
     Column(horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
+    // frosted bubbles (Appearance → Blur): the wallpaper shows blurred through the bubble's own colour
+    val frosted = blurOn(Prefs.blurBubbles) && LocalWallHaze.current != null
     Surface(
-        shape = shape, color = bg, contentColor = fg,
+        shape = shape, color = if (frosted) Color.Transparent else bg, contentColor = fg,
         border = if (style == "outlined") androidx.compose.foundation.BorderStroke(if (out) 1.5.dp else 1.dp, if (out) cs.primary else cs.outlineVariant) else null,
-        modifier = gestures.then(LocalBubbleFly.current).widthIn(max = maxW),
+        modifier = gestures.then(LocalBubbleFly.current).widthIn(max = maxW)
+            .glass(shape, bg, Prefs.blurBubbles, state = LocalWallHaze.current, edge = false, tintAlpha = Prefs.blurBubbleAlpha.value),
     ) {
         val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
         Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if ((hasReactionsOuter || m.replyTo is TdApi.MessageReplyToMessage) && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
