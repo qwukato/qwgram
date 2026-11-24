@@ -221,6 +221,15 @@ fun LazyListScope.group(header: String? = null, footer: String? = null, build: G
     }
 }
 
+/** a row of a segmented container list (like Settings): big outer corners on the first/last row, small inner ones */
+@Composable
+fun Modifier.segment(i: Int, n: Int, color: Color = rowColor()): Modifier {
+    val big = 24.dp.rs(); val small = 4.dp.rs()
+    val top = if (i == 0) big else small
+    val bottom = if (i == n - 1) big else small
+    return fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(color)
+}
+
 @Composable
 private fun rowColor(): Color = if (Prefs.amoled.value && LocalDark.current) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLow
 

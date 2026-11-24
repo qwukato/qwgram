@@ -430,16 +430,19 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
         val trackStart = x + gap
         drawLine(track, Offset(trackStart.coerceAtMost(size.width), cy), Offset(size.width, cy), stroke, StrokeCap.Round)
         // no stray round-cap dot at the very start: the wave appears once there is a real length to draw
-        if (x - gap > 1f) {
+        val end = x - gap
+        if (end > stroke) {
+            // starts ON the wave (no vertical tick at x = 0) and the cap sits inside the bar (no stray pixel)
+            fun waveY(px: Float) = cy + sin(px / 9.dp.toPx() + phase.value) * 3.dp.toPx() * amp
+            val half = stroke / 2f
             val path = Path()
-            var px = 0f
-            path.moveTo(0f, cy)
-            while (px < x - gap) {
-                val yy = cy + sin(px / 9.dp.toPx() + phase.value) * 3.dp.toPx() * amp
-                path.lineTo(px, yy)
-                px += 2f
+            var px = half
+            path.moveTo(px, waveY(px))
+            while (px < end - half) {
+                px = (px + 2f).coerceAtMost(end - half)
+                path.lineTo(px, waveY(px))
             }
-            drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Butt))
+            drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
         }
         drawLine(color, Offset(x, cy - 12.dp.toPx()), Offset(x, cy + 12.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
     }
@@ -450,13 +453,12 @@ private fun QueueSheet(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false), containerColor = cs.surfaceContainerLow) {
         Text("Очередь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(Player.queue.size) { i ->
                 val t = Player.queue[i]
                 val cur = i == Player.index
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp).clip(RoundedCornerShape(20.dp))
-                        .background(if (cur) cs.secondaryContainer else Color.Transparent)
+                    Modifier.segment(i, Player.queue.size, if (cur) cs.secondaryContainer else cs.surfaceContainerHigh)
                         .clickable { Player.playQueue(Player.queue, i) }.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

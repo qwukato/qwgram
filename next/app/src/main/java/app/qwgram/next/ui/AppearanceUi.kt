@@ -607,6 +607,7 @@ fun FeaturesPage2() {
             switch("Тихая отправка по умолчанию", Prefs.silentByDefault, "Получатель не услышит звук")
             switch("Подтверждать стикеры и GIF", Prefs.confirmSticker)
             switch("Пересылать без автора", Prefs.forwardNoAuthor, "Как копию, без «Переслано от» (можно менять при пересылке)")
+            switch("Плавная клавиатура", Prefs.smoothKeyboard)
             switch("Прятать клавиатуру при прокрутке", Prefs.hideKbOnScroll)
             switch("Время с секундами", Prefs.seconds, "У сообщений")
         }

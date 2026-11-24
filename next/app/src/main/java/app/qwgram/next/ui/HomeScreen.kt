@@ -308,8 +308,9 @@ private fun FloatingNavPill() {
     // the floating pill: the chosen tab widens into a pill with its label (springy), the others are icons.
     // The label's room is measured first, so the pill never grows past the space beside the FAB
     androidx.compose.foundation.layout.BoxWithConstraints {
-        val labelMax = maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 40.dp
-        val labels = Prefs.navLabels.value && labelMax >= 56.dp
+        // room left for the label beside the icons (never below a short word's width)
+        val labelMax = (maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 24.dp).coerceAtLeast(72.dp)
+        val labels = Prefs.navLabels.value
         Surface(shape = RoundedCornerShape(32.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 4.dp) {
             Row(Modifier.padding(6.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 tabs.forEach { (t, title, icons) ->
@@ -331,7 +332,7 @@ private fun FloatingNavPill() {
                             ) {
                                 Row {
                                     Spacer(Modifier.width(8.dp))
-                                    Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
+                                    Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = labelMax))
                                 }
                             }
                         }

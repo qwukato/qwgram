@@ -86,6 +86,9 @@ object TdStore {
             is TdApi.UpdateChatReadOutbox -> edit(obj.chatId) { it.lastReadOutboxMessageId = obj.lastReadOutboxMessageId }
             is TdApi.UpdateChatUnreadMentionCount -> edit(obj.chatId) { it.unreadMentionCount = obj.unreadMentionCount }
             is TdApi.UpdateChatUnreadReactionCount -> edit(obj.chatId) { it.unreadReactionCount = obj.unreadReactionCount }
+            // a mention / a reaction was seen: TDLib sends the chat's new counter with the message update
+            is TdApi.UpdateMessageMentionRead -> edit(obj.chatId) { it.unreadMentionCount = obj.unreadMentionCount }
+            is TdApi.UpdateMessageUnreadReactions -> edit(obj.chatId) { it.unreadReactionCount = obj.unreadReactionCount }
             is TdApi.UpdateChatIsMarkedAsUnread -> edit(obj.chatId) { it.isMarkedAsUnread = obj.isMarkedAsUnread }
             is TdApi.UpdateChatNotificationSettings -> edit(obj.chatId) { it.notificationSettings = obj.notificationSettings }
             is TdApi.UpdateChatDraftMessage -> {

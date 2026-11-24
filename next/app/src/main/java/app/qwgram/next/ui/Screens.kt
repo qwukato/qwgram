@@ -70,6 +70,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -191,30 +194,36 @@ fun ProfileScreen(chatId: Long) {
                         chat, user, me, title, status, topInset = pad.calculateTopPadding(),
                         onAvatar = { openAvatars() },
                         onCamera = if (me) ({ pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) else null,
+                        actions = { onColor ->
+                            val tc = if (onColor) Color.White.copy(alpha = 0.18f) else null
+                            val fc = if (onColor) Color.White else null
+                            if (chat != null && !TdStore.isSaved(chat)) {
+                                // Telegram-like action tiles in an M3 Expressive connected group: equal widths, everything fits
+                                ActionTiles(container = tc, content = fc, items = buildList {
+                                    add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
+                                        if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                                    })
+                                    // live chat: the tile flips right away after the tap
+                                    val liveMuted = TdStore.isMuted(TdStore.chats[chat.id] ?: chat)
+                                    add(GroupButton(if (liveMuted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (liveMuted) "Вкл. звук" else "Без звука", selected = liveMuted) { setMuted(TdStore.chats[chat.id] ?: chat, !liveMuted) })
+                                    // search: back to the chat with its search bar already open
+                                    add(GroupButton(Icons.Outlined.Search, "Поиск") {
+                                        ChatSearchRequest.chatId = chat.id
+                                        if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                                    })
+                                })
+                            } else if (me) {
+                                ActionTiles(container = tc, content = fc, items = listOf(
+                                    GroupButton(Icons.Outlined.PhotoCamera, "Фото") { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    GroupButton(Icons.Outlined.Palette, "Оформление") { Nav.push(Route.Page("appearance")) },
+                                    GroupButton(Icons.Outlined.Settings, "Настройки") { Nav.pop() ; HomeState.tab = HomeTab.Settings },
+                                ))
+                            }
+                        },
                     )
-                    if (chat != null && !TdStore.isSaved(chat)) {
-                        Spacer(Modifier.height(20.dp))
-                        val muted = TdStore.isMuted(chat)
-                        val un = (user?.usernames?.activeUsernames?.firstOrNull()
-                            ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
-                        val uid = TdStore.privateUserId(chat)
-                        // Telegram-like action tiles in an M3 Expressive connected group: equal widths, everything fits
-                        ActionTiles(modifier = Modifier.appearIn(0), items = buildList {
-                            add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
-                                if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
-                            })
-                            // live chat: the tile flips right away after the tap
-                            val liveMuted = TdStore.isMuted(TdStore.chats[chat.id] ?: chat)
-                            add(GroupButton(if (liveMuted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (liveMuted) "Вкл. звук" else "Без звука", selected = liveMuted) { setMuted(TdStore.chats[chat.id] ?: chat, !liveMuted) })
-                            // search: back to the chat with its search bar already open
-                            add(GroupButton(Icons.Outlined.Search, "Поиск") {
-                                ChatSearchRequest.chatId = chat.id
-                                if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
-                            })
-                        })
-                    }
+                    Spacer(Modifier.height(14.dp))
                     if (user != null) Box(Modifier.appearIn(1)) { ProfileMusic(user.id) }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(14.dp))
                     Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().appearIn(2)) {
                         Column(Modifier.padding(vertical = 4.dp)) {
                             val rows = buildList {
@@ -387,8 +396,8 @@ fun SearchScreen() {
         keyboardCtl?.hide()
         if (origin == null || Prefs.motion.value == "off") { Nav.pop(); return }
         searchScope.launch {
-            grow.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
-            Nav.pop()
+            grow.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value, visibilityThreshold = 0.01f))
+            Nav.popNow()
         }
     }
     androidx.activity.compose.BackHandler { closeSearch() }
@@ -426,6 +435,10 @@ fun SearchScreen() {
                         MorphIconButton(Icons.Filled.Close, "Очистить", { q = "" })
                     }
                     if (busy) LoadingIndicator(Modifier.size(36.dp).padding(end = 4.dp))
+                }
+                // as the pill shrinks back into the button it already shows the magnifier, so the button is "there" at once
+                Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - grow.value * 2.4f).coerceIn(0f, 1f) }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Search, null, tint = cs.onSurface)
                 }
             }
             androidx.compose.foundation.lazy.LazyRow(Modifier.graphicsLayer { alpha = ((grow.value - 0.5f) / 0.5f).coerceIn(0f, 1f); translationY = (1f - grow.value.coerceIn(0f, 1f)) * -24.dp.toPx() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -33,6 +33,30 @@ private object TgsCache {
     }.getOrNull()?.also { json.put(path, it) }
 }
 
+/** a still picture of any sticker (for drawing it into an edited photo / video); null if not downloaded yet */
+fun stickerBitmap(s: TdApi.Sticker, px: Int): android.graphics.Bitmap? = runCatching {
+    val f = TdStore.files[s.sticker.id] ?: s.sticker
+    val path = f.local?.path?.takeIf { f.local.isDownloadingCompleted }
+    when (s.format) {
+        is TdApi.StickerFormatTgs -> {
+            val json = path?.let { TgsCache.load(it) } ?: return@runCatching null
+            val comp = com.airbnb.lottie.LottieCompositionFactory.fromJsonStringSync(json, "tgs:$path").value ?: return@runCatching null
+            val d = com.airbnb.lottie.LottieDrawable()
+            d.composition = comp
+            d.progress = 0f
+            val out = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+            d.setBounds(0, 0, px, px)
+            d.draw(android.graphics.Canvas(out))
+            out
+        }
+        is TdApi.StickerFormatWebp -> path?.let { android.graphics.BitmapFactory.decodeFile(it) }
+        else -> {
+            val t = s.thumbnail?.file?.let { TdStore.files[it.id] ?: it }
+            t?.local?.path?.takeIf { t.local.isDownloadingCompleted }?.let { android.graphics.BitmapFactory.decodeFile(it) }
+        }
+    }
+}.getOrNull()
+
 /** the local path of a Telegram file once it is downloaded (starts the download) */
 @Composable
 fun rememberLocalPath(file: TdApi.File?): String? {
@@ -71,6 +95,11 @@ fun StickerContent(s: TdApi.Sticker, modifier: Modifier = Modifier, placeholder:
         is TdApi.StickerFormatTgs -> {
             val thumb = rememberFileBitmap(s.thumbnail?.file, maxSide = 256)
             TgsImage(s.sticker, modifier) { if (thumb != null) Image(thumb, s.emoji, modifier, contentScale = ContentScale.Fit) else placeholder() }
+        }
+        // video stickers / emoji: decoded with their transparency (see Webm.kt); the preview frame until ready
+        is TdApi.StickerFormatWebm -> {
+            val thumb = rememberFileBitmap(s.thumbnail?.file, maxSide = 256)
+            WebmImage(s.sticker, modifier) { if (thumb != null) Image(thumb, s.emoji, modifier, contentScale = ContentScale.Fit) else placeholder() }
         }
         else -> {
             val static = s.format is TdApi.StickerFormatWebp

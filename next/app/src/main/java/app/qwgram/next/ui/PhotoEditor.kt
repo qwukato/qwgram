@@ -92,18 +92,30 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /** a text or emoji-sticker layer on the picture; position is in image proportions, size relative to the image width */
-class EditLayer(val text: String, val color: Color, val emoji: Boolean, val bg: Boolean = false) {
+class EditLayer(val text: String, val color: Color, val emoji: Boolean, val bg: Boolean = false, val sticker: org.drinkless.tdlib.TdApi.Sticker? = null) {
     var x by mutableFloatStateOf(0.5f)
     var y by mutableFloatStateOf(0.5f)
     var scale by mutableFloatStateOf(1f)
     var rot by mutableFloatStateOf(0f)
     /** base glyph size, fraction of the image width */
-    val base get() = if (emoji) 0.16f else 0.075f
+    val base get() = if (sticker != null) 0.3f else if (emoji) 0.16f else 0.075f
 }
 
 /** draws [layers] onto the full-size picture (same maths as the on-screen preview) */
 internal fun drawLayers(c: Canvas, layers: List<EditLayer>, w: Int, h: Int) {
     layers.forEach { l ->
+        l.sticker?.let { st ->
+            // a Telegram sticker: its picture, base × scale of the width, rotated around its centre
+            val side = (l.base * l.scale * w).toInt().coerceAtLeast(8)
+            val bmp = app.qwgram.next.ui.stickerBitmap(st, side.coerceAtMost(1024)) ?: return@forEach
+            c.save()
+            c.translate(l.x * w, l.y * h); c.rotate(l.rot)
+            val k = side.toFloat() / maxOf(bmp.width, bmp.height)
+            val dw = bmp.width * k; val dh = bmp.height * k
+            c.drawBitmap(bmp, null, android.graphics.RectF(-dw / 2, -dh / 2, dw / 2, dh / 2), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+            c.restore()
+            return@forEach
+        }
         val p = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = l.base * l.scale * w
             color = l.color.toArgb()
@@ -333,7 +345,8 @@ fun PhotoEditorHost() {
                             .then(if (l.bg) Modifier.clip(RoundedCornerShape(with(dens) { (fontPx * 0.4f).toDp() })).background(if (l.color.luminanceApprox() > 0.6f) Color.Black else Color.White) else Modifier)
                             .padding(horizontal = with(dens) { (fontPx * 0.35f).toDp() }, vertical = with(dens) { (fontPx * 0.2f).toDp() }),
                     ) {
-                        Text(
+                        if (l.sticker != null) Box(Modifier.size(with(dens) { fontPx.toDp() })) { StickerContent(l.sticker, Modifier.fillMaxSize()) }
+                        else Text(
                             l.text, color = l.color, fontSize = with(dens) { fontPx.toSp() }, lineHeight = with(dens) { (fontPx * 1.17f).toSp() },
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             style = if (!l.emoji && !l.bg) androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, fontPx * 0.04f), fontPx * 0.08f)) else androidx.compose.ui.text.TextStyle.Default,
@@ -443,17 +456,10 @@ fun PhotoEditorHost() {
                                 }
                             }
                         }
-                        4 -> androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
-                            androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), Modifier.fillMaxWidth().height(120.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            items(STICKER_EMOJI.size) { i ->
-                                val e = STICKER_EMOJI[i]
-                                Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).clickable { layers.add(EditLayer(e, Color.White, emoji = true)) }, contentAlignment = Alignment.Center) {
-                                    Text(e, fontSize = androidx.compose.ui.unit.TextUnit(32f, androidx.compose.ui.unit.TextUnitType.Sp))
-                                }
-                            }
-                        }
+                        4 -> EditorStickerPicker(
+                            onEmoji = { e -> layers.add(EditLayer(e, Color.White, emoji = true)) },
+                            onSticker = { st -> layers.add(EditLayer(st.emoji, Color.White, emoji = true, sticker = st)) },
+                        )
                         else -> Column {
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 listOf(0xFFFFFFFF, 0xFF000000, 0xFFFF4D4D, 0xFFFF9F1C, 0xFFFFE14D, 0xFF4CD964, 0xFF34AADC, 0xFF5856D6, 0xFFFF2D95).forEach { c ->
@@ -475,16 +481,18 @@ fun PhotoEditorHost() {
             }
             Spacer(Modifier.height(8.dp))
             // tools: connected button group — the selected one widens and shows its name
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) { val fullW = maxWidth; Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 val tools = listOf(Triple(Icons.Outlined.Crop, "Обрезка", 0), Triple(Icons.Outlined.Tune, "Настройка", 1), Triple(Icons.Outlined.Brush, "Рисование", 2), Triple(Icons.Outlined.TextFields, "Текст", 3), Triple(Icons.Outlined.EmojiEmotions, "Стикеры", 4))
                 tools.forEachIndexed { i, (ic, label, id) ->
                     val sel = tool == id
                     val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), label = "t")
                     MorphBox(
                         onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 8.dp, pressed = 14.dp,
-                        color = bg, contentColor = if (sel) cs.onPrimary else Color.White, modifier = Modifier.height(52.dp),
+                        color = bg, contentColor = if (sel) cs.onPrimary else Color.White,
+                        // the chosen tool takes the free width (with its name), the others stay round icon buttons
+                        modifier = Modifier.height(52.dp).width(androidx.compose.animation.core.animateDpAsState(if (sel) fullW - 56.dp * (tools.size - 1) else 52.dp, androidx.compose.animation.core.spring(0.72f, 420f), label = "tw").value),
                     ) {
-                        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(horizontal = if (sel) 14.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(ic, label)
                             androidx.compose.animation.AnimatedVisibility(sel, enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), clip = true) + fadeIn(), exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), clip = true) + fadeOut()) {
                                 Row { Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) }
@@ -492,7 +500,7 @@ fun PhotoEditorHost() {
                         }
                     }
                 }
-            }
+            } }
         }
     }
     }
@@ -503,3 +511,55 @@ internal val STICKER_EMOJI = listOf(
     "❤️","💔","💯","⭐","🌈","☀️","🌙","⚡","❄️","🎉","🎁","🎂","🍕","☕","🍓","🐶","🐱","🦊","🐼","🦄",
     "🌸","🌻","🍀","🚀","✈️","🏖️","🎵","📸","💡","👑","💎","🏆","⚽","🎮","❗","❓","➡️","✅","❌","💤",
 )
+
+
+/** Telegram-like picker for the editor: tabs "Стикеры" (your installed sets, recent first) and "Эмодзи" */
+@Composable
+private fun EditorStickerPicker(onEmoji: (String) -> Unit, onSticker: (org.drinkless.tdlib.TdApi.Sticker) -> Unit) {
+    var tab by remember { mutableStateOf(0) }
+    var stickers by remember { mutableStateOf<List<org.drinkless.tdlib.TdApi.Sticker>?>(null) }
+    LaunchedEffect(Unit) {
+        val out = ArrayList<org.drinkless.tdlib.TdApi.Sticker>()
+        app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetRecentStickers(false))?.stickers?.let { out.addAll(it.take(20)) }
+        val sets = app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetInstalledStickerSets(org.drinkless.tdlib.TdApi.StickerTypeRegular()))?.sets.orEmpty()
+        stickers = out.toList()
+        for (i in sets.take(30)) {
+            app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetStickerSet(i.id))?.let { st -> out.addAll(st.stickers.filter { x -> out.none { it.id == x.id } }) }
+            stickers = out.toList()
+        }
+    }
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Стикеры", "Эмодзи").forEachIndexed { i, t ->
+                val sel = tab == i
+                val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.14f), label = "pt")
+                Box(Modifier.clip(RoundedCornerShape(if (sel) 12.dp else 18.dp)).background(bg).clickable { tab = i }.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    Text(t, color = if (sel) cs.onPrimary else Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
+            androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (tab == 0) 1 else 2), Modifier.fillMaxWidth().height(96.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (tab == 0) {
+                val list = stickers
+                if (list == null) item { Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.LoadingIndicator(Modifier.size(36.dp)) } }
+                else if (list.isEmpty()) item { Box(Modifier.width(240.dp).height(96.dp), contentAlignment = Alignment.Center) { Text("Нет установленных стикеров", color = Color.White.copy(alpha = 0.7f)) } }
+                else items(list.size, key = { list[it].id }) { i ->
+                    val st = list[i]
+                    Box(Modifier.size(92.dp).clip(RoundedCornerShape(16.dp)).clickable { onSticker(st) }.padding(6.dp), contentAlignment = Alignment.Center) {
+                        StickerContent(st, Modifier.fillMaxSize()) { Text(st.emoji, fontSize = androidx.compose.ui.unit.TextUnit(28f, androidx.compose.ui.unit.TextUnitType.Sp)) }
+                    }
+                }
+            } else items(STICKER_EMOJI.size) { i ->
+                val e = STICKER_EMOJI[i]
+                Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).clickable { onEmoji(e) }, contentAlignment = Alignment.Center) {
+                    Text(e, fontSize = androidx.compose.ui.unit.TextUnit(28f, androidx.compose.ui.unit.TextUnitType.Sp))
+                }
+            }
+        }
+    }
+}

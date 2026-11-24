@@ -77,6 +77,8 @@ class VideoItem(val file: TdApi.File, val thumb: TdApi.File?, val mini: TdApi.Mi
 
 object VideoViewer {
     var current by mutableStateOf<VideoItem?>(null)
+    /** bounds of the bubble the video was opened from: the viewer grows out of it and returns into it */
+    var origin: androidx.compose.ui.geometry.Rect? = null
     fun open(v: VideoItem) { Player.pause(); current = v }
 }
 
@@ -121,8 +123,9 @@ fun VideoViewerHost() {
     val cs = MaterialTheme.colorScheme
     val appear = remember(v) { Animatable(0f) }
     val drag = remember(v) { Animatable(0f) }
-    LaunchedEffect(v) { appear.animateTo(1f, spring(0.85f, 380f)) }
-    fun close() { scope.launch { appear.animateTo(0f, tween(180)); VideoViewer.current = null } }
+    val origin = remember(v) { VideoViewer.origin.also { VideoViewer.origin = null } }
+    LaunchedEffect(v) { appear.animateTo(1f, spring(0.82f, 340f)) }
+    fun close() { scope.launch { appear.animateTo(0f, spring(0.9f, 420f, visibilityThreshold = 0.002f)); VideoViewer.current = null } }
     BackHandler { close() }
 
     val path = rememberLocalPath(v.file)
@@ -177,10 +180,13 @@ fun VideoViewerHost() {
             },
     ) {
         Box(Modifier.fillMaxSize().graphicsLayer {
-            translationY = drag.value
-            val s = (1f - pull * 0.2f) * (0.92f + 0.08f * appear.value)
-            scaleX = s; scaleY = s
-            alpha = appear.value
+            // grows out of the bubble and goes back into it (shared-element style); otherwise a soft scale + fade
+            if (!flyFromBubble(origin, v.width, v.height, appear.value, circle = v.width == 240 && v.height == 240)) {
+                translationY = drag.value
+                val s = (1f - pull * 0.2f) * (0.92f + 0.08f * appear.value)
+                scaleX = s; scaleY = s
+                alpha = appear.value
+            }
         }, contentAlignment = Alignment.Center) {
             if (player != null) AndroidView(
                 factory = { c -> PlayerView(c).apply { useController = false; setShutterBackgroundColor(android.graphics.Color.BLACK); this.player = player } },

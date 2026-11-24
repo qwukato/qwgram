@@ -280,6 +280,7 @@ fun markRead(chat: TdApi.Chat) {
     chat.lastMessage?.let { Td.send(TdApi.ViewMessages(chat.id, longArrayOf(it.id), TdApi.MessageSourceChatList(), true)) }
     if (chat.isMarkedAsUnread) Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, false))
     if (chat.unreadMentionCount > 0) Td.send(TdApi.ReadAllChatMentions(chat.id))
+    if (chat.unreadReactionCount > 0) Td.send(TdApi.ReadAllChatReactions(chat.id))
 }
 
 /** qwgram: marks every chat (main list and archive) read, mentions and reactions included */

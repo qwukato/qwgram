@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.animation.togetherWith
 import android.content.Intent
 import android.widget.Toast
@@ -77,6 +79,8 @@ private fun argb(c: Int) = Color(0xFF000000.toInt() or c)
 fun ProfileBanner(
     chat: TdApi.Chat?, user: TdApi.User?, me: Boolean, title: String, status: String, topInset: Dp,
     onAvatar: () -> Unit, onCamera: (() -> Unit)?,
+    /** action buttons drawn inside the banner (Telegram-like); `onColor` = the banner is coloured */
+    actions: @Composable (onColor: Boolean) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = cs.surface.luminance() < 0.5f
@@ -118,17 +122,19 @@ fun ProfileBanner(
                         drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.6f))
                     },
             )
-            .padding(top = topInset + 8.dp, bottom = if (bannerColors != null) 28.dp else 8.dp),
+            .padding(top = (topInset - 6.dp).coerceAtLeast(0.dp), bottom = if (bannerColors != null) 18.dp else 8.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
                 // pattern: rings of the chosen emoji around the avatar, fading outwards (Telegram Premium profile)
                 if (patternId != null && bannerColors != null) {
-                    val ring = remember { listOf(
-                        Triple(-118f, -30f, 0.55f), Triple(118f, -30f, 0.55f), Triple(-96f, 62f, 0.5f), Triple(96f, 62f, 0.5f),
-                        Triple(-60f, -96f, 0.45f), Triple(60f, -96f, 0.45f), Triple(0f, -122f, 0.4f), Triple(-150f, 30f, 0.32f),
-                        Triple(150f, 30f, 0.32f), Triple(-160f, -78f, 0.25f), Triple(160f, -78f, 0.25f), Triple(-128f, 112f, 0.25f), Triple(128f, 112f, 0.25f),
-                    ) }
+                    // two rings like Telegram: an inner one close to the avatar, a fainter outer one
+                    val ring = remember {
+                        buildList {
+                            for (i in 0 until 8) { val a = Math.toRadians(i * 45.0 + 22.5); add(Triple((cos(a) * 96).toFloat(), (sin(a) * 88).toFloat(), 0.5f)) }
+                            for (i in 0 until 12) { val a = Math.toRadians(i * 30.0); add(Triple((cos(a) * 160).toFloat(), (sin(a) * 120).toFloat(), 0.26f)) }
+                        }
+                    }
                     ring.forEach { (x, y, a) ->
                         Box(Modifier.size(22.dp).graphicsLayer {
                             translationX = x.dp.toPx() * (0.7f + 0.3f * appear.value); translationY = y.dp.toPx() * (0.7f + 0.3f * appear.value)
@@ -136,14 +142,13 @@ fun ProfileBanner(
                         }) { CustomEmojiImage(patternId, 22.dp) }
                     }
                 }
-                Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    Box(Modifier.size(124.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                        if (chat == null) UserAvatar(user, 124.dp) else ChatAvatar(chat, 124.dp)
+                Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(vertical = 26.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
+                    Box(Modifier.size(108.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                        if (chat == null) UserAvatar(user, 108.dp) else ChatAvatar(chat, 108.dp)
                     }
                     if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
                 }
             }
-            Spacer(Modifier.height(14.dp))
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.graphicsLayer { alpha = ((appear.value - 0.2f) / 0.8f).coerceIn(0f, 1f); translationY = (1f - appear.value) * 16.dp.toPx() },
@@ -161,6 +166,8 @@ fun ProfileBanner(
                     if (st.isNotBlank()) Text(st, style = MaterialTheme.typography.bodyLarge, color = onBanner.copy(alpha = if (st == "в сети") 1f else 0.8f), textAlign = TextAlign.Center)
                 }
             }
+            // the actions sit inside the banner, a beat after the name
+            Box(Modifier.padding(top = 18.dp).fillMaxWidth().appearIn(0)) { actions(bannerColors != null) }
         }
     }
 }

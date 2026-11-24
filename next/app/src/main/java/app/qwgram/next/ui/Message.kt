@@ -337,7 +337,7 @@ private fun Bubble(
     Surface(
         shape = shape, color = bg, contentColor = fg,
         border = if (style == "outlined") androidx.compose.foundation.BorderStroke(if (out) 1.5.dp else 1.dp, if (out) cs.primary else cs.outlineVariant) else null,
-        modifier = gestures.widthIn(max = maxW),
+        modifier = gestures.then(LocalBubbleFly.current).widthIn(max = maxW),
     ) {
         val hasReactionsOuter = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
         Column(Modifier.padding(if (media) 3.dp else 0.dp).then(if ((hasReactionsOuter || m.replyTo is TdApi.MessageReplyToMessage) && !media) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)) {
@@ -708,9 +708,13 @@ private fun PhotoView(p: TdApi.Photo, shapeTop: androidx.compose.ui.unit.Dp, onC
     val bmp = rememberFileBitmap(size.photo, maxSide = 1080)
     val mini = remember(p) { Images.mini(p.minithumbnail) }
     val ratio = (size.width.toFloat() / size.height.coerceAtLeast(1)).coerceIn(0.5f, 2.2f)
+    // a bubble scrolled away (disposed) is no place to fly back to
+    androidx.compose.runtime.DisposableEffect(size.photo.id) { onDispose { ViewerOrigin.rects.remove(size.photo.id) } }
     Box(
         Modifier.fillMaxWidth().widthIn(min = 160.dp).aspectRatio(ratio).clip(RoundedCornerShape(topStart = shapeTop, topEnd = shapeTop, bottomStart = 6.dp, bottomEnd = 6.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable(onClick = onClick),
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .onGloballyPositioned { ViewerOrigin.rects[size.photo.id] = it.boundsInRoot() }
+            .clickable(onClick = onClick),
     ) {
         if (bmp == null && mini != null) Image(mini, null, Modifier.fillMaxSize().blur(14.dp), contentScale = ContentScale.Crop)
         androidx.compose.animation.AnimatedVisibility(bmp != null, enter = androidx.compose.animation.fadeIn(Springs.effects()), exit = androidx.compose.animation.fadeOut(snap())) {
@@ -738,10 +742,13 @@ private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h
     val bmp = rememberFileBitmap(thumb, maxSide = 720)
     val miniBmp = remember(mini) { Images.mini(mini) }
     val ratio = if (circle) 1f else (w.toFloat() / h.coerceAtLeast(1)).coerceIn(0.5f, 2.2f)
+    val here = remember { arrayOfNulls<androidx.compose.ui.geometry.Rect>(1) }
     Box(
         Modifier.then(if (circle) Modifier.size(220.dp) else Modifier.fillMaxWidth().widthIn(min = 180.dp))
             .aspectRatio(ratio).clip(if (circle) CircleShape else RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable { onOpen(ctx) },
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .onGloballyPositioned { here[0] = it.boundsInRoot() }
+            .clickable { VideoViewer.origin = here[0]; onOpen(ctx) },
         contentAlignment = Alignment.Center,
     ) {
         (bmp ?: miniBmp)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
@@ -1022,19 +1029,30 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
     val closeAt = with(density) { 120.dp.toPx() }
     var chrome by remember { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, Springs.smooth()) }
-    fun close() { scope.launch { appear.animateTo(0f, androidx.compose.animation.core.tween(180)); onDismiss() } }
+    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.82f, 340f * k)) }
+    // closing flies the photo back into its bubble (when the bubble is on screen), otherwise it fades away
+    fun close() { scope.launch { appear.animateTo(0f, androidx.compose.animation.core.spring(0.9f, 420f * k, visibilityThreshold = 0.002f)); onDismiss() } }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val pull = (kotlin.math.abs(drag.value) / (closeAt * 2.2f)).coerceIn(0f, 1f)
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - pull) * appear.value))) {
             androidx.compose.foundation.pager.HorizontalPager(
                 pager, userScrollEnabled = !zoomed, pageSpacing = 16.dp, beyondViewportPageCount = 1,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
-                    // swipe down/up to close: the photo follows the finger and shrinks a little (Telegram)
-                    translationY = drag.value
-                    val sc = (1f - pull * 0.25f) * (0.9f + 0.1f * appear.value)
-                    scaleX = sc; scaleY = sc
-                    alpha = appear.value
+                    val t = appear.value
+                    val cur = photos.getOrNull(pager.currentPage)
+                    val best = cur?.let { bestSize(it) }
+                    val o = best?.let { ViewerOrigin.rects[it.photo.id] }
+                    if (best != null && !zoomed && flyFromBubble(o, best.width, best.height, t)) {
+                        // shared-element style: the photo grows out of its bubble and goes back into it
+                        translationY += drag.value * t
+                    } else {
+                        // swipe down/up to close: the photo follows the finger and shrinks a little (Telegram)
+                        translationY = drag.value
+                        val sc = (1f - pull * 0.25f) * (0.9f + 0.1f * t)
+                        scaleX = sc; scaleY = sc
+                        alpha = t
+                    }
                 },
             ) { page ->
                 ZoomPhoto(
@@ -1232,3 +1250,41 @@ private fun ZoomPhoto(p: TdApi.Photo, active: Boolean, onTap: () -> Unit, onZoom
     }
 }
 
+
+
+/** extra modifier for the bubble of a just-sent message (the fly-in from the composer) */
+val LocalBubbleFly = androidx.compose.runtime.staticCompositionLocalOf<Modifier> { Modifier }
+
+
+/** where each photo sits on screen in its bubble (photo file id → bounds in root): the viewer opens from and returns to it */
+object ViewerOrigin { val rects = HashMap<Int, androidx.compose.ui.geometry.Rect>() }
+
+
+/**
+ * Shared-element style transform for a full-screen viewer layer: at [t] = 0 the content (aspect [cw]:[ch], fitted
+ * into the layer) shows exactly the part visible in the bubble at [o] (cropped, rounded), at 1 it fills the viewer.
+ * Returns false when there is nothing to fly to (no bubble on screen).
+ */
+fun androidx.compose.ui.graphics.GraphicsLayerScope.flyFromBubble(o: androidx.compose.ui.geometry.Rect?, cw0: Int, ch0: Int, t: Float, circle: Boolean = false): Boolean {
+    if (o == null || o.width < 2f || o.bottom <= 0f || o.top >= size.height || t >= 0.999f) return false
+    val W = size.width; val H = size.height
+    val a = cw0.toFloat() / ch0.coerceAtLeast(1)
+    val fw: Float; val fh: Float
+    if (W / H > a) { fh = H; fw = H * a } else { fw = W; fh = W / a }
+    val oa = o.width / o.height
+    val cw = if (oa > a) fw else fh * oa
+    val ch = if (oa > a) fw / oa else fh
+    val s0 = o.width / cw
+    val s = s0 + (1f - s0) * t
+    scaleX = s; scaleY = s
+    translationX = (o.center.x - W / 2f) * (1f - t)
+    translationY = (o.center.y - H / 2f) * (1f - t)
+    val l = (W - cw) / 2f * (1f - t); val tp = (H - ch) / 2f * (1f - t)
+    val rad = (if (circle) cw / 2f else 16.dp.toPx() / s.coerceAtLeast(0.05f)) * (1f - t)
+    shape = object : androidx.compose.ui.graphics.Shape {
+        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+            androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(l, tp, W - l, H - tp, androidx.compose.ui.geometry.CornerRadius(rad)))
+    }
+    clip = true
+    return true
+}

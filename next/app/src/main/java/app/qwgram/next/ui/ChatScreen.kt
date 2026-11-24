@@ -142,6 +142,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.MarkChatUnread
 import androidx.compose.material.icons.outlined.Poll
@@ -356,6 +357,14 @@ fun ChatScreen(chatId: Long) {
     val imeTarget = WindowInsets.imeAnimationTarget.getBottom(density)
     LaunchedEffect(imeTarget) { if (imeTarget > with(density) { 180.dp.roundToPx() }) Prefs.kbHeight.value = imeTarget }
     LaunchedEffect(imeTarget) { if (panel && imeTarget > 0) panelHolding = true }
+    // the keyboard itself slides in slower and smoother: we take over its show animation (Android 11+)
+    val rootView = androidx.compose.ui.platform.LocalView.current
+    var lastImeTarget by remember { mutableStateOf(0) }
+    LaunchedEffect(imeTarget) {
+        val wasHidden = lastImeTarget == 0
+        lastImeTarget = imeTarget
+        if (imeTarget > 0 && wasHidden && Prefs.smoothKeyboard.value && Prefs.motion.value != "off") SlowIme.show(rootView, (440 / Prefs.motionSpeed.value).toLong())
+    }
     var panelSwapToKb by remember { mutableStateOf(false) }
     LaunchedEffect(imeNow, panelHolding) {
         val kb = Prefs.kbHeight.value
@@ -372,7 +381,7 @@ fun ChatScreen(chatId: Long) {
     val panelPx = with(density) { panelHeight.toPx() }
     LaunchedEffect(panel, panelPx) {
         // the keyboard's own curve (M3 emphasized decelerate), so the panel feels like a keyboard
-        val smooth = androidx.compose.animation.core.tween<Float>((300 / Prefs.motionSpeed.value).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
+        val smooth = androidx.compose.animation.core.tween<Float>((440 / Prefs.motionSpeed.value).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
         if (panel) {
             if (imeNow > 0 || Prefs.motion.value == "off") panelAnim.snapTo(panelPx) else panelAnim.animateTo(panelPx, smooth)
         } else {
@@ -501,7 +510,7 @@ fun ChatScreen(chatId: Long) {
     LaunchedEffect(atBottom, newest) {
         val c = TdStore.chats.peek(chatId)
         val last = c?.lastMessage?.id ?: return@LaunchedEffect
-        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0)) {
+        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0 || c.unreadReactionCount > 0)) {
             viewMessages(chatId, longArrayOf(last))
             markRead(c)
         }
@@ -650,10 +659,11 @@ fun ChatScreen(chatId: Long) {
                             Entry.Unread -> UnreadDivider()
                             is Entry.Msg -> {
                                 val id = e.m.id
+                                androidx.compose.runtime.CompositionLocalProvider(LocalBubbleFly provides (if (e.k in ctl.flyIn) Modifier.flyFromField { ctl.flyIn.remove(e.k) } else Modifier)) {
                                 MessageItem(
                                     m = e.m, grp = e.grp, chat = chat, group = group,
                                     reply = ctl.replies[id],
-                                    modifier = Modifier.flyFromComposer(e.k in ctl.flyIn) { ctl.flyIn.remove(e.k) }.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
@@ -675,6 +685,7 @@ fun ChatScreen(chatId: Long) {
                                     onPhoto = { viewer = it },
                                     onReplyClick = { r -> jump(r) },
                                 )
+                                }
                             }
                         }
                     }
@@ -1322,6 +1333,7 @@ private fun Composer(
                                 cursorBrush = SolidColor(cs.primary),
                                 maxLines = 8,
                                 modifier = Modifier.weight(1f).padding(top = 14.dp, bottom = 14.dp, end = 4.dp)
+                                    .onGloballyPositioned { SendFly.from = it.boundsInRoot() }
                                     .onFocusChanged { if (it.isFocused) onFocusText() },
                                 keyboardOptions = if (Prefs.sendByEnter.value) androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send) else androidx.compose.foundation.text.KeyboardOptions.Default,
                                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { onSend() }),
@@ -1716,12 +1728,19 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
             androidx.compose.material3.FilterChip(noCaption, { noCaption = !noCaption }, enabled = noAuthor, label = { Text("Без подписи") },
                 leadingIcon = { AnimatedVisibility(noCaption && noAuthor) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) } })
         }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
-            items(chats, key = { it.id }) { c ->
+        // chats as a segmented container list (like Settings)
+        LazyColumn(
+            Modifier.fillMaxWidth().heightIn(max = 560.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            itemsIndexed(chats, key = { _, c -> c.id }) { i, c ->
                 ListItem(
-                    headlineContent = { Text(if (TdStore.isSaved(c)) "Избранное" else c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    headlineContent = { Text(if (TdStore.isSaved(c)) "Избранное" else c.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
+                    supportingContent = { val st = Texts.chatStatus(c); if (st.isNotBlank()) Text(st, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingContent = { ChatAvatar(c, 44.dp) },
-                    modifier = Modifier.clickable {
+                    colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.animateItem().segment(i, chats.size, MaterialTheme.colorScheme.surfaceContainerHigh).clickable {
                         val from = list.first().chatId
                         Td.send(TdApi.ForwardMessages().apply {
                             chatId = c.id; fromChatId = from; messageIds = list.map { it.id }.toLongArray()
@@ -1738,25 +1757,76 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
 }
 
 
+/** where the composer's text sits (in root): a sent bubble starts exactly there */
+object SendFly { var from: androidx.compose.ui.geometry.Rect? = null }
+
 /**
- * A freshly sent message rises out of the input field into its place on a spring (Telegram-style):
- * starts lower and a bit smaller, from the right edge where the send button is, and settles with a slight bounce.
+ * Telegram-style send: the new bubble starts where the text was typed (its text over the field's text) and flies
+ * along a spring to its place in the list. Media sent from the gallery takes the same path.
  */
 @Composable
-private fun Modifier.flyFromComposer(active: Boolean, done: () -> Unit): Modifier {
-    if (!active || Prefs.motion.value == "off") return this
+private fun Modifier.flyFromField(done: () -> Unit): Modifier {
+    val from = remember { SendFly.from }
+    if (from == null || Prefs.motion.value == "off") { LaunchedEffect(Unit) { done() }; return this }
     val p = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) {
+    var start by remember { mutableStateOf<Offset?>(null) }
+    val dens = LocalDensity.current
+    val pad = remember(dens) { with(dens) { Offset(12.dp.toPx(), 9.dp.toPx()) } }
+    LaunchedEffect(start != null) {
+        if (start == null) return@LaunchedEffect
         val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-        p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 380f * k))
+        p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.74f, stiffness = 260f * k))
         done()
     }
-    return graphicsLayer {
-        val t = p.value
-        translationY = (1f - t) * 72.dp.toPx()
-        val sc = 0.86f + 0.14f * t
-        scaleX = sc; scaleY = sc
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
-        alpha = (t * 2.2f).coerceIn(0f, 1f)
+    return this
+        .onGloballyPositioned { c ->
+            if (start == null) { val b = c.boundsInRoot(); start = Offset(from.left - pad.x - b.left, from.top - pad.y - b.top) }
+        }
+        .graphicsLayer {
+            val s0 = start
+            if (s0 == null) { alpha = 0f; return@graphicsLayer }
+            val t = p.value
+            // x settles a little faster than y, so the bubble curves up into place like in Telegram
+            val tx = (t * 1.15f).coerceAtMost(1f + (t - 1f).coerceAtLeast(0f))
+            translationX = s0.x * (1f - tx)
+            translationY = s0.y * (1f - t)
+        }
+}
+
+
+/** replays the keyboard's show animation with our duration and the M3 emphasized-decelerate curve */
+object SlowIme {
+    private var running = false
+    fun show(view: android.view.View, durationMs: Long) {
+        if (android.os.Build.VERSION.SDK_INT < 30 || running) return
+        val ctl = view.windowInsetsController ?: return
+        running = true
+        runCatching {
+            ctl.controlWindowInsetsAnimation(
+                android.view.WindowInsets.Type.ime(), -1, null, android.os.CancellationSignal(),
+                object : android.view.WindowInsetsAnimationControlListener {
+                    var anim: android.animation.ValueAnimator? = null
+                    override fun onReady(c: android.view.WindowInsetsAnimationController, types: Int) {
+                        val from = c.currentInsets.bottom
+                        val to = c.shownStateInsets.bottom
+                        if (to <= from) { runCatching { c.finish(true) }; return }
+                        anim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                            duration = durationMs
+                            interpolator = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+                            addUpdateListener { a ->
+                                val f = a.animatedValue as Float
+                                if (c.isReady) runCatching { c.setInsetsAndAlpha(android.graphics.Insets.of(0, 0, 0, (from + (to - from) * f).toInt()), 1f, f) }
+                            }
+                            addListener(object : android.animation.AnimatorListenerAdapter() {
+                                override fun onAnimationEnd(a: android.animation.Animator) { if (c.isReady) runCatching { c.finish(true) } }
+                            })
+                            start()
+                        }
+                    }
+                    override fun onFinished(c: android.view.WindowInsetsAnimationController) { running = false }
+                    override fun onCancelled(c: android.view.WindowInsetsAnimationController?) { anim?.cancel(); running = false }
+                },
+            )
+        }.onFailure { running = false }
     }
 }

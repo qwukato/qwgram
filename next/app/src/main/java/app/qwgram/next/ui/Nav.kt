@@ -87,6 +87,14 @@ object Nav {
         return true
     }
 
+    /** removes the top screen without its exit animation (screens that animated their own exit) */
+    fun popNow() {
+        val e = stack.lastOrNull { !it.closing } ?: return
+        if (stack.indexOf(e) == 0) return
+        e.closing = true
+        stack.remove(e)
+    }
+
     fun home() {
         while (stack.size > 1) stack.removeAt(stack.lastIndex)
     }

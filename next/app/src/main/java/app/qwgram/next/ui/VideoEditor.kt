@@ -334,16 +334,17 @@ fun VideoEditorHost() {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) { val fullW = maxWidth; Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val tools = listOf(Triple(Icons.Outlined.ContentCut, "Обрезка", 0), Triple(Icons.Outlined.Crop, "Кадр", 1), Triple(Icons.Outlined.Tune, "Цвет", 2), Triple(Icons.Outlined.TextFields, "Текст", 3))
                     tools.forEachIndexed { i, (ic, label, id) ->
                         val sel = tool == id
                         val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), label = "t")
                         MorphBox(
                             onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 8.dp, pressed = 14.dp,
-                            color = bg, contentColor = if (sel) cs.onPrimary else Color.White, modifier = Modifier.height(52.dp),
+                            color = bg, contentColor = if (sel) cs.onPrimary else Color.White,
+                            modifier = Modifier.height(52.dp).width(androidx.compose.animation.core.animateDpAsState(if (sel) fullW - 56.dp * (tools.size - 1) else 52.dp, androidx.compose.animation.core.spring(0.72f, 420f), label = "tw").value),
                         ) {
-                            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.padding(horizontal = if (sel) 14.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(ic, label)
                                 androidx.compose.animation.AnimatedVisibility(sel, enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), clip = true) + fadeIn(), exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), clip = true) + fadeOut()) {
                                     Row { Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) }
@@ -351,6 +352,7 @@ fun VideoEditorHost() {
                             }
                         }
                     }
+                }
                 }
             }
         }

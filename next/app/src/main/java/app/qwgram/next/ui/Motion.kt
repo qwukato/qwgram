@@ -277,7 +277,7 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.66f, 115f * k) else androidx.compose.animation.core.spring(0.9f, 190f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.48f, 150f * k) else androidx.compose.animation.core.spring(0.85f, 240f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
         val radiusEnd = 16.dp.rs()
@@ -286,7 +286,10 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
                 .graphicsLayer {
                     // container transform: the visible part starts as the button (its size, at the menu's top-right
                     // corner, fully rounded) and springs out to the whole menu while the corners settle
-                    val q = p.coerceIn(0f, 1.06f)
+                    val q = p.coerceIn(0f, 1f)
+                    // the springy overshoot: past 1 the whole menu swells a little from its corner and settles back
+                    val over = (p - 1f).coerceIn(-0.2f, 0.4f)
+                    if (over > 0f) { transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f); scaleX = 1f + over * 0.35f; scaleY = 1f + over * 0.5f }
                     val sw = size.width.coerceAtLeast(1f)
                     val sh = size.height.coerceAtLeast(1f)
                     val aw = anchor.width.toFloat().coerceIn(1f, sw)
@@ -320,9 +323,23 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
 @Composable
 fun CalmMotion(content: @Composable () -> Unit) {
     androidx.compose.material3.MaterialExpressiveTheme(
-        colorScheme = MaterialTheme.colorScheme, motionScheme = androidx.compose.material3.MotionScheme.standard(),
+        colorScheme = MaterialTheme.colorScheme, motionScheme = SheetMotion,
         shapes = MaterialTheme.shapes, typography = MaterialTheme.typography, content = content,
     )
+}
+
+/**
+ * sheets: smooth and without bounce, but settling quickly — a long spring tail kept the sheet "moving" for a while
+ * after it reached full height, and while it moves the sheet takes the scroll (the photos wouldn't scroll at once)
+ */
+private object SheetMotion : androidx.compose.material3.MotionScheme {
+    private val std = androidx.compose.material3.MotionScheme.standard()
+    override fun <T> defaultSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.spring(1f, 620f)
+    override fun <T> fastSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.spring(1f, 900f)
+    override fun <T> slowSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.spring(1f, 420f)
+    override fun <T> defaultEffectsSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = std.defaultEffectsSpec()
+    override fun <T> fastEffectsSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = std.fastEffectsSpec()
+    override fun <T> slowEffectsSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = std.slowEffectsSpec()
 }
 
 /** where the search bar grows from: bounds (in root) of the button that opened search */
@@ -367,7 +384,7 @@ class TileAction(val icon: ImageVector, val label: String, val selected: Boolean
  * (icon beside a label of up to two lines). Text keeps its size. The press layer stays inside each tile.
  */
 @Composable
-fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height: Dp = 84.dp) {
+fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height: Dp = 84.dp, container: Color? = null, content: Color? = null) {
     val cs = MaterialTheme.colorScheme
     val style = MaterialTheme.typography.labelLarge
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
@@ -388,8 +405,8 @@ fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height
             val last = i == count - 1
             MorphBox(
                 onClick = a.onClick, rest = if (first || last) outer else inner, pressed = 30.dp, squish = 0.95f,
-                color = if (a.selected) cs.secondaryContainer else cs.surfaceContainerHighest,
-                contentColor = if (a.selected) cs.onSecondaryContainer else cs.onSurface,
+                color = if (a.selected) (if (container != null) Color.White.copy(alpha = 0.34f) else cs.secondaryContainer) else container ?: cs.surfaceContainerHighest,
+                contentColor = if (a.selected) (content ?: cs.onSecondaryContainer) else content ?: cs.onSurface,
                 modifier = mod,
             ) {
                 if (!wide) Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp)) {
@@ -502,8 +519,8 @@ fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, heig
  * label), big outer corners, small inner ones; the pressed tile rounds into a pill, a toggled one fills with primary.
  */
 @Composable
-fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) =
-    AdaptiveTiles(items.map { b -> TileAction(b.icon ?: Icons.Outlined.Search, b.label ?: b.desc ?: "", b.selected, b.onClick) }, modifier, height = 72.dp)
+fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier, container: Color? = null, content: Color? = null) =
+    AdaptiveTiles(items.map { b -> TileAction(b.icon ?: Icons.Outlined.Search, b.label ?: b.desc ?: "", b.selected, b.onClick) }, modifier, height = 72.dp, container = container, content = content)
 
 /**
  * Lets a horizontally-dragged control (slider, pager…) own the finger: marks the gesture on DOWN, before the
