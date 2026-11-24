@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -251,7 +252,7 @@ fun VideoEditorHost() {
                                 }
                                 .graphicsLayer { rotationZ = l.rot; scaleX = appear.value; scaleY = appear.value }
                                 .pointerInput(l, dw, dh) {
-                                    androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, rot ->
+                                    detectTransformGestures { _, pan, zoom, rot ->
                                         val a = Math.toRadians(l.rot.toDouble())
                                         val px = (pan.x * kotlin.math.cos(a) - pan.y * kotlin.math.sin(a)).toFloat() * l.scale
                                         val py = (pan.x * kotlin.math.sin(a) + pan.y * kotlin.math.cos(a)).toFloat() * l.scale

@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.gestures.detectTransformGestures
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -320,7 +321,7 @@ fun PhotoEditorHost() {
                             }
                             .graphicsLayer { rotationZ = l.rot; scaleX = appear.value; scaleY = appear.value }
                             .then(if (tool != 0 && tool != 2) Modifier.pointerInput(l, dw, dh) {
-                                androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, rot ->
+                                detectTransformGestures { _, pan, zoom, rot ->
                                     // pan arrives in the rotated frame: turn it back into screen space
                                     val a = Math.toRadians(l.rot.toDouble())
                                     val px = (pan.x * kotlin.math.cos(a) - pan.y * kotlin.math.sin(a)).toFloat() * l.scale
