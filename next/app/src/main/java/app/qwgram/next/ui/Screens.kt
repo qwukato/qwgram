@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -368,7 +369,8 @@ fun SearchScreen() {
     LaunchedEffect(Unit) {
         grow.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
     }
-    var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var hostPos = androidx.compose.ui.geometry.Offset.Zero
+    val statusTopPx = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current).toFloat()
     val searchScope = rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
     val keyboardCtl = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -390,8 +392,10 @@ fun SearchScreen() {
             Surface(
                 shape = RoundedCornerShape(28.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 2.dp,
                 modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)
-                    .onGloballyPositioned { hostPos = it.positionInRoot() }
                     .layout { m, c ->
+                        // the bar's final spot is fixed (screen top, under the status bar): known from the first frame,
+                        // so the grow starts exactly on the button with no jump
+                        hostPos = androidx.compose.ui.geometry.Offset(12.dp.toPx(), statusTopPx + 6.dp.toPx())
                         val fw = c.maxWidth; val fh = c.maxHeight.coerceAtMost(56.dp.roundToPx())
                         val p = grow.value
                         val o = origin

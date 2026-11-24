@@ -72,10 +72,9 @@ import androidx.compose.material.icons.filled.Check
 /** how much a list may slide under its header: only floating (faded) headers overlap, square ones never do */
 fun headerOverlap(): androidx.compose.ui.unit.Dp = if (Prefs.floatingBars.value) 12.dp else 0.dp
 
-/** opaque header that turns transparent only in its last [fade] (content never shows through the title area) */
-fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, fade: androidx.compose.ui.unit.Dp = 22.dp): Modifier = drawBehind {
-    val f = (fade.toPx() / size.height).coerceIn(0.05f, 0.6f)
-    drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to color, (1f - f) to color, 1f to color.copy(alpha = 0f)))
+/** header fade: the page colour at the top melting into transparency (the content shows through softly) */
+fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, @Suppress("UNUSED_PARAMETER") fade: androidx.compose.ui.unit.Dp = 22.dp): Modifier = drawBehind {
+    drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to color, 0.62f to color.copy(alpha = 0.92f), 1f to color.copy(alpha = 0f)))
 }
 
 /** header action: a floating round button with its own container and press morph, or a plain icon in classic mode */
@@ -112,9 +111,8 @@ fun FadeHeader(
                     // transparent over a banner, fills in as the page scrolls
                     val a = backgroundAlpha().coerceIn(0f, 1f)
                     if (a > 0f) {
-                        val f = (22.dp.toPx() / size.height).coerceIn(0.05f, 0.6f)
                         val c = if (floating) cs.surface else cs.surfaceContainer
-                        drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to c.copy(alpha = a), (1f - f) to c.copy(alpha = a), 1f to c.copy(alpha = if (floating) 0f else a)))
+                        drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to c.copy(alpha = a), 0.62f to c.copy(alpha = a * 0.92f), 1f to c.copy(alpha = if (floating) 0f else a)))
                     }
                 }
                 else if (floating) Modifier.topFade(cs.surface)

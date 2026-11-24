@@ -315,6 +315,12 @@ private fun Bubble(
     if (bare) {
         Column(gestures.widthIn(max = maxW), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
             if (c is TdApi.MessageSticker) StickerView(c.sticker)
+            else if (c is TdApi.MessageAnimatedEmoji && c.animatedEmoji?.sticker != null) {
+                // Telegram's animated emoji (a single emoji sent alone) plays like a small sticker
+                StickerContent(c.animatedEmoji.sticker, Modifier.size(132.dp)) {
+                    Text(c.emoji, fontSize = (Prefs.textSize.value * 3).sp)
+                }
+            }
             else Text(
                 (c as? TdApi.MessageText)?.text?.text ?: (c as TdApi.MessageAnimatedEmoji).emoji,
                 fontSize = (Prefs.textSize.value * 3).sp, lineHeight = (Prefs.textSize.value * 3.4).sp,
@@ -355,16 +361,17 @@ private fun Bubble(
             when (c) {
                 is TdApi.MessagePhoto -> PhotoView(c.photo, shapeTop = r - 3.dp, onClick = { onPhoto(c.photo) })
                 is TdApi.MessageVideo -> VideoThumb(c.video.thumbnail?.file, c.video.minithumbnail, c.video.width, c.video.height, Texts.duration(c.video.duration)) {
-                    Opener.file(it, c.video.video, c.video.mimeType)
+                    VideoViewer.open(VideoItem(c.video.video, c.video.thumbnail?.file, c.video.minithumbnail, c.video.width, c.video.height, c.video.duration))
                 }
-                is TdApi.MessageAnimation -> VideoThumb(c.animation.thumbnail?.file, c.animation.minithumbnail, c.animation.width, c.animation.height, "GIF") {
-                    Opener.file(it, c.animation.animation, c.animation.mimeType)
+                // GIFs play inline, muted and looping (Telegram); tap opens them big
+                is TdApi.MessageAnimation -> VideoThumb(c.animation.thumbnail?.file, c.animation.minithumbnail, c.animation.width, c.animation.height, "GIF", loop = c.animation.animation) {
+                    VideoViewer.open(VideoItem(c.animation.animation, c.animation.thumbnail?.file, c.animation.minithumbnail, c.animation.width, c.animation.height, c.animation.duration))
                 }
                 is TdApi.MessageVoiceNote -> VoiceView(c.voiceNote.voice, c.voiceNote.duration, c.voiceNote.waveform, fg, pad.padding(top = 8.dp))
                 is TdApi.MessageAudio -> AudioView(c.audio, fg, pad.padding(top = 8.dp))
                 is TdApi.MessageDocument -> DocumentView(c.document, fg, pad.padding(top = 8.dp))
-                is TdApi.MessageVideoNote -> VideoThumb(c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, Texts.duration(c.videoNote.duration), circle = true) {
-                    Opener.file(it, c.videoNote.video, "video/mp4")
+                is TdApi.MessageVideoNote -> VideoThumb(c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, Texts.duration(c.videoNote.duration), circle = true, loop = c.videoNote.video) {
+                    VideoViewer.open(VideoItem(c.videoNote.video, c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, c.videoNote.duration))
                 }
                 is TdApi.MessageLocation -> LocationView(c.location, fg, pad.padding(top = 8.dp))
                 is TdApi.MessageContact -> ContactView(c.contact, fg, pad.padding(top = 8.dp))
@@ -721,7 +728,7 @@ private fun DownloadProgress(file: TdApi.File, modifier: Modifier) {
 }
 
 @Composable
-private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h: Int, label: String, circle: Boolean = false, onOpen: (android.content.Context) -> Unit) {
+private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h: Int, label: String, circle: Boolean = false, loop: TdApi.File? = null, onOpen: (android.content.Context) -> Unit) {
     val ctx = LocalContext.current
     val bmp = rememberFileBitmap(thumb, maxSide = 720)
     val miniBmp = remember(mini) { Images.mini(mini) }
@@ -733,7 +740,10 @@ private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h
         contentAlignment = Alignment.Center,
     ) {
         (bmp ?: miniBmp)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-        Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+        // small looping media (GIFs, round videos up to ~8 MB) download and play inline, muted
+        val loopPath = if (loop != null && (loop.size == 0L || loop.size < 8_000_000L)) rememberLocalPath(loop) else null
+        if (loopPath != null) LoopingVideo(loopPath, Modifier.fillMaxSize())
+        else Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.PlayArrow, "Смотреть", tint = Color.White, modifier = Modifier.size(32.dp))
         }
         Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.45f), contentColor = Color.White, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
@@ -744,12 +754,10 @@ private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h
 
 @Composable
 private fun StickerView(s: TdApi.Sticker) {
-    val isStatic = s.format is TdApi.StickerFormatWebp
-    val bmp = rememberFileBitmap(if (isStatic) s.sticker else s.thumbnail?.file, maxSide = 512)
+    // animated (TGS) stickers play, static ones show the picture
     Box(Modifier.size(170.dp), contentAlignment = Alignment.Center) {
-        androidx.compose.animation.AnimatedContent(bmp != null, transitionSpec = { (androidx.compose.animation.fadeIn(Springs.effects()) + androidx.compose.animation.scaleIn(Springs.spatial(), initialScale = 0.8f)).togetherWith(androidx.compose.animation.fadeOut(Springs.exit())) }, label = "st") { ready ->
-            if (ready && bmp != null) Image(bmp, s.emoji, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-            else Box(contentAlignment = Alignment.Center) {
+        StickerContent(s, Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(s.emoji, fontSize = 56.sp, modifier = Modifier.graphicsLayer { alpha = 0.35f })
                 androidx.compose.material3.LoadingIndicator(Modifier.size(48.dp))
             }

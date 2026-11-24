@@ -131,6 +131,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
@@ -325,7 +326,11 @@ private fun FloatingNavPill() {
                         ) {
                             Row {
                                 Spacer(Modifier.width(8.dp))
-                                FitText(title, MaterialTheme.typography.labelLarge, Modifier.widthIn(max = labelMax), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                                // laid out once at full width and revealed by the expanding clip: never re-wrapped or squeezed mid-animation
+                                Text(
+                                    title, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false,
+                                    modifier = Modifier.widthIn(max = labelMax).wrapContentWidth(Alignment.Start, unbounded = true),
+                                )
                             }
                         }
                     }
@@ -445,7 +450,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             beyondViewportPageCount = 1,
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
-            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, cascade = if (page == cascadePage) cascadeGen else 0, onLong = { actionChat = it })
+            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, cascade = if (page == cascadePage) cascadeGen else 0, pageOffset = { page - (pager.currentPage + pager.currentPageOffsetFraction) }, onLong = { actionChat = it })
         }
         val cs = MaterialTheme.colorScheme
         Column(
@@ -630,7 +635,7 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 }
 
 @Composable
-fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, onLong: (TdApi.Chat) -> Unit) {
+fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, pageOffset: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
     val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
     val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
@@ -700,7 +705,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.cascadeIn(idx, cascade).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.cascadeIn(idx, cascade).followFinger(idx, state, pageOffset).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
                 ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
             }
         }
@@ -933,6 +938,24 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
             )
         }
     }
+}
+
+/**
+ * Folder swipe cascade: while a folder page slides under the finger, its rows trail one after another — the top row
+ * moves with the page, each next one lags a little more and settles on the same spring (parallax), fading slightly
+ * as the page leaves. Pure graphics transform: no relayout, no extra composition.
+ */
+private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float): Modifier = graphicsLayer {
+    if (Prefs.motion.value == "off") return@graphicsLayer
+    val d = pageOffset()
+    if (kotlin.math.abs(d) < 0.0005f) return@graphicsLayer
+    val rel = (index - state.firstVisibleItemIndex).coerceIn(0, 10)
+    val lag = 0.045f * rel
+    translationX = -d * size.width * lag
+    val a = kotlin.math.abs(d).coerceAtMost(1f)
+    alpha = 1f - a * 0.35f
+    val sc = 1f - a * 0.04f
+    scaleX = sc; scaleY = sc
 }
 
 /** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */

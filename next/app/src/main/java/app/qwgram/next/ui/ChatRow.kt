@@ -182,7 +182,9 @@ fun ChatRow(chat: TdApi.Chat, list: TdApi.ChatList?, modifier: Modifier = Modifi
 
 /** long-press actions for a chat: Telegram's set, as an M3 bottom sheet */
 @Composable
-fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
+fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
+    // live chat: the tiles flip their state in place (the sheet stays open, like Telegram's quick actions)
+    val chat = TdStore.chats[chat0.id] ?: chat0
     var confirmDelete by remember { mutableStateOf(false) }
     val archived = chat.positions.any { it.list is TdApi.ChatListArchive }
     val pinned = chat.positions.any { it.isPinned && (it.list is TdApi.ChatListMain || it.list is TdApi.ChatListArchive) }
@@ -210,13 +212,13 @@ fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
         // quick actions: a connected row of tonal tiles, each morphs on press; "on" states are filled
         data class A(val title: String, val icon: ImageVector, val on: Boolean, val act: () -> Unit)
         val acts = buildList {
-            add(A(if (pinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, pinned) { Td.send(TdApi.ToggleChatIsPinned(list, chat.id, !pinned)); onDismiss() })
-            add(A(if (muted) "Со звуком" else "Без звука", if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, muted) { setMuted(chat, !muted); onDismiss() })
+            add(A(if (pinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, pinned) { Td.send(TdApi.ToggleChatIsPinned(list, chat.id, !pinned)) })
+            add(A(if (muted) "Со звуком" else "Без звука", if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, muted) { setMuted(chat, !muted) })
             add(A(if (unread) "Прочитано" else "Не прочитано", if (unread) Icons.Outlined.DoneAll else Icons.Outlined.MarkChatUnread, false) {
-                if (unread) markRead(chat) else Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true)); onDismiss()
+                if (unread) markRead(chat) else Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true))
             })
             if (!TdStore.isSaved(chat)) add(A(if (archived) "Из архива" else "В архив", if (archived) Icons.Outlined.Unarchive else Icons.Outlined.Archive, archived) {
-                Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive())); onDismiss()
+                Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive()))
             })
         }
         AdaptiveTiles(acts.map { TileAction(it.icon, it.title, it.on, it.act) }, Modifier.padding(horizontal = 16.dp))

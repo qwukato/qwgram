@@ -414,13 +414,15 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(180); runCatching { focus.requestFocus() } }
     val cs = MaterialTheme.colorScheme
     var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var placed by remember { mutableStateOf(origin == null) }
     Surface(color = Color.Transparent) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.graphicsLayer { alpha = ((grow() - 0.4f) / 0.6f).coerceIn(0f, 1f) }) { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose) }
             // the field grows out of the search button's bounds (and shrinks back on close)
             Box(
                 Modifier.weight(1f).padding(horizontal = 4.dp).height(48.dp)
-                    .onGloballyPositioned { hostPos = it.positionInRoot() }
+                    .onGloballyPositioned { hostPos = it.positionInRoot(); placed = true }
+                    .graphicsLayer { alpha = if (placed) 1f else 0f }   // hidden for the one frame before its position is known
                     .layout { m, c ->
                         val fw = c.maxWidth; val fh = c.maxHeight
                         val o = origin

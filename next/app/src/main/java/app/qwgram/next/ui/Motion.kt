@@ -284,12 +284,14 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
                     // container transform: the visible part starts as the button (its size, at the menu's top-right
                     // corner, fully rounded) and springs out to the whole menu while the corners settle
                     val q = p.coerceIn(0f, 1.06f)
-                    val aw = anchor.width.toFloat().coerceIn(1f, size.width)
-                    val ah = anchor.height.toFloat().coerceIn(1f, size.height)
-                    val w = (aw + (size.width - aw) * q).coerceIn(1f, size.width)
-                    val h = (ah + (size.height - ah) * q).coerceIn(1f, size.height)
+                    val sw = size.width.coerceAtLeast(1f)
+                    val sh = size.height.coerceAtLeast(1f)
+                    val aw = anchor.width.toFloat().coerceIn(1f, sw)
+                    val ah = anchor.height.toFloat().coerceIn(1f, sh)
+                    val w = (aw + (sw - aw) * q).coerceIn(1f, sw)
+                    val h = (ah + (sh - ah) * q).coerceIn(1f, sh)
                     val r = (ah / 2f + (radiusEnd.toPx() - ah / 2f) * q.coerceAtMost(1f)).coerceAtLeast(0f)
-                    val rect = androidx.compose.ui.geometry.Rect(size.width - w, 0f, size.width, h)
+                    val rect = androidx.compose.ui.geometry.Rect(sw - w, 0f, sw, h)
                     shape = object : androidx.compose.ui.graphics.Shape {
                         override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
                             androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(rect, androidx.compose.ui.geometry.CornerRadius(r)))

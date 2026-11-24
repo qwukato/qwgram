@@ -21,6 +21,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -123,7 +126,7 @@ private fun rememberThumb(uri: Uri): ImageBitmap? {
     LaunchedEffect(uri) {
         bmp = withContext(Dispatchers.IO) {
             runCatching {
-                if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(uri, android.util.Size(320, 320), null).asImageBitmap()
+                if (Build.VERSION.SDK_INT >= 29 && uri.scheme != "file") ctx.contentResolver.loadThumbnail(uri, android.util.Size(320, 320), null).asImageBitmap()
                 else ctx.contentResolver.openInputStream(uri)?.use { i ->
                     android.graphics.BitmapFactory.decodeStream(i, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 })
                 }?.asImageBitmap()
@@ -153,11 +156,14 @@ fun AttachGallerySheet(
     var access by remember { mutableStateOf(hasMediaAccess(ctx)) }
     var media by remember { mutableStateOf<List<DeviceMedia>>(emptyList()) }
     val picked = remember { mutableStateListOf<Uri>() }
+    val edited = remember { androidx.compose.runtime.mutableStateMapOf<Uri, Uri>() }   // original → edited copy
     val askAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { access = hasMediaAccess(ctx) }
     LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // picking something lifts the sheet fully, so the "Send" button at its bottom is on screen
+    LaunchedEffect(picked.isNotEmpty()) { if (picked.isNotEmpty()) runCatching { sheet.expand() } }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
         Box {
             Column(Modifier.fillMaxWidth()) {
@@ -171,7 +177,8 @@ fun AttachGallerySheet(
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(
                     GridCells.Fixed(3),
-                    Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                    // the grid fills the sheet: it opens half-way, scrolling up expands it, then the photos scroll (Telegram)
+                    Modifier.fillMaxWidth().fillMaxHeight(),
                     contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 96.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -210,8 +217,11 @@ fun AttachGallerySheet(
                         }
                     }
                     itemsIndexed(media, key = { _, m -> m.uri.toString() }) { _, m ->
-                        val order = picked.indexOf(m.uri)
-                        GalleryTile(m, order) { if (order >= 0) picked.remove(m.uri) else if (picked.size < 10) picked.add(m.uri) }
+                        val shown = edited[m.uri] ?: m.uri
+                        val order = picked.indexOf(shown)
+                        GalleryTile(DeviceMedia(shown, m.isVideo, m.durationMs), order,
+                            onEdit = if (m.isVideo) null else ({ PhotoEditor.open(shown) { out -> val i = picked.indexOf(shown); edited[m.uri] = out; if (i >= 0) picked[i] = out else if (picked.size < 10) picked.add(out) } }),
+                        ) { if (order >= 0) picked.remove(shown) else if (picked.size < 10) picked.add(shown) }
                     }
                 }
             }
@@ -258,7 +268,7 @@ private fun AttachShape(title: String, icon: androidx.compose.ui.graphics.vector
 
 /** a gallery thumbnail: picked ones shrink into a rounded frame with their number, like Telegram */
 @Composable
-private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
+private fun GalleryTile(m: DeviceMedia, order: Int, onEdit: (() -> Unit)? = null, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val sel = order >= 0
     val inset by animateDpAsState(if (sel) 10.dp else 0.dp, spring(0.6f, 520f), label = "in")
@@ -266,7 +276,7 @@ private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
     val bmp = rememberThumb(m.uri)
     Box(
         Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(if (sel) cs.primaryContainer else cs.surfaceContainerHigh)
-            .clickable(onClick = onClick),
+            .combinedClickable(onLongClick = onEdit, onClick = onClick),
     ) {
         Box(Modifier.fillMaxSize().padding(inset.coerceAtLeast(0.dp)).clip(RoundedCornerShape(r.coerceAtLeast(0.dp))).background(cs.surfaceContainerHighest)) {
             if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -276,6 +286,11 @@ private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
                 modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }
+        // edit (photo editor) on picked photos
+        if (sel && onEdit != null) Box(
+            Modifier.align(Alignment.BottomEnd).padding(6.dp).size(30.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = onEdit),
+            contentAlignment = Alignment.Center,
+        ) { Icon(androidx.compose.material.icons.Icons.Outlined.Edit, "Редактировать", tint = Color.White, modifier = Modifier.size(18.dp)) }
         // the pick circle: empty ring → numbered primary dot
         Box(
             Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).clip(CircleShape)

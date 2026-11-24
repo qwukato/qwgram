@@ -82,7 +82,9 @@ fun ProfileBanner(
     // the colour the person picked for their profile in Telegram (Premium); none → plain page like in Telegram
     val colorId = user?.profileAccentColorId ?: chat?.profileAccentColorId ?: -1
     val pc = if (colorId >= 0) TdStore.profileColors[colorId] else null
-    val bannerColors = pc?.let { (if (dark) it.darkThemeColors else it.lightThemeColors).backgroundColors.map(::argb) }?.takeIf { it.isNotEmpty() }
+    // a collectible gift's colours win (Telegram shows the gift backdrop), then the chosen profile colour
+    val giftColors = (user?.upgradedGiftColors ?: chat?.upgradedGiftColors)?.let { g -> (if (dark) g.darkThemeColors else g.lightThemeColors).map(::argb) }?.takeIf { it.isNotEmpty() }
+    val bannerColors = giftColors ?: pc?.let { (if (dark) it.darkThemeColors else it.lightThemeColors).backgroundColors.map(::argb) }?.takeIf { it.isNotEmpty() }
     val verified = (user?.verificationStatus?.isVerified == true)
     val onBanner = if (bannerColors != null) Color.White else cs.onSurface
     Box(

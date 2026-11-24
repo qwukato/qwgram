@@ -37,9 +37,7 @@ object CustomEmoji {
 fun CustomEmojiImage(id: Long, size: Dp, modifier: Modifier = Modifier) {
     LaunchedEffect(id) { CustomEmoji.request(id) }
     val s = CustomEmoji.stickers[id] ?: return
-    val static = s.format is TdApi.StickerFormatWebp
-    val bmp = rememberFileBitmap(if (static) s.sticker else (s.thumbnail?.file ?: s.sticker), maxSide = 160) ?: return
-    Image(bmp, s.emoji, modifier.size(size), contentScale = ContentScale.Fit)
+    StickerContent(s, modifier.size(size))
 }
 
 /**
