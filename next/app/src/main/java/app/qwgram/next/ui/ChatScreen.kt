@@ -142,6 +142,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.MarkChatUnread
