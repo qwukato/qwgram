@@ -128,6 +128,7 @@ fun ChatRow(chat: TdApi.Chat, list: TdApi.ChatList?, modifier: Modifier = Modifi
                     if (user?.verificationStatus?.isVerified == true) {
                         Spacer(Modifier.width(4.dp)); Icon(Icons.Filled.Verified, null, Modifier.size(16.dp), tint = cs.primary)
                     }
+                    if (!TdStore.isSaved(chat)) EmojiStatusMark(user, 18.dp)
                     if (muted) {
                         Spacer(Modifier.width(4.dp)); Icon(Icons.Outlined.VolumeOff, null, Modifier.size(15.dp), tint = cs.outline)
                     }
@@ -218,24 +219,7 @@ fun ChatActionsSheet(chat: TdApi.Chat, onDismiss: () -> Unit) {
                 Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive())); onDismiss()
             })
         }
-        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            acts.forEachIndexed { i, a ->
-                val outer = 24.dp
-                val inner = 8.dp
-                MorphBox(
-                    onClick = a.act, rest = if (i == 0 || i == acts.lastIndex) outer else inner, pressed = 30.dp, squish = 0.94f,
-                    color = if (a.on) cs.secondaryContainer else cs.surfaceContainerHighest,
-                    contentColor = if (a.on) cs.onSecondaryContainer else cs.onSurface,
-                    modifier = Modifier.weight(1f).height(84.dp),
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 4.dp)) {
-                        Icon(a.icon, null)
-                        Spacer(Modifier.height(6.dp))
-                        FitText(a.title, MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
-        }
+        AdaptiveTiles(acts.map { TileAction(it.icon, it.title, it.on, it.act) }, Modifier.padding(horizontal = 16.dp))
         Spacer(Modifier.height(10.dp))
         MorphBox(
             onClick = { confirmDelete = true }, rest = 24.dp, pressed = 14.dp, squish = 0.97f,

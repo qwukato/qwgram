@@ -131,6 +131,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.runtime.DisposableEffect
@@ -211,12 +212,17 @@ fun HomeScreen() {
                         // M3 shared axis X between top-level destinations: a short slide in the tab's direction,
                         // the old screen fades out quickly, the new one fades in a beat later on a soft spring
                         val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                        val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-                        (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.spring(0.86f, 420f * k)) { dir * it / 8 } +
-                            fadeIn(androidx.compose.animation.core.tween(220, delayMillis = 70)))
+                        val k = Prefs.motionSpeed.value
+                        val emph = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)   // M3 emphasized decelerate
+                        val dur = (420 / k).toInt()
+                        // fade-through on the shared X axis: the old screen dissolves fast, the new one drifts in a
+                        // little, grows from 96% and settles softly — no hard edges, no bounce
+                        (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(dur, easing = emph)) { dir * it / 14 } +
+                            fadeIn(androidx.compose.animation.core.tween((dur * 0.7f).toInt(), delayMillis = (dur * 0.2f).toInt(), easing = emph)) +
+                            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(dur, easing = emph), initialScale = 0.96f))
                             .togetherWith(
-                                androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.spring(1f, 600f * k)) { -dir * it / 10 } +
-                                    fadeOut(androidx.compose.animation.core.tween(90)),
+                                androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween((dur * 0.5f).toInt())) { -dir * it / 24 } +
+                                    fadeOut(androidx.compose.animation.core.tween((dur * 0.3f).toInt())),
                             )
                     },
                     label = "tabs",
@@ -422,6 +428,8 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     val exW = with(exDensity) { 40.dp.toPx() }
     val exH = with(exDensity) { 200.dp.toPx() }
     val floating = Prefs.floatingBars.value
+    // square header colour follows the list: page colour at the top, elevated container once scrolled
+    val homeLift = androidx.compose.animation.core.animateFloatAsState(if (scrollBehavior.state.overlappedFraction > 0.01f || scrollBehavior.state.contentOffset < -4f) 1f else 0f, androidx.compose.animation.core.tween(220), label = "hl")
     val hd = androidx.compose.ui.platform.LocalDensity.current
     var headerH by remember { mutableStateOf(120.dp) }
     Box(
@@ -444,7 +452,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
                 .then(
                     if (floating) Modifier.topFade(cs.surface)
-                    else Modifier.background(cs.surfaceContainer),
+                    else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value)) },
                 ),
         ) {
             if (Prefs.topBar.value == "search") {

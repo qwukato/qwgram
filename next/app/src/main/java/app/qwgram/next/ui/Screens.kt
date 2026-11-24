@@ -369,6 +369,21 @@ fun SearchScreen() {
         grow.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
     }
     var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val searchScope = rememberCoroutineScope()
+    var closing by remember { mutableStateOf(false) }
+    val keyboardCtl = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    // closing: the bar shrinks back into the button it came from, then the screen goes
+    fun closeSearch() {
+        if (closing) return
+        closing = true
+        keyboardCtl?.hide()
+        if (origin == null || Prefs.motion.value == "off") { Nav.pop(); return }
+        searchScope.launch {
+            grow.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+            Nav.pop()
+        }
+    }
+    androidx.activity.compose.BackHandler { closeSearch() }
     Column(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawRect(cs.surface.copy(alpha = grow.value.coerceIn(0f, 1f))) }) {
         // floating search pill + filters
         Column(Modifier.statusBarsPadding().padding(top = 6.dp)) {
@@ -389,7 +404,7 @@ fun SearchScreen() {
                     },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp).graphicsLayer { alpha = ((grow.value - 0.35f) / 0.5f).coerceIn(0f, 1f) }) {
-                    MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
+                    MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { closeSearch() })
                     BasicTextField(
                         value = q, onValueChange = { q = it }, singleLine = true,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),

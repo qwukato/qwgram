@@ -268,7 +268,7 @@ private fun GalleryTile(m: DeviceMedia, order: Int, onClick: () -> Unit) {
         Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(if (sel) cs.primaryContainer else cs.surfaceContainerHigh)
             .clickable(onClick = onClick),
     ) {
-        Box(Modifier.fillMaxSize().padding(inset).clip(RoundedCornerShape(r)).background(cs.surfaceContainerHighest)) {
+        Box(Modifier.fillMaxSize().padding(inset.coerceAtLeast(0.dp)).clip(RoundedCornerShape(r.coerceAtLeast(0.dp))).background(cs.surfaceContainerHighest)) {
             if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (m.isVideo) Text(
                 "%d:%02d".format(m.durationMs / 60000, (m.durationMs / 1000) % 60),

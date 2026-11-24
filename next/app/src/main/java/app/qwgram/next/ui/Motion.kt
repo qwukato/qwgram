@@ -45,6 +45,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
@@ -251,35 +253,62 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     val cs = MaterialTheme.colorScheme
     val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
     val off = Prefs.motion.value == "off"
-    androidx.compose.ui.window.Popup(
-        alignment = Alignment.TopEnd,
-        onDismissRequest = onDismissRequest,
-        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-    ) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // the button the menu belongs to (the popup's anchor): the menu starts as exactly that shape
+    var anchor by remember { mutableStateOf(androidx.compose.ui.unit.IntRect.Zero) }
+    val margin = with(density) { 8.dp.roundToPx() }
+    val provider = remember {
+        object : androidx.compose.ui.window.PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: androidx.compose.ui.unit.IntRect, windowSize: androidx.compose.ui.unit.IntSize,
+                layoutDirection: androidx.compose.ui.unit.LayoutDirection, popupContentSize: androidx.compose.ui.unit.IntSize,
+            ): androidx.compose.ui.unit.IntOffset {
+                anchor = anchorBounds
+                // top-right corner of the menu = top-right corner of the button; kept inside the window
+                val x = (anchorBounds.right - popupContentSize.width).coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin))
+                val y = anchorBounds.top.coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin))
+                return androidx.compose.ui.unit.IntOffset(x, y)
+            }
+        }
+    }
+    androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.68f, 420f * k) else androidx.compose.animation.core.spring(1f, 900f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 380f * k) else androidx.compose.animation.core.spring(1f, 700f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
+        val radiusEnd = 16.dp.rs()
         Column(
-            modifier.padding(4.dp).widthIn(min = 200.dp, max = 300.dp)
+            modifier.widthIn(min = 200.dp, max = 300.dp)
                 .graphicsLayer {
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
-                    val sc = 0.25f + 0.75f * p
-                    scaleX = sc; scaleY = (0.1f + 0.9f * p).coerceAtLeast(0.05f)
-                    alpha = (p * 3f).coerceIn(0f, 1f)
-                    shape = RoundedCornerShape((28.dp - 12.dp * p.coerceIn(0f, 1f)).rs().coerceAtLeast(0.dp))
+                    // container transform: the visible part starts as the button (its size, at the menu's top-right
+                    // corner, fully rounded) and springs out to the whole menu while the corners settle
+                    val q = p.coerceIn(0f, 1.06f)
+                    val aw = anchor.width.toFloat().coerceIn(1f, size.width)
+                    val ah = anchor.height.toFloat().coerceIn(1f, size.height)
+                    val w = (aw + (size.width - aw) * q).coerceIn(1f, size.width)
+                    val h = (ah + (size.height - ah) * q).coerceIn(1f, size.height)
+                    val r = (ah / 2f + (radiusEnd.toPx() - ah / 2f) * q.coerceAtMost(1f)).coerceAtLeast(0f)
+                    val rect = androidx.compose.ui.geometry.Rect(size.width - w, 0f, size.width, h)
+                    shape = object : androidx.compose.ui.graphics.Shape {
+                        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+                            androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(rect, androidx.compose.ui.geometry.CornerRadius(r)))
+                    }
                     clip = true
                     shadowElevation = 6.dp.toPx() * p.coerceIn(0f, 1f)
+                    alpha = (p * 5f).coerceIn(0f, 1f)
                 }
-                .background(cs.surfaceContainer)
-                .padding(vertical = 6.dp)
-                .graphicsLayer { alpha = ((p - 0.35f) / 0.65f).coerceIn(0f, 1f) },
+                .background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHighest, cs.surfaceContainer, p.coerceIn(0f, 1f)))
+                .padding(vertical = 6.dp),
         ) {
-            CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
+            // items arrive a beat after the container has grown
+            Column(Modifier.graphicsLayer { alpha = ((p - 0.45f) / 0.55f).coerceIn(0f, 1f); translationY = (1f - p.coerceIn(0f, 1f)) * -8.dp.toPx() }) {
+                CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
+            }
         }
     }
 }
+
 
 /** where the search bar grows from: bounds (in root) of the button that opened search */
 object SearchMorph {
@@ -297,21 +326,82 @@ fun SearchButton(modifier: Modifier = Modifier, floating: Boolean = Prefs.floati
     else MorphIconButton(Icons.Outlined.Search, "Поиск", { SearchMorph.open(rect) }, m)
 }
 
-/** text that shrinks to fit instead of being cut or broken mid-word (labels in tiles and segmented buttons) */
+/** label text: keeps its size, wraps between words (never inside one), ellipsis only as the very last resort */
 @Composable
 fun FitText(
     text: String,
     style: androidx.compose.ui.text.TextStyle,
     modifier: Modifier = Modifier,
     color: Color = LocalContentColor.current,
-    maxLines: Int = 1,
-    minSize: androidx.compose.ui.unit.TextUnit = 9.sp,
+    maxLines: Int = 2,
+    @Suppress("UNUSED_PARAMETER") minSize: androidx.compose.ui.unit.TextUnit = 9.sp,
     textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Center,
 ) {
-    androidx.compose.foundation.text.BasicText(
-        text, modifier, style = style.copy(color = color, textAlign = textAlign), maxLines = maxLines,
-        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = minSize, maxFontSize = style.fontSize.takeIf { it.isSpecified } ?: 14.sp, stepSize = 0.5.sp),
+    Text(
+        text, modifier, color = color, style = style.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading, hyphens = androidx.compose.ui.text.style.Hyphens.None),
+        textAlign = textAlign, maxLines = maxLines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
     )
+}
+
+/** one action of [AdaptiveTiles] */
+class TileAction(val icon: ImageVector, val label: String, val selected: Boolean = false, val onClick: () -> Unit)
+
+/**
+ * M3 Expressive connected group of action tiles that never squeezes its labels: if every label (word by word)
+ * fits a tall tile, the tiles sit in one row (icon over label); otherwise they become a 2-column grid of wide tiles
+ * (icon beside a label of up to two lines). Text keeps its size. The press layer stays inside each tile.
+ */
+@Composable
+fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height: Dp = 84.dp) {
+    val cs = MaterialTheme.colorScheme
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        val gap = 4.dp
+        val n = items.size.coerceAtLeast(1)
+        val tileW = (maxWidth - gap * (n - 1)) / n
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        // the longest single word of every label must fit the tile's inner width
+        val fitsRow = items.all { it2 ->
+            it2.label.split(' ').all { w -> with(density) { measurer.measure(w, style).size.width.toDp() } <= tileW - 12.dp }
+        }
+        @Composable
+        fun tile(i: Int, a: TileAction, count: Int, mod: Modifier, wide: Boolean) {
+            val outer = 24.dp
+            val inner = 8.dp
+            val first = i == 0
+            val last = i == count - 1
+            MorphBox(
+                onClick = a.onClick, rest = if (first || last) outer else inner, pressed = 30.dp, squish = 0.95f,
+                color = if (a.selected) cs.secondaryContainer else cs.surfaceContainerHighest,
+                contentColor = if (a.selected) cs.onSecondaryContainer else cs.onSurface,
+                modifier = mod,
+            ) {
+                if (!wide) Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp)) {
+                    Icon(a.icon, null)
+                    Spacer(Modifier.height(6.dp))
+                    FitText(a.label, style)
+                } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Icon(a.icon, null)
+                    Spacer(Modifier.width(12.dp))
+                    FitText(a.label, style, textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                }
+            }
+        }
+        if (fitsRow) Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)) {
+            items.forEachIndexed { i, a -> tile(i, a, items.size, Modifier.weight(1f).heightIn(min = height), wide = false) }
+        } else Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)) {
+            items.chunked(2).forEachIndexed { r, row ->
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap), modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+                    row.forEachIndexed { c, a ->
+                        val idx = r * 2 + c
+                        tile(idx, a, items.size, Modifier.weight(1f).fillMaxHeight().heightIn(min = 60.dp), wide = true)
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
 }
 
 /** global corner radius (Appearance → Shapes): every container radius goes through this */
@@ -397,42 +487,8 @@ fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, heig
  * label), big outer corners, small inner ones; the pressed tile rounds into a pill, a toggled one fills with primary.
  */
 @Composable
-fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Row(modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-        items.forEachIndexed { i, b ->
-            val interaction = remember { MutableInteractionSource() }
-            val pressed by interaction.collectIsPressedAsState()
-            val outer = 22.dp.rs()
-            val inner = 8.dp.rs()
-            val pr by animateDpAsState(if (pressed) 30.dp else 0.dp, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "tp")
-            val start = (if (i == 0) outer else inner) + pr * (if (i == 0) 0.3f else 1f)
-            val end = (if (i == items.lastIndex) outer else inner) + pr * (if (i == items.lastIndex) 0.3f else 1f)
-            val sc by animateFloatAsState(if (pressed) 0.95f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "ts")
-            val bg by animateColorAsState(if (b.selected) cs.primary else cs.surfaceContainerHigh, Springs.effects(), label = "tb")
-            val fg = if (b.selected) cs.onPrimary else cs.primary
-            Column(
-                Modifier.weight(1f).height(66.dp)
-                    .graphicsLayer {
-                        scaleX = sc; scaleY = sc
-                        shape = RoundedCornerShape(topStart = start.coerceAtLeast(0.dp), bottomStart = start.coerceAtLeast(0.dp), topEnd = end.coerceAtLeast(0.dp), bottomEnd = end.coerceAtLeast(0.dp))
-                        clip = true
-                    }
-                    .background(bg)
-                    .clickable(interactionSource = interaction, indication = ripple(), onClick = b.onClick)
-                    .padding(horizontal = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-            ) {
-                if (b.icon != null) Icon(b.icon, b.desc ?: b.label, Modifier.size(22.dp), tint = fg)
-                if (b.label != null) {
-                    Spacer(Modifier.height(4.dp))
-                    FitText(b.label, MaterialTheme.typography.labelMedium, color = if (b.selected) cs.onPrimary else cs.onSurface)
-                }
-            }
-        }
-    }
-}
+fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) =
+    AdaptiveTiles(items.map { b -> TileAction(b.icon ?: Icons.Outlined.Search, b.label ?: b.desc ?: "", b.selected, b.onClick) }, modifier, height = 72.dp)
 
 /**
  * Lets a horizontally-dragged control (slider, pager…) own the finger: marks the gesture on DOWN, before the

@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,14 +79,12 @@ fun ProfileBanner(
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = cs.surface.luminance() < 0.5f
+    // the colour the person picked for their profile in Telegram (Premium); none → plain page like in Telegram
     val colorId = user?.profileAccentColorId ?: chat?.profileAccentColorId ?: -1
-    val pc = TdStore.profileColors[colorId]
+    val pc = if (colorId >= 0) TdStore.profileColors[colorId] else null
     val bannerColors = pc?.let { (if (dark) it.darkThemeColors else it.lightThemeColors).backgroundColors.map(::argb) }?.takeIf { it.isNotEmpty() }
-    val premium = user?.isPremium == true
     val verified = (user?.verificationStatus?.isVerified == true)
     val onBanner = if (bannerColors != null) Color.White else cs.onSurface
-    val top = bannerColors?.first() ?: cs.primaryContainer
-    val bottom = bannerColors?.getOrNull(1) ?: bannerColors?.first() ?: cs.tertiaryContainer
     Box(
         Modifier
             // full width (out of the 16dp page padding) and up under the header and the status bar
@@ -95,14 +94,22 @@ fun ProfileBanner(
                 val pl = m.measure(Constraints(minWidth = c.maxWidth + extraW, maxWidth = c.maxWidth + extraW))
                 layout(c.maxWidth, (pl.height - up).coerceAtLeast(0)) { pl.place(-extraW / 2, -up) }
             }
-            .background(Brush.verticalGradient(listOf(top, bottom, cs.surface)))
-            .padding(top = topInset + 8.dp, bottom = 12.dp),
+            .then(
+                if (bannerColors == null) Modifier
+                // Telegram draws the profile colour as a soft radial glow: inner colour around the avatar, outer to the edges
+                else Modifier.drawBehind {
+                    val inner = bannerColors.first()
+                    val outer = bannerColors.getOrNull(1) ?: bannerColors.first()
+                    drawRect(outer)
+                    drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.42f), radius = size.maxDimension * 0.62f))
+                },
+            )
+            .padding(top = topInset + 8.dp, bottom = if (bannerColors != null) 24.dp else 8.dp),
     ) {
-        if (premium || bannerColors != null) StarPattern(onBanner.copy(alpha = 0.10f))
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.BottomEnd) {
-                Box(Modifier.size(128.dp).clip(CircleShape).background(onBanner.copy(alpha = 0.18f)).padding(4.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                    if (chat == null) UserAvatar(user, 120.dp) else ChatAvatar(chat, 120.dp)
+                Box(Modifier.size(124.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                    if (chat == null) UserAvatar(user, 124.dp) else ChatAvatar(chat, 124.dp)
                 }
                 if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
             }
@@ -110,45 +117,9 @@ fun ProfileBanner(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (verified) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Verified, "Подтверждён", tint = if (bannerColors != null) Color.White else cs.primary, modifier = Modifier.size(22.dp)) }
-                if (premium) { Spacer(Modifier.width(6.dp)); PremiumStar(if (bannerColors != null) Color.White else cs.primary) }
+                EmojiStatusMark(user, 26.dp, tint = if (bannerColors != null) Color.White else cs.primary, gap = 6.dp)
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyLarge, color = onBanner.copy(alpha = if (status == "в сети") 1f else 0.78f), textAlign = TextAlign.Center)
-            if (premium) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.clip(CircleShape).background(onBanner.copy(alpha = 0.16f)).padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Star, null, Modifier.size(14.dp), tint = onBanner)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Telegram Premium", style = MaterialTheme.typography.labelMedium, color = onBanner)
-                }
-            }
-        }
-    }
-}
-
-/** the Premium star: gently pulsing */
-@Composable
-private fun PremiumStar(color: Color) {
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "ps")
-    val s by t.animateFloat(0.9f, 1.08f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1400), androidx.compose.animation.core.RepeatMode.Reverse), label = "s")
-    Icon(Icons.Filled.Star, "Premium", tint = color, modifier = Modifier.size(24.dp).graphicsLayer { scaleX = s; scaleY = s })
-}
-
-/** a quiet scatter of stars behind Premium banners */
-@Composable
-private fun StarPattern(color: Color) {
-    val spots = remember { List(16) { i -> Triple(((i * 37) % 100) / 100f, ((i * 61 + 13) % 100) / 100f, 10 + (i * 7) % 14) } }
-    Box(Modifier.fillMaxSize()) {
-        spots.forEach { (fx, fy, sz) ->
-            Icon(
-                Icons.Filled.Star, null, tint = color,
-                modifier = Modifier.layout { m, c ->
-                    val pl = m.measure(Constraints.fixed(sz.dp.roundToPx(), sz.dp.roundToPx()))
-                    layout(0, 0) { pl.place((c.maxWidth * fx).toInt(), (c.maxHeight * fy).toInt()) }
-                },
-            )
         }
     }
 }

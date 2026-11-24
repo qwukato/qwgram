@@ -99,6 +99,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -437,7 +438,7 @@ fun ChatScreen(chatId: Long) {
             val atEnd = listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer
             val id = (info?.key as? String)?.drop(1)?.toLongOrNull()
             if (atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.lastMessage?.let { last ->
-                Td.send(TdApi.ViewMessages(chatId, longArrayOf(last.id), TdApi.MessageSourceChatHistory(), true))
+                viewMessages(chatId, longArrayOf(last.id))
             }
             if (atEnd || id == null) Prefs.setChatPos(chatId, null)
             else Prefs.setChatPos(chatId, id to if (info.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0)
@@ -464,7 +465,7 @@ fun ChatScreen(chatId: Long) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.map { it.key } }.debounce(250).collect { keys ->
             if (!Prefs.markReadOnOpen.value) return@collect
             val ids = keys.mapNotNull { (it as? String)?.takeIf { k -> k.startsWith("m") }?.drop(1)?.toLongOrNull() }
-            if (ids.isNotEmpty()) Td.send(TdApi.ViewMessages(chatId, ids.toLongArray(), TdApi.MessageSourceChatHistory(), true))
+            if (ids.isNotEmpty()) viewMessages(chatId, ids.toLongArray())
         }
     }
     // keep the newest message in view when something arrives and we are at the bottom
@@ -488,7 +489,7 @@ fun ChatScreen(chatId: Long) {
         val c = TdStore.chats.peek(chatId)
         val last = c?.lastMessage?.id ?: return@LaunchedEffect
         if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread)) {
-            Td.send(TdApi.ViewMessages(chatId, longArrayOf(last), TdApi.MessageSourceChatHistory(), true))
+            viewMessages(chatId, longArrayOf(last))
             if (c.isMarkedAsUnread) Td.send(TdApi.ToggleChatIsMarkedAsUnread(chatId, false))
         }
     }
@@ -523,12 +524,30 @@ fun ChatScreen(chatId: Long) {
     val canSend = TdStore.canSend(chat)
     val group = TdStore.isGroup(chat)
     val selecting = selected.isNotEmpty()
+    // in-chat search grows out of the header's search button and shrinks back into it (springy container transform)
+    var searchOrigin by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val searchGrow = remember { androidx.compose.animation.core.Animatable(0f) }
+    fun openChatSearch(from: androidx.compose.ui.geometry.Rect?) {
+        searchOrigin = from
+        searching = true
+        scope.launch {
+            searchGrow.snapTo(if (from == null || Prefs.motion.value == "off") 1f else 0f)
+            searchGrow.animateTo(1f, androidx.compose.animation.core.spring(0.72f, 360f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+        }
+    }
+    fun closeChatSearch() {
+        scope.launch {
+            keyboard?.hide()
+            if (searchOrigin != null && Prefs.motion.value != "off") searchGrow.animateTo(0f, androidx.compose.animation.core.spring(0.9f, 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+            searching = false; search.query = ""; search.results = emptyList()
+        }
+    }
 
     BackHandler(enabled = selecting || searching || panel) {
         when {
             selecting -> selected.clear()
             panel -> { panel = false; panelHolding = false }
-            else -> { searching = false; search.query = ""; search.results = emptyList() }
+            else -> closeChatSearch()
         }
     }
 
@@ -540,18 +559,31 @@ fun ChatScreen(chatId: Long) {
         var topH by remember { mutableStateOf(0.dp) }
         var bottomH by remember { mutableStateOf(0.dp) }
         val fade = wallpaperBase()
+        // square header: page colour while nothing is under it, elevated colour once history scrolls beneath
+        val chatLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollForward) 1f else 0f, androidx.compose.animation.core.tween(220), label = "cl")
         Box(Modifier.fillMaxSize().padding(bottom = bottomInset).consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomInset))) {
             // ---- top: bars over a fade (content scrolls underneath, like Telegram)
             Column(
                 Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
-                    .topFade(fade)
+                    .then(
+                        if (Prefs.floatingBars.value) Modifier.topFade(fade)
+                        else {
+                            val cs2 = MaterialTheme.colorScheme
+                            Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs2.surface, cs2.surfaceContainer, chatLift.value)) }
+                        },
+                    )
                     .onSizeChanged { topH = with(density) { it.height.toDp() } },
             ) {
             AnimatedContent(
                 targetState = when { selecting -> 2; searching -> 1; else -> 0 },
                 transitionSpec = {
-                    (fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 90)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(200, delayMillis = 90), initialScale = 0.96f))
-                        .togetherWith(fadeOut(androidx.compose.animation.core.tween(90)))
+                    when {
+                        // search draws its own grow/shrink: the bar under it just fades quickly
+                        targetState == 1 -> fadeIn(androidx.compose.animation.core.snap()).togetherWith(fadeOut(androidx.compose.animation.core.tween(140)))
+                        initialState == 1 -> fadeIn(androidx.compose.animation.core.tween(160)).togetherWith(fadeOut(androidx.compose.animation.core.snap()))
+                        else -> (fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 90)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(200, delayMillis = 90), initialScale = 0.96f))
+                            .togetherWith(fadeOut(androidx.compose.animation.core.tween(90)))
+                    }
                 },
                 label = "topbar",
             ) { mode ->
@@ -569,12 +601,12 @@ fun ChatScreen(chatId: Long) {
                         onDelete = { deleteFor = ctl.messages.filter { it.id in selected } },
                     )
                     1 -> ChatSearchBar(
-                        search,
-                        onClose = { searching = false; search.query = ""; search.results = emptyList() },
+                        search, origin = searchOrigin, grow = { searchGrow.value },
+                        onClose = { closeChatSearch() },
                         onSubmit = { scope.launch { search.run(); search.current?.let { jump(it.id) } } },
                         onStep = { d -> search.index = (search.index + d).coerceIn(0, search.results.size - 1); search.current?.let { jump(it.id) } },
                     )
-                    else -> ChatTopBar(chat, onSearch = { searching = true })
+                    else -> ChatTopBar(chat, onSearch = { r -> openChatSearch(r) })
                 }
             }
             ctl.pinned?.let { p ->
@@ -657,7 +689,7 @@ fun ChatScreen(chatId: Long) {
                                     modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
                                     color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, elevation = 3.dp,
                                 ) { Text(label, style = MaterialTheme.typography.titleMedium) }
-                                Badge(Modifier.align(Alignment.TopEnd)) { Text(count.toString()) }
+                                RollingBadge(count, Modifier.align(Alignment.TopEnd))
                             }
                         }
                     }
@@ -672,7 +704,7 @@ fun ChatScreen(chatId: Long) {
                             modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh, elevation = 3.dp,
                         ) { Icon(Icons.Filled.KeyboardArrowDown, "Вниз") }
-                        if (chat.unreadCount > 0) Badge(Modifier.align(Alignment.TopEnd)) { Text(chat.unreadCount.toString()) }
+                        RollingBadge(chat.unreadCount, Modifier.align(Alignment.TopEnd))
                     }
                 }
             }
@@ -888,7 +920,7 @@ private fun WallpaperShapes() {
 private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 
 @Composable
-private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
+private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry.Rect?) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val pickWp = rememberWallpaperPicker("chat${chat.id}") { path -> Prefs.setChatWallpaper(chat.id, path) }
     val hasOwnWp = remember(Prefs.chatWallpaperVersion.intValue) { Prefs.chatWallpaper(chat.id) != null }
@@ -908,7 +940,10 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
                 ChatAvatar(chat, 40.dp)
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (!TdStore.isSaved(chat)) EmojiStatusMark(TdStore.users[TdStore.privateUserId(chat)], 18.dp)
+                    }
                     AnimatedContent(status, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "status") { st ->
                         if (st.isNotBlank()) Text(
                             st, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -919,7 +954,8 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: () -> Unit) {
             }
     }
     val actions: @Composable () -> Unit = {
-            HeaderIcon(Icons.Outlined.Search, "Поиск в чате", onSearch)
+            var sRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+            Box(Modifier.onGloballyPositioned { sRect = it.boundsInRoot() }) { HeaderIcon(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) }) }
             Box {
                 HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
                 QMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -1141,6 +1177,35 @@ private fun Modifier.dragSelect(
     }
 }
 
+/** a counter badge whose number rolls down as messages get read, and pops away at zero */
+@Composable
+fun RollingBadge(count: Int, modifier: Modifier = Modifier) {
+    androidx.compose.animation.AnimatedVisibility(
+        count > 0, modifier,
+        enter = scaleIn(androidx.compose.animation.core.spring(0.5f, 600f)) + fadeIn(), exit = scaleOut(Springs.exit()) + fadeOut(Springs.exit()),
+    ) {
+        Badge {
+            AnimatedContent(count, transitionSpec = {
+                val down = targetState < initialState
+                (androidx.compose.animation.slideInVertically(Springs.fastSpatial()) { if (down) -it else it } + fadeIn())
+                    .togetherWith(androidx.compose.animation.slideOutVertically(Springs.exit()) { if (down) it else -it } + fadeOut())
+            }, label = "rb") { n -> Text(if (n > 999) "999+" else n.toString()) }
+        }
+    }
+}
+
+private var readErrorShown = false
+
+/** marks messages read; if Telegram refuses, says why once (helps to find the cause instead of silently failing) */
+fun viewMessages(chatId: Long, ids: LongArray) {
+    Td.send(TdApi.ViewMessages(chatId, ids, TdApi.MessageSourceChatHistory(), true)) { r ->
+        if (r is TdApi.Error && !readErrorShown) {
+            readErrorShown = true
+            android.widget.Toast.makeText(app.qwgram.next.App.instance, "Не удалось отметить прочитанным: ${r.code} ${r.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
 // ------------------------------------------------------------------ composer
 
 @Composable
@@ -1344,7 +1409,7 @@ private fun Composer(
     if (poll) PollDialog(onDismiss = { poll = false }) { content -> sendContent(chat.id, content, replyTo); poll = false; onCancel() }
     if (sendOptions) SendOptionsSheet(onDismiss = { sendOptions = false }, onSilent = onSendSilent, onSchedule = onSchedule)
     if (attach) AttachGallerySheet(
-        canPoll = chat.type !is TdApi.ChatTypeSecret,
+        canPoll = chat.type !is TdApi.ChatTypeSecret && chat.type !is TdApi.ChatTypePrivate,
         onDismiss = { attach = false },
         onSend = { uris -> attach = false; sendUris(ctx, chat.id, uris, replyTo); onCancel() },
         onSystemPicker = { attach = false; pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },

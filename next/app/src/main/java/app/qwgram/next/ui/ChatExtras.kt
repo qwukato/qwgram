@@ -95,6 +95,9 @@ import kotlinx.coroutines.launch
 import app.qwgram.next.td.Td
 import app.qwgram.next.td.rememberFileBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import org.drinkless.tdlib.TdApi
 import java.util.Calendar
 
@@ -406,14 +409,32 @@ class ChatSearch(val chatId: Long) {
 }
 
 @Composable
-fun ChatSearchBar(s: ChatSearch, onClose: () -> Unit, onSubmit: () -> Unit, onStep: (Int) -> Unit) {
+fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = null, grow: () -> Float = { 1f }, onClose: () -> Unit, onSubmit: () -> Unit, onStep: (Int) -> Unit) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(180); runCatching { focus.requestFocus() } }
     val cs = MaterialTheme.colorScheme
-    Surface(color = if (app.qwgram.next.Prefs.floatingBars.value) Color.Transparent else cs.surfaceContainer) {
+    var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    Surface(color = Color.Transparent) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose)
-            Box(Modifier.weight(1f).padding(horizontal = 4.dp).height(48.dp).clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.graphicsLayer { alpha = ((grow() - 0.4f) / 0.6f).coerceIn(0f, 1f) }) { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose) }
+            // the field grows out of the search button's bounds (and shrinks back on close)
+            Box(
+                Modifier.weight(1f).padding(horizontal = 4.dp).height(48.dp)
+                    .onGloballyPositioned { hostPos = it.positionInRoot() }
+                    .layout { m, c ->
+                        val fw = c.maxWidth; val fh = c.maxHeight
+                        val o = origin
+                        if (o == null) { val pl = m.measure(c); return@layout layout(pl.width, pl.height) { pl.place(0, 0) } }
+                        val p = grow()
+                        fun lerp(a: Float, b: Float) = a + (b - a) * p
+                        val w = lerp(o.width, fw.toFloat()).toInt().coerceAtLeast(1)
+                        val h = lerp(o.height, fh.toFloat()).toInt().coerceAtLeast(1)
+                        val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                        layout(fw, fh) { pl.place(lerp(o.left - hostPos.x, 0f).toInt(), lerp(o.top - hostPos.y, 0f).toInt()) }
+                    }
+                    .clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
                 BasicTextField(
                     s.query, { s.query = it }, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface), cursorBrush = SolidColor(cs.primary),

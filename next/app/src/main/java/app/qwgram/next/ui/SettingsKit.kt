@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -98,6 +99,7 @@ fun FadeHeader(
     onBack: (() -> Unit)? = { Nav.pop() },
     titleAlpha: () -> Float = { 1f },
     backgroundAlpha: (() -> Float)? = null,
+    lifted: (() -> Float)? = null,
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
@@ -116,7 +118,8 @@ fun FadeHeader(
                     }
                 }
                 else if (floating) Modifier.topFade(cs.surface)
-                else Modifier.background(cs.surfaceContainer),
+                // square header: page colour at rest, takes the elevated container colour as content scrolls under it
+                else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, (lifted?.invoke() ?: 0f).coerceIn(0f, 1f))) },
             )
             .statusBarsPadding().padding(bottom = if (floating) 18.dp else 0.dp),
     ) {
@@ -182,13 +185,16 @@ fun CenteredBar(modifier: Modifier, start: @Composable () -> Unit, title: @Compo
 fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: LazyListScope.() -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     var headerH by remember { mutableStateOf(96.dp) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 4 } }
+    val lift by androidx.compose.animation.core.animateFloatAsState(if (scrolled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "lift")
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) { content() }
-        FadeHeader(title, Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, actions = { actions() })
+        FadeHeader(title, Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }, lifted = { lift }, actions = { actions() })
     }
 }
 
