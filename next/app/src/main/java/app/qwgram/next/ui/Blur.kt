@@ -51,6 +51,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * main window. With the master switch off nothing here does any work: no layers, no RenderEffects.
  */
 
+/** sources at or above this z are chrome (bars that are also sources, for full-screen menu blurs) */
+const val CHROME_Z = 2f
+
 /** the current screen's blur state; null = nothing to blur here */
 val LocalHaze: ProvidableCompositionLocal<HazeState?> = compositionLocalOf { null }
 
@@ -136,6 +139,8 @@ fun Modifier.glass(
             tints = if (tone.alpha == 0f) emptyList() else listOf(HazeTint(tone.copy(alpha = tint * tone.alpha)))
             noiseFactor = noise
             inputScale = q
+            // only the content layers (wallpaper, lists): never a bar this button may sit in (no self-drawing)
+            canDrawArea = { area -> area.zIndex < CHROME_Z }
         }
         .then(if (edge && Prefs.blurEdge.value) Modifier.border(0.75.dp, light.copy(alpha = 0.10f), shape) else Modifier)
 }
