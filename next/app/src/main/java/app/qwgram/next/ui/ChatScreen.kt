@@ -98,6 +98,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -336,14 +340,29 @@ fun ChatScreen(chatId: Long) {
     val imeTarget = WindowInsets.imeAnimationTarget.getBottom(density)
     LaunchedEffect(imeTarget) { if (imeTarget > with(density) { 180.dp.roundToPx() }) Prefs.kbHeight.value = imeTarget }
     LaunchedEffect(imeTarget) { if (panel && imeTarget > 0) panelHolding = true }
+    var panelSwapToKb by remember { mutableStateOf(false) }
     LaunchedEffect(imeNow, panelHolding) {
         val kb = Prefs.kbHeight.value
-        if (panelHolding && (kb <= 0 || imeNow >= kb * 0.92f)) { panel = false; panelHolding = false }
+        if (panelHolding && (kb <= 0 || imeNow >= kb * 0.92f)) { panelSwapToKb = true; panel = false; panelHolding = false }
     }
     val panelHeight = with(density) {
         val kb = Prefs.kbHeight.value
         if (kb > 0) kb.toDp() else 300.dp + WindowInsets.navigationBars.getBottom(this).toDp()
     }
+    // the panel's visible height: slides on a smooth spring when opened/closed on its own; swaps instantly with the
+    // keyboard (the keyboard covers it), so the chat never jumps
+    val panelAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+    val panelPx = with(density) { panelHeight.toPx() }
+    LaunchedEffect(panel, panelPx) {
+        val smooth = androidx.compose.animation.core.spring<Float>(dampingRatio = 1f, stiffness = 420f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)
+        if (panel) {
+            if (imeNow > 0 || Prefs.motion.value == "off") panelAnim.snapTo(panelPx) else panelAnim.animateTo(panelPx, smooth)
+        } else {
+            if (panelSwapToKb || Prefs.motion.value == "off") panelAnim.snapTo(0f) else panelAnim.animateTo(0f, smooth)
+            panelSwapToKb = false
+        }
+    }
+    val bottomInset = with(density) { maxOf(imeNow.toFloat(), panelAnim.value).toDp() }
     var menuAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var confirmSend by remember { mutableStateOf<TdApi.InputMessageContent?>(null) }
     var followSent by remember { mutableStateOf(false) }
@@ -367,11 +386,67 @@ fun ChatScreen(chatId: Long) {
             if (editing == null) Td.send(TdApi.SetChatDraftMessage(chatId, null, d))
         }
     }
+    val entries by remember(ctl) {
+        derivedStateOf {
+            val ms = ctl.messages
+            val out = ArrayList<Entry>(ms.size + 8)
+            for (i in ms.indices) {
+                val m = ms[i]
+                val newer = ms.getOrNull(i - 1)
+                val older = ms.getOrNull(i + 1)
+                fun same(o: TdApi.Message?) = o != null && Texts.service(o) == null && Texts.service(m) == null &&
+                    TdStore.senderId(o.senderId) == TdStore.senderId(m.senderId) && o.isOutgoing == m.isOutgoing &&
+                    Texts.sameDay(o.date, m.date) && kotlin.math.abs(o.date - m.date) < 600
+                val up = same(older)
+                val down = same(newer)
+                val g = when {
+                    up && down -> Grp.Middle
+                    up -> Grp.Bottom
+                    down -> Grp.Top
+                    else -> Grp.Single
+                }
+                out.add(Entry.Msg(m, g))
+                if (firstUnreadId != 0L && m.id > firstUnreadId && (older == null || older.id <= firstUnreadId) && !m.isOutgoing) out.add(Entry.Unread)
+                if (older == null || !Texts.sameDay(older.date, m.date)) out.add(Entry.Day(m.date))
+            }
+            out
+        }
+    }
+
     LaunchedEffect(chatId) {
         launch { TdStore.messageEvents.collect { ctl.onEvent(it) } }
         ctl.loadInitial()
-        val idx = if (firstUnreadId != 0L) ctl.messages.indexOfFirst { it.id <= firstUnreadId } else -1
-        if (idx > 2) listState.scrollToItem(idx)
+        val saved = Prefs.chatPos(chatId)
+        if (firstUnreadId != 0L) {
+            // unread messages: open at the first unread one (Telegram)
+            val idx = ctl.messages.indexOfFirst { it.id <= firstUnreadId }
+            if (idx > 2) listState.scrollToItem(idx)
+        } else if (saved != null && ctl.jumpTo(saved.first)) {
+            // otherwise: exactly where you left the chat
+            val key = "m${saved.first}"
+            val i = snapshotFlow { entries.indexOfFirst { it.key == key } }.first { it >= 0 }
+            listState.scrollToItem(i, saved.second)
+        }
+    }
+    // remember the position when leaving (the bottom = nothing to remember)
+    DisposableEffect(chatId) {
+        onDispose {
+            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { (it.key as? String)?.startsWith("m") == true }
+            val atEnd = listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer
+            val id = (info?.key as? String)?.drop(1)?.toLongOrNull()
+            if (atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.lastMessage?.let { last ->
+                Td.send(TdApi.ViewMessages(chatId, longArrayOf(last.id), TdApi.MessageSourceChatHistory(), true))
+            }
+            if (atEnd || id == null) Prefs.setChatPos(chatId, null)
+            else Prefs.setChatPos(chatId, id to if (info.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0)
+        }
+    }
+    // qwgram: scrolling the history hides the keyboard
+    LaunchedEffect(listState) {
+        // only a finger drag counts (not the list following a sent message)
+        listState.interactionSource.interactions.collect { i ->
+            if (i is androidx.compose.foundation.interaction.DragInteraction.Start && Prefs.hideKbOnScroll.value) keyboard?.hide()
+        }
     }
     // load older history near the top, newer near the bottom (after a jump)
     LaunchedEffect(listState) {
@@ -409,33 +484,6 @@ fun ChatScreen(chatId: Long) {
         if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread)) {
             Td.send(TdApi.ViewMessages(chatId, longArrayOf(last), TdApi.MessageSourceChatHistory(), true))
             if (c.isMarkedAsUnread) Td.send(TdApi.ToggleChatIsMarkedAsUnread(chatId, false))
-        }
-    }
-
-    val entries by remember(ctl) {
-        derivedStateOf {
-            val ms = ctl.messages
-            val out = ArrayList<Entry>(ms.size + 8)
-            for (i in ms.indices) {
-                val m = ms[i]
-                val newer = ms.getOrNull(i - 1)
-                val older = ms.getOrNull(i + 1)
-                fun same(o: TdApi.Message?) = o != null && Texts.service(o) == null && Texts.service(m) == null &&
-                    TdStore.senderId(o.senderId) == TdStore.senderId(m.senderId) && o.isOutgoing == m.isOutgoing &&
-                    Texts.sameDay(o.date, m.date) && kotlin.math.abs(o.date - m.date) < 600
-                val up = same(older)
-                val down = same(newer)
-                val g = when {
-                    up && down -> Grp.Middle
-                    up -> Grp.Bottom
-                    down -> Grp.Top
-                    else -> Grp.Single
-                }
-                out.add(Entry.Msg(m, g))
-                if (firstUnreadId != 0L && m.id > firstUnreadId && (older == null || older.id <= firstUnreadId) && !m.isOutgoing) out.add(Entry.Unread)
-                if (older == null || !Texts.sameDay(older.date, m.date)) out.add(Entry.Day(m.date))
-            }
-            out
         }
     }
 
@@ -486,7 +534,7 @@ fun ChatScreen(chatId: Long) {
         var topH by remember { mutableStateOf(0.dp) }
         var bottomH by remember { mutableStateOf(0.dp) }
         val fade = wallpaperBase()
-        Box(Modifier.fillMaxSize().then(if (panel) Modifier else Modifier.imePadding())) {
+        Box(Modifier.fillMaxSize().padding(bottom = bottomInset).consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomInset))) {
             // ---- top: bars over a fade (content scrolls underneath, like Telegram)
             Column(
                 Modifier.zIndex(2f).align(Alignment.TopCenter).fillMaxWidth()
@@ -658,20 +706,20 @@ fun ChatScreen(chatId: Long) {
                     onSendSilent = { send(silent = true) },
                     onSchedule = { at -> send(at = at) },
                 )
-                androidx.compose.animation.AnimatedVisibility(
-                    panel,
-                    // from the keyboard: appear in place (same height); otherwise slide up smoothly
-                    enter = if (imeNow > 0) androidx.compose.animation.EnterTransition.None else expandVertically(Springs.smooth()) + fadeIn(Springs.effects()),
-                    exit = if (panelHolding || imeNow > 0) androidx.compose.animation.ExitTransition.None else shrinkVertically(Springs.exit()) + fadeOut(Springs.exit()),
-                ) {
-                    StickerPanel(
-                        chatId, panelHeight,
-                        onEmoji = { text += it },
-                        onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false } },
-                        onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false } },
-                    )
-                }
             } else ChannelBar(chat)
+            }
+        }
+        if (canSend && panelAnim.value > 0.5f) Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .height(with(density) { panelAnim.value.toDp() }).clipToBounds(),
+        ) {
+            Box(Modifier.wrapContentHeight(Alignment.Top, unbounded = true)) {
+                StickerPanel(
+                    chatId, panelHeight,
+                    onEmoji = { text += it },
+                    onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false } },
+                    onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false } },
+                )
             }
         }
     }
@@ -710,7 +758,13 @@ fun ChatScreen(chatId: Long) {
         )
     }
     deleteFor?.let { list -> DeleteDialog(list, chat) { deleteFor = null; selected.clear() } }
-    viewer?.let { p -> PhotoViewer(p) { viewer = null } }
+    viewer?.let { p ->
+        // every photo loaded in this chat, oldest → newest, opened at the tapped one (swipe between them)
+        val key = p.sizes.maxByOrNull { it.width * it.height }?.photo?.id
+        val all = remember(p) { ctl.messages.asReversed().mapNotNull { (it.content as? TdApi.MessagePhoto)?.photo } }
+        val idx = all.indexOfFirst { ph -> ph.sizes.maxByOrNull { it.width * it.height }?.photo?.id == key }
+        if (idx >= 0) PhotoGallery(all, idx) { viewer = null } else PhotoViewer(p) { viewer = null }
+    }
 }
 
 fun inputText(t: String): TdApi.InputMessageText = TdApi.InputMessageText().apply {
@@ -1520,8 +1574,17 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
 private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val chats = TdStore.chatsIn(TdApi.ChatListMain()).filter { TdStore.canSend(it) }.take(60)
+    var noAuthor by remember { mutableStateOf(Prefs.forwardNoAuthor.value) }
+    var noCaption by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text("Переслать в…", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+        // qwgram: forward as a copy (no "Forwarded from") and optionally without captions
+        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.FilterChip(noAuthor, { noAuthor = !noAuthor }, label = { Text("Без автора") },
+                leadingIcon = { AnimatedVisibility(noAuthor) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) } })
+            androidx.compose.material3.FilterChip(noCaption, { noCaption = !noCaption }, enabled = noAuthor, label = { Text("Без подписи") },
+                leadingIcon = { AnimatedVisibility(noCaption && noAuthor) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) } })
+        }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
             items(chats, key = { it.id }) { c ->
                 ListItem(
@@ -1532,6 +1595,7 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
                         Td.send(TdApi.ForwardMessages().apply {
                             chatId = c.id; fromChatId = from; messageIds = list.map { it.id }.toLongArray()
                             options = TdApi.MessageSendOptions()
+                            sendCopy = noAuthor; removeCaption = noAuthor && noCaption
                         })
                         Toast.makeText(ctx, "Переслано в «${if (TdStore.isSaved(c)) "Избранное" else c.title}»", Toast.LENGTH_SHORT).show()
                         onDismiss()

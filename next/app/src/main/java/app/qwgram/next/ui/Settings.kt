@@ -135,6 +135,10 @@ fun SettingsHome(pad: PaddingValues) {
                 nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
             }
             group("Чаты") {
+                nav("Уведомления и звуки", "Чаты, группы, каналы", Icons.Outlined.Notifications) { Nav.push(Route.Page("notifications")) }
+                nav("Конфиденциальность", "Кто видит номер, время, фото", Icons.Outlined.Lock) { Nav.push(Route.Page("privacy")) }
+                nav("Данные и память", "Кэш, автозагрузка", Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
+                nav("Папки с чатами", "Создать и настроить", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
                 nav("Заблокированные", "Пользователи и боты", Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             }
             group("Сеть") {

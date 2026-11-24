@@ -107,16 +107,51 @@ fun FadeHeader(
             }
         }
         if (center) {
-            Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp)) {
-                titleBlock(Modifier.align(Alignment.Center).padding(horizontal = 104.dp))
-                if (onBack != null) HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack, Modifier.align(Alignment.CenterStart))
-                Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) { actions() }
-            }
+            CenteredBar(
+                Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp),
+                start = { if (onBack != null) HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack) },
+                title = { titleBlock(Modifier.padding(horizontal = 8.dp)) },
+                end = { Row(verticalAlignment = Alignment.CenterVertically) { actions() } },
+            )
         } else {
             Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (onBack != null) HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onBack) else Spacer(Modifier.width(10.dp))
                 titleBlock(Modifier.weight(1f).padding(horizontal = 10.dp))
                 actions()
+            }
+        }
+    }
+}
+
+/**
+ * Bar with a truly centred title: the title gets all the width that is left after reserving the wider of the two
+ * side slots on both sides, so it is centred and only ellipsized when it really doesn't fit.
+ */
+@Composable
+fun CenteredBar(modifier: Modifier, start: @Composable () -> Unit, title: @Composable () -> Unit, end: @Composable () -> Unit) {
+    androidx.compose.ui.layout.Layout(
+        contents = listOf({ start() }, { title() }, { end() }),
+        modifier = modifier,
+    ) { (s, t, e), c ->
+        val loose = c.copy(minWidth = 0, minHeight = 0)
+        val sp = s.map { it.measure(loose) }
+        val ep = e.map { it.measure(loose) }
+        val sw = sp.sumOf { it.width }
+        val ew = ep.sumOf { it.width }
+        val side = maxOf(sw, ew)
+        val tw = (c.maxWidth - 2 * side).coerceAtLeast(0)
+        // if one side is empty and the title is long, let it use the free side too (still visually near centre)
+        val tMax = if (tw < c.maxWidth / 2) (c.maxWidth - sw - ew).coerceAtLeast(0) else tw
+        val tp = t.map { it.measure(loose.copy(maxWidth = tMax)) }
+        val h = c.maxHeight.takeIf { it != androidx.compose.ui.unit.Constraints.Infinity } ?: listOf(sp, tp, ep).flatten().maxOfOrNull { it.height } ?: 0
+        layout(c.maxWidth, h) {
+            var x = 0
+            sp.forEach { it.place(x, (h - it.height) / 2); x += it.width }
+            var xe = c.maxWidth
+            ep.forEach { xe -= it.width; it.place(xe, (h - it.height) / 2) }
+            tp.forEach {
+                val cx = ((c.maxWidth - it.width) / 2).coerceIn(sw, (c.maxWidth - ew - it.width).coerceAtLeast(sw))
+                it.place(cx, (h - it.height) / 2)
             }
         }
     }

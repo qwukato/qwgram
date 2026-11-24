@@ -174,6 +174,19 @@ fun ProfileScreen(chatId: Long) {
             FadeHeader(title, subtitle = status, titleAlpha = {
                 // the name appears in the bar once the big one scrolls away
                 if (gridState.firstVisibleItemIndex > 0) 1f else ((gridState.firstVisibleItemScrollOffset - 260f) / 140f).coerceIn(0f, 1f)
+            }, actions = {
+                // share the contact / link, like Telegram's profile header
+                val un = user?.usernames?.activeUsernames?.firstOrNull()
+                    ?: (chat?.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() }
+                val shareText = when {
+                    un != null -> "https://t.me/$un"
+                    user != null && user.phoneNumber.isNotBlank() -> TdStore.fullName(user) + "\n+" + user.phoneNumber
+                    else -> null
+                }
+                if (shareText != null) HeaderIcon(Icons.Outlined.Share, if (user != null) "Поделиться контактом" else "Поделиться", {
+                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                    ctx.startActivity(android.content.Intent.createChooser(i, null))
+                })
             })
         },
     ) { pad ->
@@ -199,19 +212,15 @@ fun ProfileScreen(chatId: Long) {
                         val un = (user?.usernames?.activeUsernames?.firstOrNull()
                             ?: (chat.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() })
                         val uid = TdStore.privateUserId(chat)
-                        // M3 Expressive standard button group: pressed one stretches, toggled one becomes a rounded square
-                        ButtonGroupRow(buildList {
+                        // Telegram-like action tiles in an M3 Expressive connected group: equal widths, everything fits
+                        ActionTiles(buildList {
                             add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
                                 if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
                             })
-                            add(GroupButton(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, null, selected = muted, desc = if (muted) "Включить звук" else "Без звука") { setMuted(chat, !muted) })
-                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) add(GroupButton(Icons.Outlined.Lock, null, desc = "Секретный чат") {
+                            add(GroupButton(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (muted) "Вкл. звук" else "Без звука", selected = muted) { setMuted(chat, !muted) })
+                            add(GroupButton(Icons.Outlined.Search, "Поиск") { Nav.push(Route.Chat(chat.id)) })
+                            if (uid != 0L && chat.type is TdApi.ChatTypePrivate && !TdStore.isBot(chat)) add(GroupButton(Icons.Outlined.Lock, "Секретный") {
                                 scope.launch { Td.callOrNull(TdApi.CreateNewSecretChat(uid))?.let { Nav.push(Route.Chat(it.id)) } ?: Toast.makeText(ctx, "Не удалось начать секретный чат", Toast.LENGTH_SHORT).show() }
-                            })
-                            add(GroupButton(Icons.Outlined.Search, null, desc = "Поиск в чате") { Nav.push(Route.Chat(chat.id)) })
-                            if (un != null) add(GroupButton(Icons.Outlined.Share, null, desc = "Поделиться") {
-                                val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, "https://t.me/$un")
-                                ctx.startActivity(android.content.Intent.createChooser(i, null))
                             })
                         })
                     }

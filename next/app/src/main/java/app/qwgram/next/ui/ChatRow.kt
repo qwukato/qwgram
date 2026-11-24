@@ -290,13 +290,34 @@ fun markRead(chat: TdApi.Chat) {
     if (chat.unreadMentionCount > 0) Td.send(TdApi.ReadAllChatMentions(chat.id))
 }
 
+/** qwgram: marks every chat (main list and archive) read, mentions and reactions included */
+fun readAllChats(ctx: android.content.Context) {
+    val all = TdStore.chatsIn(TdApi.ChatListMain()) + TdStore.chatsIn(TdApi.ChatListArchive())
+    var n = 0
+    all.forEach { c ->
+        if (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0) { markRead(c); n++ }
+        if (c.unreadReactionCount > 0) Td.send(TdApi.ReadAllChatReactions(c.id))
+    }
+    android.widget.Toast.makeText(ctx, if (n == 0) "Непрочитанных нет" else "Прочитано: $n", android.widget.Toast.LENGTH_SHORT).show()
+}
+
 fun deleteChat(chat: TdApi.Chat) {
-    when (val t = chat.type) {
-        is TdApi.ChatTypeSupergroup, is TdApi.ChatTypeBasicGroup -> {
-            Td.send(TdApi.LeaveChat(chat.id))
-            Td.send(TdApi.DeleteChatHistory(chat.id, true, false))
+    val main = android.os.Handler(android.os.Looper.getMainLooper())
+    fun report(r: TdApi.Object) {
+        if (r is TdApi.Error) main.post {
+            android.widget.Toast.makeText(app.qwgram.next.App.instance, "Не удалось удалить чат: ${r.message}", android.widget.Toast.LENGTH_LONG).show()
         }
-        else -> Td.send(TdApi.DeleteChatHistory(chat.id, true, t is TdApi.ChatTypePrivate && chat.canBeDeletedForAllUsers))
+    }
+    when (val t = chat.type) {
+        is TdApi.ChatTypeSupergroup -> Td.send(TdApi.LeaveChat(chat.id)) { r ->
+            // left (or already not a member): drop it from every list too
+            if (r !is TdApi.Error) Td.send(TdApi.DeleteChatHistory(chat.id, true, false)) else report(r)
+        }
+        is TdApi.ChatTypeBasicGroup -> Td.send(TdApi.LeaveChat(chat.id)) { r ->
+            Td.send(TdApi.DeleteChatHistory(chat.id, true, false)) { r2 -> if (r is TdApi.Error) report(r2) }
+        }
+        is TdApi.ChatTypeSecret -> Td.send(TdApi.CloseSecretChat(t.secretChatId)) { Td.send(TdApi.DeleteChatHistory(chat.id, true, false), ::report) }
+        else -> Td.send(TdApi.DeleteChatHistory(chat.id, true, t is TdApi.ChatTypePrivate && chat.canBeDeletedForAllUsers), ::report)
     }
 }
 

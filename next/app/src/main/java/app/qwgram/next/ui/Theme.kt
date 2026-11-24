@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import app.qwgram.next.Prefs
@@ -119,18 +120,28 @@ fun QwTheme(content: @Composable () -> Unit) {
         )
     }
     val fontPref = Prefs.font.state.value
-    val typography = remember(fontPref) {
-        val family = when (fontPref) { "serif" -> FontFamily.Serif; "mono" -> FontFamily.Monospace; else -> FontFamily.Default }
+    val emojiPref = Prefs.emojiStyle.state.value
+    val bodyW = Prefs.textWeight.state.value
+    val headW = Prefs.headWeight.state.value
+    val typography = remember(fontPref, emojiPref, bodyW, headW) {
+        val family = when (fontPref) {
+            "serif" -> FontFamily.Serif
+            "mono" -> FontFamily.Monospace
+            else -> Fonts.family(ctx, fontPref, emojiPref) ?: FontFamily.Default
+        }
+        val body = when (bodyW) { "medium" -> FontWeight.Medium; "bold" -> FontWeight.SemiBold; else -> FontWeight.Normal }
+        // headers / titles: heavy Google Sans by default (M3 Expressive emphasised type)
+        val head = when (headW) { "normal" -> null; "bold" -> FontWeight.Bold; else -> FontWeight.ExtraBold }
+        val title = when (headW) { "normal" -> null; "bold" -> FontWeight.SemiBold; else -> FontWeight.Bold }
+        val label = when (headW) { "normal" -> null; else -> FontWeight.SemiBold }
         val t = Typography()
-        if (family == FontFamily.Default) t else Typography(
-            displayLarge = t.displayLarge.copy(fontFamily = family), displayMedium = t.displayMedium.copy(fontFamily = family),
-            displaySmall = t.displaySmall.copy(fontFamily = family), headlineLarge = t.headlineLarge.copy(fontFamily = family),
-            headlineMedium = t.headlineMedium.copy(fontFamily = family), headlineSmall = t.headlineSmall.copy(fontFamily = family),
-            titleLarge = t.titleLarge.copy(fontFamily = family), titleMedium = t.titleMedium.copy(fontFamily = family),
-            titleSmall = t.titleSmall.copy(fontFamily = family), bodyLarge = t.bodyLarge.copy(fontFamily = family),
-            bodyMedium = t.bodyMedium.copy(fontFamily = family), bodySmall = t.bodySmall.copy(fontFamily = family),
-            labelLarge = t.labelLarge.copy(fontFamily = family), labelMedium = t.labelMedium.copy(fontFamily = family),
-            labelSmall = t.labelSmall.copy(fontFamily = family),
+        fun androidx.compose.ui.text.TextStyle.f(w: FontWeight?) = copy(fontFamily = family, fontWeight = w ?: fontWeight)
+        Typography(
+            displayLarge = t.displayLarge.f(head), displayMedium = t.displayMedium.f(head), displaySmall = t.displaySmall.f(head),
+            headlineLarge = t.headlineLarge.f(head), headlineMedium = t.headlineMedium.f(head), headlineSmall = t.headlineSmall.f(head),
+            titleLarge = t.titleLarge.f(head), titleMedium = t.titleMedium.f(title), titleSmall = t.titleSmall.f(title),
+            bodyLarge = t.bodyLarge.f(body), bodyMedium = t.bodyMedium.f(body), bodySmall = t.bodySmall.f(body),
+            labelLarge = t.labelLarge.f(label), labelMedium = t.labelMedium.f(label), labelSmall = t.labelSmall.f(null),
         )
     }
     val scale = Prefs.uiScale.state.value

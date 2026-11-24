@@ -17,6 +17,15 @@ object Prefs {
 
     private val all = mutableListOf<Item<*>>()
 
+    /** where each chat was left: "<messageId>:<offsetPx>" (not part of the settings) */
+    fun chatPos(chatId: Long): Pair<Long, Int>? = sp.getString("pos_$chatId", null)?.split(':')?.let { p ->
+        val id = p.getOrNull(0)?.toLongOrNull() ?: return null
+        id to (p.getOrNull(1)?.toIntOrNull() ?: 0)
+    }
+    fun setChatPos(chatId: Long, pos: Pair<Long, Int>?) {
+        sp.edit().apply { if (pos == null) remove("pos_$chatId") else putString("pos_$chatId", "${pos.first}:${pos.second}") }.apply()
+    }
+
     sealed class Item<T>(val key: String, val def: T) {
         val state: MutableState<T> = mutableStateOf(def)
         var value: T
@@ -112,8 +121,10 @@ object Prefs {
     val navStyle = S("nav_style", "floating")           // standard | floating
     val navLabels = B("nav_labels", true)
     val floatingBars = B("floating_bars", true)
+    val hideKbOnScroll = B("hide_kb_scroll", true)        // scrolling a chat hides the keyboard
+    val forwardNoAuthor = B("forward_no_author", false)   // forward as a copy by default
     val centerTitle = B("center_title", false)            // centred titles in every header
-    val emojiStyle = S("emoji_style", "system")           // system | noto (bundled Google emoji)
+    val emojiStyle = S("emoji_style", "twemoji")          // twemoji | noto (bundled Google emoji) | system
     val pressMorph = S("press_morph", "normal")          // off | soft | normal | strong
     val outBubble = S("out_bubble", "primary")            // primary | secondary | tertiary
     val fabShape = S("fab_shape", "cookie")               // cookie | sunny | circle | square
@@ -139,7 +150,9 @@ object Prefs {
     val motionSpeed = F("motion_speed", 1f)
     val predictiveBack = B("predictive_back", true)
     val uiScale = F("ui_scale", 1f)
-    val font = S("font", "system")                      // system | serif | mono
+    val font = S("font", "google")                      // google (Google Sans Flex) | system | serif | mono
+    val textWeight = S("text_weight", "regular")          // regular | medium | bold — body text
+    val headWeight = S("head_weight", "heavy")            // normal | bold | heavy — titles and headers
     val haptics = B("haptics", true)
 
     // ---- client features ----
@@ -156,7 +169,7 @@ object Prefs {
         all.filter { it.key !in setOf(
             "hide_phone", "strip_tracking", "silent_default", "confirm_delete", "keep_alive", "notify_preview", "mark_read",
             "ghost_offline", "ghost_typing", "keep_deleted", "hide_reactions", "char_counter", "show_ids", "confirm_sticker",
-            "kb_height", "archive_hidden", "autodl_mobile", "autodl_wifi",
+            "kb_height", "archive_hidden", "hide_kb_scroll", "forward_no_author", "autodl_mobile", "autodl_wifi",
         ) }
             .forEach { it.reset() }
     }

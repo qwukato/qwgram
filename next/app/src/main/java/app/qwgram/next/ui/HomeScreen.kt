@@ -165,14 +165,26 @@ fun HomeScreen() {
             FabAction("Новый канал", Icons.Outlined.Campaign) { Nav.push(Route.Page("compose:channel")) },
             FabAction("Новый контакт", Icons.Outlined.PersonAdd) { addContact = true },
         )
+        val contacts = HomeState.tab == HomeTab.Contacts
+        // one FAB for every tab (same size, only the icon changes), so nothing jumps when switching
+        val fabButton: @Composable () -> Unit = {
+            FabMenu(
+                if (contacts) false else fabOpen,
+                { if (contacts) addContact = true else fabOpen = it },
+                if (contacts) Icons.Outlined.PersonAdd else Icons.Outlined.Edit,
+                emptyList(),
+            )
+        }
         val fab: @Composable () -> Unit = {
             androidx.compose.animation.AnimatedVisibility(
                 showFab,
                 enter = androidx.compose.animation.scaleIn(Springs.spatial()) + androidx.compose.animation.fadeIn(Springs.effects()),
                 exit = androidx.compose.animation.scaleOut(Springs.exit()) + androidx.compose.animation.fadeOut(Springs.exit()),
             ) {
-                if (HomeState.tab == HomeTab.Contacts) FabMenu(false, { addContact = true }, Icons.Outlined.PersonAdd, emptyList())
-                else FabMenu(fabOpen, { fabOpen = it }, Icons.Outlined.Edit, fabActions)
+                Column(horizontalAlignment = Alignment.End) {
+                    FabMenu(fabOpen && !contacts, { fabOpen = it }, Icons.Outlined.Edit, fabActions, showButton = false)
+                    fabButton()
+                }
             }
         }
         if (addContact) AddContactDialog { addContact = false }
@@ -206,7 +218,14 @@ fun HomeScreen() {
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
                         .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { fabOpen = false },
                 )
-                if (floatingNav) FloatingNavRow(Modifier.align(Alignment.BottomCenter), fab)
+                if (floatingNav) {
+                    // the action list floats above the bar on its own, so it never pushes the pill around
+                    FabMenu(
+                        fabOpen && !contacts, { fabOpen = it }, Icons.Outlined.Edit, fabActions, showButton = false,
+                        modifier = Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(end = 22.dp, bottom = 104.dp),
+                    )
+                    FloatingNavRow(Modifier.align(Alignment.BottomCenter), showFab, fabButton)
+                }
             }
         }
     }
@@ -217,17 +236,36 @@ fun HomeScreen() {
  * over a fade so the list dissolves under them.
  */
 @Composable
-private fun FloatingNavRow(modifier: Modifier, fab: @Composable () -> Unit) {
+private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    // 0..1: how much room the FAB takes. The pill re-centres smoothly as the FAB slot grows / shrinks.
+    val p by androidx.compose.animation.core.animateFloatAsState(
+        if (showFab) 1f else 0f,
+        if (Prefs.motion.value == "off") androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 320f * Prefs.motionSpeed.value * Prefs.motionSpeed.value),
+        label = "fabslot",
+    )
     Box(
         modifier.fillMaxWidth()
             .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface))
-            .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 16.dp, end = 16.dp),
+            .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FloatingNavPill()
-            fab()
+        Row(verticalAlignment = Alignment.Bottom) {
+            // the pill gives way if the screen is narrow; the FAB keeps its full size
+            Box(Modifier.weight(1f, fill = false)) { FloatingNavPill() }
+            androidx.compose.ui.layout.Layout(
+                content = {
+                    if (p > 0.002f || showFab) Box(Modifier.graphicsLayer {
+                        scaleX = 0.4f + 0.6f * p; scaleY = scaleX; alpha = p.coerceIn(0f, 1f)
+                    }) { fab() }
+                },
+            ) { ms, c ->
+                val gap = 4.dp.roundToPx()
+                val pl = ms.firstOrNull()?.measure(c.copy(minWidth = 0, minHeight = 0))
+                val w = (((pl?.width ?: 0) + gap) * p.coerceIn(0f, 1.05f)).toInt().coerceAtLeast(0)
+                val h = pl?.height ?: 0
+                layout(w, h) { pl?.place(w - pl.width, 0) }
+            }
         }
     }
 }
@@ -262,7 +300,7 @@ private fun FloatingNavPill() {
                         ) {
                             Row {
                                 Spacer(Modifier.width(8.dp))
-                                Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -364,7 +402,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     var headerH by remember { mutableStateOf(120.dp) }
     Box(
         Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
-            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = Prefs.listSwipe.value == "actions", drawer = drawer)
+            .drawerSwipe(enabled = canOpenDrawer, edgeOnly = false, drawer = drawer)
             .then(if (canOpenDrawer) Modifier.systemGestureExclusion { c -> androidx.compose.ui.geometry.Rect(0f, c.size.height * 0.3f, exW, c.size.height * 0.3f + exH) } else Modifier),
     ) {
         // the list scrolls under the header (floating: over a fade; classic: under a solid bar)
@@ -426,7 +464,11 @@ private fun SearchBarHeader(openDrawer: () -> Unit) {
                         LoadingIndicator(Modifier.size(26.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(if (conn is TdApi.ConnectionStateWaitingForNetwork) "Ожидание сети…" else if (conn is TdApi.ConnectionStateUpdating) "Обновление…" else "Соединение…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
-                    } else Text("Поиск в qwgram", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                    } else Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("qwgram", style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), color = cs.primary, maxLines = 1)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Поиск", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant, maxLines = 1)
+                    }
                 }
                 UserAvatar(me, 34.dp, Modifier.clip(CircleShape).clickable { HomeState.tab = HomeTab.Settings })
                 Spacer(Modifier.width(10.dp))
@@ -458,7 +500,11 @@ fun ConnectionTitle(folderTitle: String?) {
                 "folder" -> folderTitle ?: "Чаты"
                 else -> "qwgram"
             }
-            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                color = if (title == "qwgram") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }

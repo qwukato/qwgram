@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Animation
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.DataUsage
@@ -216,37 +219,27 @@ fun TypePreview() = PreviewCard("шрифт") {
 
 // ------------------------------------------------------------------ settings: tiles & pages
 
-/** 3×2 grid of the main sections: big shaped icon over a two-line title, nothing truncated */
+/** two big expressive tiles: Appearance and qwgram features */
 @Composable
 fun QuickTiles2() {
     val cs = MaterialTheme.colorScheme
-    data class Tile(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val page: String)
+    data class Tile(val title: String, val sub: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val shape: androidx.graphics.shapes.RoundedPolygon, val bg: Color, val fg: Color, val iconBg: Color, val iconFg: Color, val page: String)
     val tiles = listOf(
-        Tile("Оформление", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, "appearance"),
-        Tile("Функции qwgram", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, "features"),
-        Tile("Приватность", Icons.Outlined.Lock, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, "privacy"),
-        Tile("Уведомления", Icons.Outlined.Notifications, MaterialShapes.Sunny, cs.secondaryContainer, cs.onSecondaryContainer, "notifications"),
-        Tile("Данные и память", Icons.Outlined.DataUsage, MaterialShapes.Pentagon, cs.surfaceContainerHighest, cs.onSurface, "data"),
-        Tile("Папки", Icons.Outlined.FolderOpen, MaterialShapes.Cookie6Sided, cs.primaryContainer, cs.onPrimaryContainer, "folders"),
+        Tile("Оформление", "Тема, шрифт, анимации", Icons.Outlined.Palette, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, cs.primary, cs.onPrimary, "appearance"),
+        Tile("Функции qwgram", "Призрак, удалённые и др.", Icons.Outlined.AutoAwesome, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, cs.tertiary, cs.onTertiary, "features"),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        tiles.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { t ->
-                    MorphBox(
-                        onClick = { Nav.push(Route.Page(t.page)) }, rest = 26.dp, pressed = 14.dp, squish = 0.95f,
-                        color = cs.surfaceContainerLow, contentAlignment = Alignment.Center,
-                        modifier = Modifier.weight(1f).height(108.dp),
-                    ) {
-                        Column(Modifier.padding(horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.size(46.dp).clip(t.shape.asShape()).background(t.bg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.fg) }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                t.title, style = MaterialTheme.typography.labelLarge, color = cs.onSurface,
-                                maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                lineHeight = 16.sp, softWrap = true,
-                            )
-                        }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        tiles.forEachIndexed { i, t ->
+            MorphBox(
+                onClick = { Nav.push(Route.Page(t.page)) }, rest = 28.dp, pressed = 16.dp, squish = 0.96f,
+                color = t.bg, contentColor = t.fg, contentAlignment = Alignment.TopStart,
+                modifier = Modifier.weight(1f).height(132.dp),
+            ) {
+                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Box(Modifier.size(48.dp).clip(t.shape.asShape()).background(t.iconBg), contentAlignment = Alignment.Center) { Icon(t.icon, null, tint = t.iconFg) }
+                    Column {
+                        Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, lineHeight = 20.sp)
+                        Text(t.sub, style = MaterialTheme.typography.bodySmall, color = t.fg.copy(alpha = 0.75f), maxLines = 2)
                     }
                 }
             }
@@ -277,8 +270,22 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
     group("Движение") {
         nav("Анимации и жесты", "Пружины, морфинг, переходы", Icons.Outlined.Animation, 2) { Nav.push(Route.Page("ap-motion")) }
     }
-    group { action("Сбросить оформление", "Вернуть всё как было", Icons.Outlined.Settings, danger = true) { Prefs.resetAppearance() } }
+    group(footer = "Тема, шрифт, формы, панели и анимации вернутся к стандартным. Функции qwgram и данные не затрагиваются.") {
+        action("Сбросить оформление", "Вернуть всё как было", Icons.Outlined.RestartAlt, danger = true) { askReset = true }
+    }
+    item {
+        if (askReset) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { askReset = false },
+            icon = { Icon(Icons.Outlined.RestartAlt, null) },
+            title = { Text("Сбросить оформление?") },
+            text = { Text("Все настройки внешнего вида вернутся к стандартным.") },
+            confirmButton = { QTextButton(onClick = { askReset = false; Prefs.resetAppearance() }) { Text("Сбросить", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { QTextButton(onClick = { askReset = false }) { Text("Отмена") } },
+        )
+    }
 }
+
+private var askReset by androidx.compose.runtime.mutableStateOf(false)
 
 @Composable
 fun ListPage2() = PageScaffold("Список чатов") {
@@ -378,10 +385,12 @@ fun MotionPage2() = PageScaffold("Анимации и жесты") {
 fun TextPage2() = PageScaffold("Шрифт и масштаб") {
     item { TypePreview() }
     group("Шрифт") {
-        segmented("Начертание", Prefs.font, listOf("system" to "Системный", "serif" to "Засечки", "mono" to "Моно"))
+        segmented("Начертание", Prefs.font, listOf("google" to "Google Sans", "system" to "Системный", "serif" to "Засечки", "mono" to "Моно"))
+        segmented("Жирность текста", Prefs.textWeight, listOf("regular" to "Обычный", "medium" to "Средний", "bold" to "Жирный"))
+        segmented("Заголовки", Prefs.headWeight, listOf("normal" to "Обычные", "bold" to "Жирные", "heavy" to "Очень жирные"))
     }
-    group("Эмодзи", footer = "Noto — набор Google, одинаковый на всех устройствах и с новыми эмодзи. Применится после перезапуска qwgram. Эмодзи Apple встроить нельзя: они принадлежат Apple.") {
-        segmented("Стиль", Prefs.emojiStyle, listOf("system" to "Системные", "noto" to "Noto"))
+    group("Эмодзи", footer = "Twemoji — эмодзи Twitter/X (Android 13+). Noto — набор Google, применится после перезапуска qwgram. Эмодзи Apple встроить нельзя: они принадлежат Apple.") {
+        segmented("Стиль", Prefs.emojiStyle, listOf("twemoji" to "Twemoji", "noto" to "Noto", "system" to "Системные"))
     }
     group("Масштаб") {
         sliderFloat("Размер интерфейса", Prefs.uiScale, 0.85f..1.15f, 5) { "${(it * 100).toInt()}%" }
@@ -411,6 +420,9 @@ fun FeaturesPage2() {
             switch("Счётчик символов", Prefs.charCounter, "Над полем ввода, лимит 4096")
             switch("Тихая отправка по умолчанию", Prefs.silentByDefault, "Получатель не услышит звук")
             switch("Подтверждать стикеры и GIF", Prefs.confirmSticker)
+            switch("Пересылать без автора", Prefs.forwardNoAuthor, "Как копию, без «Переслано от» (можно менять при пересылке)")
+            switch("Прятать клавиатуру при прокрутке", Prefs.hideKbOnScroll)
+            switch("Время с секундами", Prefs.seconds, "У сообщений")
         }
         group("Приватность") {
             switch("Скрывать свой номер", Prefs.hidePhone, "В настройках, профиле и меню")
@@ -419,6 +431,7 @@ fun FeaturesPage2() {
         }
         group("Диалоги") {
             switch("Подтверждать удаление", Prefs.confirmDelete)
+            action("Прочитать все чаты", "Снять все непрочитанные и упоминания", Icons.Outlined.DoneAll) { readAllChats(ctx) }
         }
         group("Фоновая работа", footer = "Без сервисов Google сообщения приходят, пока qwgram работает в фоне.") {
             switch("Получать сообщения в фоне", Prefs.keepAlive) { KeepAliveService.sync(ctx) }

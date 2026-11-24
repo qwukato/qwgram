@@ -97,6 +97,22 @@ jobs:
           pip install -q cryptography
           python3 next/scripts/make_keystore.py
 
+      - name: Fonts (Google Sans Flex, Twemoji) into assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          D=next/app/src/main/assets/fonts; mkdir -p $D
+          # Google Sans Flex (OFL) from google/fonts: the upright variable file
+          URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/google/fonts/contents/ofl/googlesansflex \
+            | python3 -c "import sys,json; fs=[f for f in json.load(sys.stdin) if f['name'].endswith('.ttf') and 'Italic' not in f['name']]; print(fs[0]['download_url'] if fs else '')")
+          [ -n "$URL" ] && curl -fsSL "$URL" -o $D/gsflex.ttf
+          # Twemoji Mozilla (COLR, CC-BY 4.0)
+          curl -fsSL https://mirrors.ctan.org/fonts/twemoji-colr/TwemojiMozilla.ttf -o $D/twemoji.ttf \
+            || curl -fsSL https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf -o $D/twemoji.ttf
+          ls -la $D
+          exit 0
+
       - name: Build
         env:
           TG_APP_ID: ${{ secrets.TG_APP_ID }}

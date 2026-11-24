@@ -299,6 +299,48 @@ fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, heig
 }
 
 /**
+ * Telegram-style profile actions as an M3 Expressive connected button group: equal-width tonal tiles (icon over
+ * label), big outer corners, small inner ones; the pressed tile rounds into a pill, a toggled one fills with primary.
+ */
+@Composable
+fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Row(modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+        items.forEachIndexed { i, b ->
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val outer = 22.dp
+            val inner = 8.dp
+            val pr by animateDpAsState(if (pressed) 30.dp else 0.dp, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "tp")
+            val start = (if (i == 0) outer else inner) + pr * (if (i == 0) 0.3f else 1f)
+            val end = (if (i == items.lastIndex) outer else inner) + pr * (if (i == items.lastIndex) 0.3f else 1f)
+            val sc by animateFloatAsState(if (pressed) 0.95f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "ts")
+            val bg by animateColorAsState(if (b.selected) cs.primary else cs.surfaceContainerHigh, Springs.effects(), label = "tb")
+            val fg = if (b.selected) cs.onPrimary else cs.primary
+            Column(
+                Modifier.weight(1f).height(66.dp)
+                    .graphicsLayer {
+                        scaleX = sc; scaleY = sc
+                        shape = RoundedCornerShape(topStart = start.coerceAtLeast(0.dp), bottomStart = start.coerceAtLeast(0.dp), topEnd = end.coerceAtLeast(0.dp), bottomEnd = end.coerceAtLeast(0.dp))
+                        clip = true
+                    }
+                    .background(bg)
+                    .clickable(interactionSource = interaction, indication = ripple(), onClick = b.onClick)
+                    .padding(horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            ) {
+                if (b.icon != null) Icon(b.icon, b.desc ?: b.label, Modifier.size(22.dp), tint = fg)
+                if (b.label != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(b.label, style = MaterialTheme.typography.labelMedium, color = if (b.selected) cs.onPrimary else cs.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Lets a horizontally-dragged control (slider, pager…) own the finger: marks the gesture on DOWN, before the
  * screen's swipe-back (which runs later, in the Main pass) decides anything.
  */
@@ -332,7 +374,7 @@ fun fabPolygon(): androidx.graphics.shapes.RoundedPolygon = when (Prefs.fabShape
  * spring out above it one after another as tonal pills. Tap outside (handled by the caller's scrim) to close.
  */
 @Composable
-fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, actions: List<FabAction>, modifier: Modifier = Modifier, size: Dp = 64.dp) {
+fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, actions: List<FabAction>, modifier: Modifier = Modifier, size: Dp = 64.dp, showButton: Boolean = true) {
     val cs = MaterialTheme.colorScheme
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
         actions.forEachIndexed { i, a ->
@@ -364,6 +406,7 @@ fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, a
                 }
             }
         }
+        if (!showButton) return@Column
         val morph = remember(Prefs.fabShape.value) { androidx.graphics.shapes.Morph(fabPolygon(), androidx.compose.material3.MaterialShapes.Circle) }
         val prog by animateFloatAsState(if (expanded) 1f else 0f, Springs.spatial(), label = "fm")
         val interaction = remember { MutableInteractionSource() }

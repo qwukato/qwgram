@@ -1,6 +1,12 @@
 package app.qwgram.next.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.luminance
@@ -512,10 +518,11 @@ private fun ReactionChip(m: TdApi.Message, r: TdApi.MessageReaction) {
     }
     val gold = Color(0xFFFFC233)
     val bg by androidx.compose.animation.animateColorAsState(
-        when { paid -> gold.copy(alpha = if (chosen) 0.42f else 0.26f); chosen -> cs.primary.copy(alpha = 0.24f); else -> cs.onSurface.copy(alpha = 0.08f) },
+        // solid containers: readable on any bubble colour (light, dark, tinted)
+        when { paid -> if (chosen) gold else Color(0xFFFFE8A3); chosen -> cs.primary; else -> cs.surfaceContainerHighest },
         Springs.effects(), label = "rb",
     )
-    val fg = when { paid -> Color(0xFF8A5A00).let { if (cs.surface.luminance() < 0.5f) gold else it }; chosen -> cs.primary; else -> cs.onSurfaceVariant }
+    val fg = when { paid -> Color(0xFF5C3B00); chosen -> cs.onPrimary; else -> cs.onSurface }
     Box {
         MorphBox(
             onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) }, rest = 14.dp, pressed = 7.dp,
@@ -922,55 +929,220 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
     if (photos.isEmpty()) { onDismiss(); return }
     val pager = androidx.compose.foundation.pager.rememberPagerState(start.coerceIn(0, photos.lastIndex)) { photos.size }
     val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val closeAt = with(density) { 140.dp.toPx() }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f }.background(Color.Black.copy(alpha = (1f - kotlin.math.abs(drag.value) / (closeAt * 2.5f)).coerceIn(0.2f, 1f)))) {
-            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize().graphicsLayer { translationY = drag.value }, beyondViewportPageCount = 1) { page ->
-                ZoomPhoto(photos[page], onTap = onDismiss,
+    val closeAt = with(density) { 120.dp.toPx() }
+    var chrome by remember { mutableStateOf(true) }
+    var zoomed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, Springs.smooth()) }
+    fun close() { scope.launch { appear.animateTo(0f, androidx.compose.animation.core.tween(180)); onDismiss() } }
+    Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val pull = (kotlin.math.abs(drag.value) / (closeAt * 2.2f)).coerceIn(0f, 1f)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - pull) * appear.value))) {
+            androidx.compose.foundation.pager.HorizontalPager(
+                pager, userScrollEnabled = !zoomed, pageSpacing = 16.dp, beyondViewportPageCount = 1,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    // swipe down/up to close: the photo follows the finger and shrinks a little (Telegram)
+                    translationY = drag.value
+                    val sc = (1f - pull * 0.25f) * (0.9f + 0.1f * appear.value)
+                    scaleX = sc; scaleY = sc
+                    alpha = appear.value
+                },
+            ) { page ->
+                ZoomPhoto(
+                    photos[page], active = page == pager.currentPage,
+                    onTap = { chrome = !chrome },
+                    onZoomed = { if (page == pager.currentPage) zoomed = it },
                     onVerticalDrag = { dy -> scope.launch { drag.snapTo(drag.value + dy) } },
-                    onVerticalEnd = { if (kotlin.math.abs(drag.value) > closeAt) onDismiss() else scope.launch { drag.animateTo(0f, Springs.morphRelease()) } })
+                    onVerticalEnd = { v ->
+                        if (kotlin.math.abs(drag.value) > closeAt || kotlin.math.abs(v) > 1800f) close()
+                        else scope.launch { drag.animateTo(0f, Springs.morphRelease()) }
+                    },
+                )
             }
-            Row(Modifier.statusBarsPadding().padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                MorphIconButton(Icons.Filled.Close, "Закрыть", onDismiss, color = Color.Black.copy(alpha = 0.35f), tint = Color.White)
+            val chromeA by androidx.compose.animation.core.animateFloatAsState(if (chrome && pull < 0.05f) 1f else 0f, Springs.effects(), label = "ch")
+            // top: close + counter, floating M3 containers
+            Row(
+                Modifier.statusBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp).fillMaxWidth().graphicsLayer { alpha = chromeA * appear.value },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MorphIconButton(Icons.Filled.Close, "Закрыть", { close() }, color = Color.White.copy(alpha = 0.16f), tint = Color.White)
                 Spacer(Modifier.weight(1f))
-                if (photos.size > 1) Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.35f)) {
-                    Text("${pager.currentPage + 1} из ${photos.size}", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                if (photos.size > 1) Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.16f), contentColor = Color.White) {
+                    androidx.compose.animation.AnimatedContent(pager.currentPage, transitionSpec = {
+                        val fwd = targetState > initialState
+                        (androidx.compose.animation.slideInVertically(Springs.fastSpatial()) { if (fwd) it else -it } + androidx.compose.animation.fadeIn(Springs.effects()))
+                            .togetherWith(androidx.compose.animation.slideOutVertically(Springs.exit()) { if (fwd) -it else it } + androidx.compose.animation.fadeOut(Springs.exit()))
+                    }, label = "pg") { i ->
+                        Text("${i + 1} из ${photos.size}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
                 }
+            }
+            // bottom: a floating toolbar (M3 Expressive) — share, save
+            Row(
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp)
+                    .graphicsLayer { alpha = chromeA * appear.value; translationY = (1f - chromeA) * 40.dp.toPx() }
+                    .clip(CircleShape).background(Color(0xFF2A2A2E).copy(alpha = 0.92f)).padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val cur = photos.getOrNull(pager.currentPage)
+                val file = cur?.sizes?.maxByOrNull { it.width * it.height }?.photo
+                MorphIconButton(Icons.Outlined.Share, "Поделиться", { file?.let { shareImage(ctx, it) } }, tint = Color.White)
+                MorphIconButton(Icons.Outlined.Download, "Сохранить в галерею", { file?.let { saveImage(ctx, it) } }, tint = Color.White)
             }
         }
     }
 }
 
+private fun shareImage(ctx: android.content.Context, f0: TdApi.File) {
+    val f = TdStore.files[f0.id] ?: f0
+    val path = f.local?.path?.takeIf { f.local.isDownloadingCompleted } ?: run {
+        android.widget.Toast.makeText(ctx, "Фото ещё загружается", android.widget.Toast.LENGTH_SHORT).show(); return
+    }
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", java.io.File(path))
+        val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("image/*").putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        ctx.startActivity(android.content.Intent.createChooser(i, null))
+    }.onFailure { android.widget.Toast.makeText(ctx, "Не удалось поделиться", android.widget.Toast.LENGTH_SHORT).show() }
+}
+
+private fun saveImage(ctx: android.content.Context, f0: TdApi.File) {
+    val f = TdStore.files[f0.id] ?: f0
+    val path = f.local?.path?.takeIf { f.local.isDownloadingCompleted } ?: run {
+        android.widget.Toast.makeText(ctx, "Фото ещё загружается", android.widget.Toast.LENGTH_SHORT).show(); return
+    }
+    val ok = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 29) error("old")
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "qwgram_${System.currentTimeMillis()}.jpg")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/qwgram")
+        }
+        val uri = ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)!!
+        ctx.contentResolver.openOutputStream(uri)!!.use { out -> java.io.File(path).inputStream().use { it.copyTo(out) } }
+    }.isSuccess
+    android.widget.Toast.makeText(ctx, if (ok) "Сохранено в «Изображения/qwgram»" else "Не удалось сохранить", android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * One photo: pinch to zoom around the fingers, pan within the photo's edges, double-tap zooms to the tapped point
+ * (animated), single tap toggles the chrome; at 1× a vertical drag closes the viewer and a horizontal one flips pages.
+ */
 @Composable
-private fun ZoomPhoto(p: TdApi.Photo, onTap: () -> Unit, onVerticalDrag: (Float) -> Unit, onVerticalEnd: () -> Unit) {
+private fun ZoomPhoto(p: TdApi.Photo, active: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit, onVerticalDrag: (Float) -> Unit, onVerticalEnd: (Float) -> Unit) {
     val size = p.sizes.maxByOrNull { it.width * it.height } ?: return
     val bmp = rememberFileBitmap(size.photo, maxSide = 2560)
     val miniImg = remember(p) { Images.mini(p.minithumbnail) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
-    val state = rememberTransformableState { z, pan, _ ->
-        scale = (scale * z).coerceIn(1f, 5f)
-        offset = if (scale > 1f) offset + pan else androidx.compose.ui.geometry.Offset.Zero
+    val scale = remember { androidx.compose.animation.core.Animatable(1f) }
+    val ox = remember { androidx.compose.animation.core.Animatable(0f) }
+    val oy = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var box by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val aspect = if (size.height > 0) size.width.toFloat() / size.height else 1f
+    LaunchedEffect(active) { if (!active) { scale.snapTo(1f); ox.snapTo(0f); oy.snapTo(0f); onZoomed(false) } }
+    fun limits(sc: Float): Pair<Float, Float> {
+        val w = box.width.toFloat(); val h = box.height.toFloat()
+        if (w <= 0f || h <= 0f) return 0f to 0f
+        // displayed (fit) size of the photo
+        val fitW = if (w / h > aspect) h * aspect else w
+        val fitH = if (w / h > aspect) h else w / aspect
+        return ((fitW * sc - w) / 2f).coerceAtLeast(0f) to ((fitH * sc - h) / 2f).coerceAtLeast(0f)
     }
-    val shown by androidx.compose.animation.core.animateFloatAsState(scale, Springs.spatial(), label = "z")
+    fun settle() = scope.launch {
+        val target = scale.value.coerceIn(1f, 6f)
+        val (mx, my) = limits(target)
+        launch { scale.animateTo(target, Springs.spatial()) }
+        launch { ox.animateTo(ox.value.coerceIn(-mx, mx), Springs.spatial()) }
+        launch { oy.animateTo(oy.value.coerceIn(-my, my), Springs.spatial()) }
+        onZoomed(target > 1.01f)
+    }
     Box(
-        Modifier.fillMaxSize()
-            .transformable(state, canPan = { scale > 1f })
-            .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }, onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = androidx.compose.ui.geometry.Offset.Zero }) }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(onDragEnd = onVerticalEnd, onDragCancel = onVerticalEnd) { ch, dy -> if (scale <= 1f) { ch.consume(); onVerticalDrag(dy) } }
+        Modifier.fillMaxSize().onSizeChanged { box = it }
+            .pointerInput(p) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onDoubleTap = { pos ->
+                        scope.launch {
+                            if (scale.value > 1.05f) {
+                                launch { scale.animateTo(1f, Springs.spatial()) }; launch { ox.animateTo(0f, Springs.spatial()) }; launch { oy.animateTo(0f, Springs.spatial()) }
+                                onZoomed(false)
+                            } else {
+                                val z = 2.6f
+                                val cx = pos.x - box.width / 2f
+                                val cy = pos.y - box.height / 2f
+                                val (mx, my) = limits(z)
+                                launch { scale.animateTo(z, Springs.spatial()) }
+                                launch { ox.animateTo((-cx * (z - 1f)).coerceIn(-mx, mx), Springs.spatial()) }
+                                launch { oy.animateTo((-cy * (z - 1f)).coerceIn(-my, my), Springs.spatial()) }
+                                onZoomed(true)
+                            }
+                        }
+                    },
+                )
+            }
+            .pointerInput(p) {
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+                    var mode = 0  // 0 undecided, 1 transform, 2 dismiss-drag, 3 let the pager have it
+                    var acc = androidx.compose.ui.geometry.Offset.Zero
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        if (ev.changes.none { it.pressed }) break
+                        val multi = ev.changes.count { it.pressed } > 1
+                        ev.changes.firstOrNull { it.id == down.id }?.let { tracker.addPosition(it.uptimeMillis, it.position) }
+                        if (mode == 0) {
+                            acc += ev.calculatePan()
+                            mode = when {
+                                multi || scale.value > 1.01f -> 1
+                                kotlin.math.abs(acc.y) > slop && kotlin.math.abs(acc.y) > kotlin.math.abs(acc.x) -> 2
+                                kotlin.math.abs(acc.x) > slop -> 3
+                                else -> 0
+                            }
+                        }
+                        when (mode) {
+                            1 -> {
+                                val z = ev.calculateZoom()
+                                val pan = ev.calculatePan()
+                                val c = ev.calculateCentroid(useCurrent = true) - androidx.compose.ui.geometry.Offset(box.width / 2f, box.height / 2f)
+                                val ns = (scale.value * z).coerceIn(0.85f, 7f)
+                                val k = ns / scale.value
+                                val nx = c.x - (c.x - ox.value) * k + pan.x
+                                val ny = c.y - (c.y - oy.value) * k + pan.y
+                                val (mx, my) = limits(ns)
+                                // at the zoomed photo's edge, a horizontal pull goes to the pager (next/previous photo)
+                                if (!multi && ns <= 1.01f) { mode = 3 } else {
+                                    scope.launch { scale.snapTo(ns); ox.snapTo(nx.coerceIn(-mx - 60f, mx + 60f)); oy.snapTo(ny.coerceIn(-my - 60f, my + 60f)) }
+                                    ev.changes.forEach { it.consume() }
+                                }
+                            }
+                            2 -> {
+                                val ch = ev.changes.firstOrNull { it.id == down.id }
+                                if (ch != null) { onVerticalDrag(ch.positionChange().y); ch.consume() }
+                            }
+                        }
+                    }
+                    when (mode) {
+                        1 -> settle()
+                        2 -> onVerticalEnd(tracker.calculateVelocity().y)
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
         val img = bmp ?: miniImg
         if (img != null) Image(
             img, null,
-            Modifier.fillMaxWidth().graphicsLayer { scaleX = shown; scaleY = shown; translationX = offset.x; translationY = offset.y }
+            Modifier.fillMaxSize().graphicsLayer { scaleX = scale.value; scaleY = scale.value; translationX = ox.value; translationY = oy.value }
                 .then(if (bmp == null) Modifier.blur(10.dp) else Modifier),
             contentScale = ContentScale.Fit,
         )
         if (bmp == null) DownloadProgress(size.photo, Modifier.align(Alignment.Center))
     }
 }
+
