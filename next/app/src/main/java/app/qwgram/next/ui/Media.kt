@@ -244,6 +244,8 @@ class VoiceRecorder(private val context: Context) {
 object Opener {
     fun url(context: Context, raw: String) {
         val url = Texts.cleanUrl(if (raw.contains("://")) raw else "https://$raw")
+        // sticker set links open the set preview right here (add it in one tap)
+        if (url.contains("/addstickers/") || url.startsWith("tg://addstickers")) { stickerSetName(url)?.let { StickerSetPreview.openName(it); return } }
         val tme = Regex("^https?://(?:t\\.me|telegram\\.me)/([A-Za-z0-9_]{4,})/?$").find(url)
         if (tme != null) {
             username(context, tme.groupValues[1])

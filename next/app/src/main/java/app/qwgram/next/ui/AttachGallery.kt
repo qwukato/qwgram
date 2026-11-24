@@ -163,13 +163,42 @@ fun AttachGallerySheet(
     LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
-    // opens half-way; swiping up (or scrolling the grid) lifts it to full height — calm motion, no bounce
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    // picking something lifts it fully, so the Send row at its bottom is on screen
-    LaunchedEffect(picked.isNotEmpty()) { if (picked.isNotEmpty()) runCatching { sheet.expand() } }
-    // picking something lifts the sheet fully, so the "Send" button at its bottom is on screen
-    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = cs.surfaceContainerLow) {
-        Box {
+    // Telegram-like sheet: opens half-way; scrolling the photos up first lifts it to full height, then scrolls them
+    QSheet(onDismiss = onDismiss, overlay = { sh ->
+        // picking something lifts the sheet fully
+        LaunchedEffect(picked.isNotEmpty()) { if (picked.isNotEmpty()) sh.expand() }
+            // "Send N": springs in from the bottom when something is picked
+            androidx.compose.animation.AnimatedVisibility(
+                picked.isNotEmpty(),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp).graphicsLayer { alpha = sh.progress() },
+                enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
+                exit = scaleOut(Springs.exit(), targetScale = 0.6f) + fadeOut(Springs.exit()),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // edit the last picked photo / video (Telegram's pencil next to Send)
+                    MorphIconButton(
+                        Icons.Outlined.Edit, "Редактировать", {
+                            picked.lastOrNull()?.let { u ->
+                                val orig = edited.entries.firstOrNull { it.value == u }?.key ?: u
+                                openMediaEditor(u, isVideo(u)) { out -> val i = picked.indexOf(u); edited[orig] = out; isVideoUri[out] = isVideo(u); if (i >= 0) picked[i] = out }
+                            }
+                        },
+                        size = 56.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer, elevation = 6.dp,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    MorphBox(
+                        onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
+                        color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Send, null)
+                            Spacer(Modifier.width(10.dp))
+                            Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+            }
+    }) {
             Column(Modifier.fillMaxWidth()) {
                 // quick actions: tonal shape buttons
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -229,39 +258,7 @@ fun AttachGallerySheet(
                     }
                 }
             }
-            // "Send N": springs in from the bottom when something is picked
-            androidx.compose.animation.AnimatedVisibility(
-                picked.isNotEmpty(),
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
-                enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
-                exit = scaleOut(Springs.exit(), targetScale = 0.6f) + fadeOut(Springs.exit()),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // edit the last picked photo / video (Telegram's pencil next to Send)
-                    MorphIconButton(
-                        Icons.Outlined.Edit, "Редактировать", {
-                            picked.lastOrNull()?.let { u ->
-                                val orig = edited.entries.firstOrNull { it.value == u }?.key ?: u
-                                openMediaEditor(u, isVideo(u)) { out -> val i = picked.indexOf(u); edited[orig] = out; isVideoUri[out] = isVideo(u); if (i >= 0) picked[i] = out }
-                            }
-                        },
-                        size = 56.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer, elevation = 6.dp,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    MorphBox(
-                        onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
-                        color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
-                    ) {
-                        Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
-                            Spacer(Modifier.width(10.dp))
-                            Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
-                }
-            }
-        }
-    } }
+    }
 }
 
 @Composable

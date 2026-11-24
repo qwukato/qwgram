@@ -284,33 +284,22 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
         Column(
             modifier.widthIn(min = 200.dp, max = 300.dp)
                 .graphicsLayer {
-                    // container transform: the visible part starts as the button (its size, at the menu's top-right
-                    // corner, fully rounded) and springs out to the whole menu while the corners settle
-                    val q = p.coerceIn(0f, 1f)
-                    // the springy overshoot: past 1 the whole menu swells a little from its corner and settles back
-                    val over = (p - 1f).coerceIn(-0.2f, 0.4f)
-                    if (over > 0f) { transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f); scaleX = 1f + over * 0.35f; scaleY = 1f + over * 0.5f }
-                    val sw = size.width.coerceAtLeast(1f)
-                    val sh = size.height.coerceAtLeast(1f)
-                    val aw = anchor.width.toFloat().coerceIn(1f, sw)
-                    val ah = anchor.height.toFloat().coerceIn(1f, sh)
-                    val w = (aw + (sw - aw) * q).coerceIn(1f, sw)
-                    val h = (ah + (sh - ah) * q).coerceIn(1f, sh)
-                    val r = (ah / 2f + (radiusEnd.toPx() - ah / 2f) * q.coerceAtMost(1f)).coerceAtLeast(0f)
-                    val rect = androidx.compose.ui.geometry.Rect(sw - w, 0f, sw, h)
-                    shape = object : androidx.compose.ui.graphics.Shape {
-                        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
-                            androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(rect, androidx.compose.ui.geometry.CornerRadius(r)))
-                    }
+                    // the whole menu — its fill AND its items together — unfolds from the button's corner on one
+                    // spring and overshoots a little (nothing moves on its own inside it)
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                    val q = p.coerceAtLeast(0f)
+                    scaleX = 0.55f + 0.45f * q
+                    scaleY = 0.25f + 0.75f * q
+                    alpha = (p * 3f).coerceIn(0f, 1f)
+                    shape = RoundedCornerShape(radiusEnd)
                     clip = true
                     shadowElevation = 6.dp.toPx() * p.coerceIn(0f, 1f)
-                    alpha = (p * 5f).coerceIn(0f, 1f)
                 }
                 .background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHighest, cs.surfaceContainer, p.coerceIn(0f, 1f)))
                 .padding(vertical = 6.dp),
         ) {
             // items arrive a beat after the container has grown
-            Column(Modifier.graphicsLayer { alpha = ((p - 0.45f) / 0.55f).coerceIn(0f, 1f); translationY = (1f - p.coerceIn(0f, 1f)) * -8.dp.toPx() }) {
+            Column(Modifier.graphicsLayer { alpha = ((p - 0.2f) / 0.5f).coerceIn(0f, 1f) }) {
                 CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
             }
         }

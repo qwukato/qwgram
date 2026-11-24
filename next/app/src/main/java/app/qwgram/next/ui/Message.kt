@@ -109,6 +109,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -713,7 +715,7 @@ private fun PhotoView(p: TdApi.Photo, shapeTop: androidx.compose.ui.unit.Dp, onC
     Box(
         Modifier.fillMaxWidth().widthIn(min = 160.dp).aspectRatio(ratio).clip(RoundedCornerShape(topStart = shapeTop, topEnd = shapeTop, bottomStart = 6.dp, bottomEnd = 6.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .onGloballyPositioned { ViewerOrigin.rects[size.photo.id] = it.boundsInRoot() }
+            .onGloballyPositioned { ViewerOrigin.rects[size.photo.id] = it.screenRect() }
             .clickable(onClick = onClick),
     ) {
         if (bmp == null && mini != null) Image(mini, null, Modifier.fillMaxSize().blur(14.dp), contentScale = ContentScale.Crop)
@@ -747,7 +749,7 @@ private fun VideoThumb(thumb: TdApi.File?, mini: TdApi.Minithumbnail?, w: Int, h
         Modifier.then(if (circle) Modifier.size(220.dp) else Modifier.fillMaxWidth().widthIn(min = 180.dp))
             .aspectRatio(ratio).clip(if (circle) CircleShape else RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .onGloballyPositioned { here[0] = it.boundsInRoot() }
+            .onGloballyPositioned { here[0] = it.screenRect() }
             .clickable { VideoViewer.origin = here[0]; onOpen(ctx) },
         contentAlignment = Alignment.Center,
     ) {
@@ -1030,22 +1032,41 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
     var chrome by remember { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.82f, 340f * k)) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.86f, 300f * k)) }
+    var closing by remember { mutableStateOf(false) }
     // closing flies the photo back into its bubble (when the bubble is on screen), otherwise it fades away
-    fun close() { scope.launch { appear.animateTo(0f, androidx.compose.animation.core.spring(0.9f, 420f * k, visibilityThreshold = 0.002f)); onDismiss() } }
+    fun close() {
+        if (closing) return
+        closing = true
+        scope.launch { appear.animateTo(0f, androidx.compose.animation.core.spring(1f, 380f * k, visibilityThreshold = 0.001f)); onDismiss() }
+    }
+    var host by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        // no instant window dim: our own black fades with the photo
+        val dview = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.SideEffect { (dview.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.let { w -> w.setDimAmount(0f); w.setWindowAnimations(0) } }
         val pull = (kotlin.math.abs(drag.value) / (closeAt * 2.2f)).coerceIn(0f, 1f)
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - pull) * appear.value))) {
+        // the photo flies between its bubble and the viewer as a real picture (Telegram); the pager shows once it lands
+        val cur = photos.getOrNull(pager.currentPage)
+        val best = cur?.let { bestSize(it) }
+        val flyBmp = best?.let { rememberFileBitmap(it.photo, maxSide = 1080) }
+        val originScreen = best?.let { ViewerOrigin.rects[it.photo.id] }
+        val origin = originScreen?.translate(-host.x, -host.y)
+        val canFly = best != null && flyBmp != null && origin != null && !zoomed
+        val flying = canFly && appear.value < 0.999f
+        BoxWithConstraints(
+            Modifier.fillMaxSize().onGloballyPositioned { host = it.positionOnScreen() }
+                .background(Color.Black.copy(alpha = ((1f - pull) * appear.value).coerceIn(0f, 1f))),
+        ) {
             androidx.compose.foundation.pager.HorizontalPager(
                 pager, userScrollEnabled = !zoomed, pageSpacing = 16.dp, beyondViewportPageCount = 1,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     val t = appear.value
-                    val cur = photos.getOrNull(pager.currentPage)
-                    val best = cur?.let { bestSize(it) }
-                    val o = best?.let { ViewerOrigin.rects[it.photo.id] }
-                    if (best != null && !zoomed && flyFromBubble(o, best.width, best.height, t)) {
-                        // shared-element style: the photo grows out of its bubble and goes back into it
-                        translationY += drag.value * t
+                    if (flying) alpha = 0f
+                    else if (canFly) {
+                        translationY = drag.value
+                        val sc = 1f - pull * 0.25f
+                        scaleX = sc; scaleY = sc
                     } else {
                         // swipe down/up to close: the photo follows the finger and shrinks a little (Telegram)
                         translationY = drag.value
@@ -1065,6 +1086,10 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
                         else scope.launch { drag.animateTo(0f, Springs.morphRelease()) }
                     },
                 )
+            }
+            if (flying && best != null && flyBmp != null && origin != null) {
+                val fit = fitRect(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), best.width, best.height)
+                FlyingMedia(flyBmp, origin, fit.pulled(1f - pull * 0.25f, drag.value), appear.value)
             }
             val chromeA by androidx.compose.animation.core.animateFloatAsState(if (chrome && pull < 0.05f) 1f else 0f, Springs.effects(), label = "ch")
             // top: close + counter, floating M3 containers
@@ -1138,7 +1163,10 @@ private fun saveImage(ctx: android.content.Context, f0: TdApi.File) {
 @Composable
 private fun ZoomPhoto(p: TdApi.Photo, active: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit, onVerticalDrag: (Float) -> Unit, onVerticalEnd: (Float) -> Unit) {
     val size = p.sizes.maxByOrNull { it.width * it.height } ?: return
-    val bmp = rememberFileBitmap(size.photo, maxSide = 2560)
+    val full = rememberFileBitmap(size.photo, maxSide = 2560)
+    // while the big decode runs, the bubble's (already decoded) copy stands in — no blurry flash after the fly-in
+    val mid = bestSize(p)?.let { rememberFileBitmap(it.photo, maxSide = 1080) }
+    val bmp = full ?: mid
     val miniImg = remember(p) { Images.mini(p.minithumbnail) }
     val scale = remember { androidx.compose.animation.core.Animatable(1f) }
     val ox = remember { androidx.compose.animation.core.Animatable(0f) }

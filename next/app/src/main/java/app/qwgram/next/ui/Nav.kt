@@ -188,6 +188,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
         PlayerHost()
         VideoViewerHost()
         PhotoEditorHost()
+        StickerSetHost()
         VideoEditorHost()
     }
 }

@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.foundation.gestures.detectTransformGestures
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -418,7 +420,7 @@ fun PhotoEditorHost() {
                         }
                         1 -> Column {
                             @Composable fun adj(name: String, v: Float, set: (Float) -> Unit) = Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(96.dp), maxLines = 1)
+                                Text(name, color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(104.dp), maxLines = 1, softWrap = false)
                                 Slider(v, set, valueRange = -1f..1f, modifier = Modifier.weight(1f).height(30.dp).noSwipeBack())
                                 Text((v * 100).toInt().toString(), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp))
                             }
@@ -481,26 +483,7 @@ fun PhotoEditorHost() {
             }
             Spacer(Modifier.height(8.dp))
             // tools: connected button group — the selected one widens and shows its name
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) { val fullW = maxWidth; Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                val tools = listOf(Triple(Icons.Outlined.Crop, "Обрезка", 0), Triple(Icons.Outlined.Tune, "Настройка", 1), Triple(Icons.Outlined.Brush, "Рисование", 2), Triple(Icons.Outlined.TextFields, "Текст", 3), Triple(Icons.Outlined.EmojiEmotions, "Стикеры", 4))
-                tools.forEachIndexed { i, (ic, label, id) ->
-                    val sel = tool == id
-                    val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), label = "t")
-                    MorphBox(
-                        onClick = { tool = id }, rest = if (sel) 26.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 8.dp, pressed = 14.dp,
-                        color = bg, contentColor = if (sel) cs.onPrimary else Color.White,
-                        // the chosen tool takes the free width (with its name), the others stay round icon buttons
-                        modifier = Modifier.height(52.dp).width(androidx.compose.animation.core.animateDpAsState(if (sel) fullW - 56.dp * (tools.size - 1) else 52.dp, androidx.compose.animation.core.spring(0.72f, 420f), label = "tw").value),
-                    ) {
-                        Row(Modifier.padding(horizontal = if (sel) 14.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(ic, label)
-                            androidx.compose.animation.AnimatedVisibility(sel, enter = androidx.compose.animation.expandHorizontally(Springs.smooth(), clip = true) + fadeIn(), exit = androidx.compose.animation.shrinkHorizontally(Springs.smooth(), clip = true) + fadeOut()) {
-                                Row { Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) }
-                            }
-                        }
-                    }
-                }
-            } }
+            EditorTools(listOf(Triple(Icons.Outlined.Crop, "Кадр", 0), Triple(Icons.Outlined.Tune, "Цвет", 1), Triple(Icons.Outlined.Brush, "Кисть", 2), Triple(Icons.Outlined.TextFields, "Текст", 3), Triple(Icons.Outlined.EmojiEmotions, "Стикеры", 4)), tool) { tool = it }
         }
     }
     }
@@ -513,51 +496,96 @@ internal val STICKER_EMOJI = listOf(
 )
 
 
-/** Telegram-like picker for the editor: tabs "Стикеры" (your installed sets, recent first) and "Эмодзи" */
+/**
+ * Telegram-like picker for the editors, split by sticker set: a strip of tabs (emoji, ★ favourites, recent, then
+ * every installed set by its cover) and the chosen tab's stickers below. Tap adds the sticker to the picture.
+ */
 @Composable
-private fun EditorStickerPicker(onEmoji: (String) -> Unit, onSticker: (org.drinkless.tdlib.TdApi.Sticker) -> Unit) {
-    var tab by remember { mutableStateOf(0) }
-    var stickers by remember { mutableStateOf<List<org.drinkless.tdlib.TdApi.Sticker>?>(null) }
-    LaunchedEffect(Unit) {
-        val out = ArrayList<org.drinkless.tdlib.TdApi.Sticker>()
-        app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetRecentStickers(false))?.stickers?.let { out.addAll(it.take(20)) }
-        val sets = app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetInstalledStickerSets(org.drinkless.tdlib.TdApi.StickerTypeRegular()))?.sets.orEmpty()
-        stickers = out.toList()
-        for (i in sets.take(30)) {
-            app.qwgram.next.td.Td.callOrNull(org.drinkless.tdlib.TdApi.GetStickerSet(i.id))?.let { st -> out.addAll(st.stickers.filter { x -> out.none { it.id == x.id } }) }
-            stickers = out.toList()
-        }
-    }
+internal fun EditorStickerPicker(onEmoji: (String) -> Unit, onSticker: (org.drinkless.tdlib.TdApi.Sticker) -> Unit) {
+    LaunchedEffect(Unit) { StickerLib.load() }
     val cs = MaterialTheme.colorScheme
+    // tab keys: "emoji", "fav", "rec", or a set id
+    val tabs = buildList {
+        if (StickerLib.favorites.isNotEmpty()) add("fav")
+        if (StickerLib.recent.isNotEmpty()) add("rec")
+        StickerLib.sets.forEach { add(it.id.toString()) }
+        add("emoji")
+    }
+    var tab by remember { mutableStateOf<String?>(null) }
+    val cur = tab?.takeIf { it in tabs } ?: tabs.first()
+    val stickers: List<org.drinkless.tdlib.TdApi.Sticker> = when (cur) {
+        "fav" -> StickerLib.favorites
+        "rec" -> StickerLib.recent
+        "emoji" -> emptyList()
+        else -> StickerLib.sets.firstOrNull { it.id.toString() == cur }?.stickers?.toList().orEmpty()
+    }
     Column(Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Стикеры", "Эмодзи").forEachIndexed { i, t ->
-                val sel = tab == i
-                val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.14f), label = "pt")
-                Box(Modifier.clip(RoundedCornerShape(if (sel) 12.dp else 18.dp)).background(bg).clickable { tab = i }.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                    Text(t, color = if (sel) cs.onPrimary else Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().height(40.dp)) {
+            items(tabs.size, key = { tabs[it] }) { i ->
+                val k = tabs[i]
+                val sel = k == cur
+                val bg by animateColorAsState(if (sel) Color.White.copy(alpha = 0.26f) else Color.Transparent, Springs.effects(), label = "st")
+                MorphBox(onClick = { tab = k }, rest = if (sel) 12.dp else 20.dp, pressed = 8.dp, color = bg, contentColor = Color.White, modifier = Modifier.size(40.dp)) {
+                    when (k) {
+                        "emoji" -> Icon(Icons.Outlined.EmojiEmotions, "Эмодзи", Modifier.size(22.dp))
+                        "fav" -> Icon(Icons.Outlined.StarBorder, "Избранные", Modifier.size(22.dp))
+                        "rec" -> Icon(Icons.Outlined.History, "Недавние", Modifier.size(22.dp))
+                        else -> {
+                            val st = StickerLib.sets.firstOrNull { it.id.toString() == k }
+                            val cover = st?.thumbnail?.file ?: st?.stickers?.firstOrNull()?.let { if (it.format is org.drinkless.tdlib.TdApi.StickerFormatWebp) it.sticker else it.thumbnail?.file }
+                            val bmp = app.qwgram.next.td.rememberFileBitmap(cover, 96)
+                            if (bmp != null) Image(bmp, st?.title, Modifier.size(28.dp), contentScale = ContentScale.Fit)
+                            else Text(st?.stickers?.firstOrNull()?.emoji ?: "•", fontSize = androidx.compose.ui.unit.TextUnit(18f, androidx.compose.ui.unit.TextUnitType.Sp))
+                        }
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
-            androidx.compose.foundation.lazy.grid.GridCells.Fixed(if (tab == 0) 1 else 2), Modifier.fillMaxWidth().height(96.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (tab == 0) {
-                val list = stickers
-                if (list == null) item { Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.LoadingIndicator(Modifier.size(36.dp)) } }
-                else if (list.isEmpty()) item { Box(Modifier.width(240.dp).height(96.dp), contentAlignment = Alignment.Center) { Text("Нет установленных стикеров", color = Color.White.copy(alpha = 0.7f)) } }
-                else items(list.size, key = { list[it].id }) { i ->
-                    val st = list[i]
-                    Box(Modifier.size(92.dp).clip(RoundedCornerShape(16.dp)).clickable { onSticker(st) }.padding(6.dp), contentAlignment = Alignment.Center) {
-                        StickerContent(st, Modifier.fillMaxSize()) { Text(st.emoji, fontSize = androidx.compose.ui.unit.TextUnit(28f, androidx.compose.ui.unit.TextUnitType.Sp)) }
+        Spacer(Modifier.height(4.dp))
+        androidx.compose.animation.AnimatedContent(cur, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "pk") { k ->
+            if (k == "emoji") androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
+                androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), Modifier.fillMaxWidth().height(88.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(STICKER_EMOJI.size) { i ->
+                    val e = STICKER_EMOJI[i]
+                    Box(Modifier.size(43.dp).clip(RoundedCornerShape(12.dp)).clickable { onEmoji(e) }, contentAlignment = Alignment.Center) {
+                        Text(e, fontSize = androidx.compose.ui.unit.TextUnit(26f, androidx.compose.ui.unit.TextUnitType.Sp))
                     }
                 }
-            } else items(STICKER_EMOJI.size) { i ->
-                val e = STICKER_EMOJI[i]
-                Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).clickable { onEmoji(e) }, contentAlignment = Alignment.Center) {
-                    Text(e, fontSize = androidx.compose.ui.unit.TextUnit(28f, androidx.compose.ui.unit.TextUnitType.Sp))
+            } else if (!StickerLib.loaded) Box(Modifier.fillMaxWidth().height(88.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.LoadingIndicator(Modifier.size(36.dp)) }
+            else androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(stickers.size, key = { stickers[it].id }) { i ->
+                    val st = stickers[i]
+                    MorphBox(onClick = { onSticker(st) }, rest = 16.dp, pressed = 26.dp, color = Color.Transparent, squish = 0.88f, modifier = Modifier.size(84.dp)) {
+                        StickerContent(st, Modifier.fillMaxSize().padding(4.dp)) { Text(st.emoji, fontSize = androidx.compose.ui.unit.TextUnit(28f, androidx.compose.ui.unit.TextUnitType.Sp)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The editor's tool bar: equal buttons, icon over a short label (every label fits on any phone), the chosen one
+ * fills with primary and rounds into a pill; outer corners big, inner small (M3 Expressive connected group).
+ */
+@Composable
+internal fun EditorTools(tools: List<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, Int>>, selected: Int, onSelect: (Int) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        tools.forEachIndexed { i, (ic, label, id) ->
+            val sel = selected == id
+            val bg by animateColorAsState(if (sel) cs.primary else Color.White.copy(alpha = 0.12f), Springs.effects(), label = "t")
+            val fg by animateColorAsState(if (sel) cs.onPrimary else Color.White, Springs.effects(), label = "tf")
+            MorphBox(
+                onClick = { onSelect(id) }, rest = if (sel) 30.dp else if (i == 0 || i == tools.lastIndex) 22.dp else 10.dp, pressed = 14.dp,
+                color = bg, contentColor = fg, modifier = Modifier.weight(1f).height(62.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(ic, null, Modifier.size(22.dp))
+                    Spacer(Modifier.height(3.dp))
+                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
         }

@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -214,60 +216,64 @@ private fun EmojiGrid(onEmoji: (String) -> Unit) {
     }
 }
 
+private class Sec(val key: String, val title: String, val stickers: List<TdApi.Sticker>, val set: TdApi.StickerSet?)
+
 @Composable
 private fun StickerGrid(onSticker: (TdApi.Sticker) -> Unit) {
-    var recent by remember { mutableStateOf<List<TdApi.Sticker>>(emptyList()) }
-    var sets by remember { mutableStateOf<List<TdApi.StickerSet>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        recent = Td.callOrNull(TdApi.GetRecentStickers(false))?.stickers?.toList().orEmpty().take(20)
-        val infos = Td.callOrNull(TdApi.GetInstalledStickerSets(TdApi.StickerTypeRegular()))?.sets?.toList().orEmpty()
-        loading = false
-        val out = ArrayList<TdApi.StickerSet>()
-        for (i in infos.take(60)) {
-            Td.callOrNull(TdApi.GetStickerSet(i.id))?.let { out.add(it); if (out.size % 4 == 0) sets = out.toList() }
+    LaunchedEffect(Unit) { StickerLib.load() }
+    val fav = StickerLib.favorites
+    val recent = StickerLib.recent
+    val sets = StickerLib.sets
+    var preview by remember { mutableStateOf<TdApi.Sticker?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    if (!StickerLib.loaded) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }; return }
+    // sections: ★ favourites, recent, then every installed set
+    val sections = remember(fav, recent, sets) {
+        buildList {
+            if (fav.isNotEmpty()) add(Sec("fav", "Избранные", fav, null))
+            if (recent.isNotEmpty()) add(Sec("rec", "Недавние", recent, null))
+            sets.forEach { add(Sec("s" + it.id, it.title, it.stickers.toList(), it)) }
         }
-        sets = out.toList()
     }
-    if (loading) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }; return }
-    if (recent.isEmpty() && sets.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Нет установленных стикеров", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        return
-    }
-    // section header positions inside the grid
-    val headers = remember(recent, sets) {
-        val h = ArrayList<Int>()
+    val headers = remember(sections) {
         var idx = 0
-        if (recent.isNotEmpty()) { h.add(idx); idx += 1 + recent.size }
-        sets.forEach { st -> h.add(idx); idx += 1 + st.stickers.size }
-        h
+        sections.map { sec -> val h = idx; idx += 1 + sec.stickers.size; h }
     }
     val state = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val current by remember(headers) { derivedStateOf { currentSection(state, headers) } }
     Column(Modifier.fillMaxSize()) {
-        CategoryStrip(headers.size, current, { i -> scope.launch { state.animateScrollToItem(headers[i]) } }) { i ->
-            val setIndex = if (recent.isNotEmpty()) i - 1 else i
-            if (setIndex < 0) Icon(Icons.Outlined.History, "Недавние", Modifier.size(22.dp))
-            else {
-                val st = sets.getOrNull(setIndex)
-                val cover = st?.thumbnail?.file ?: st?.stickers?.firstOrNull()?.let { if (it.format is TdApi.StickerFormatWebp) it.sticker else it.thumbnail?.file }
-                val bmp = rememberFileBitmap(cover, 96)
-                if (bmp != null) Image(bmp, st?.title, Modifier.size(30.dp), contentScale = ContentScale.Fit)
-                else Text(st?.stickers?.firstOrNull()?.emoji ?: "•", fontSize = 18.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                CategoryStrip(sections.size, current, { i -> scope.launch { state.animateScrollToItem(headers[i]) } }) { i ->
+                    val sec = sections[i]
+                    when (sec.key) {
+                        "fav" -> Icon(Icons.Outlined.StarBorder, "Избранные", Modifier.size(22.dp))
+                        "rec" -> Icon(Icons.Outlined.History, "Недавние", Modifier.size(22.dp))
+                        else -> {
+                            val st = sec.set
+                            val cover = st?.thumbnail?.file ?: st?.stickers?.firstOrNull()?.let { if (it.format is TdApi.StickerFormatWebp) it.sticker else it.thumbnail?.file }
+                            val bmp = rememberFileBitmap(cover, 96)
+                            if (bmp != null) Image(bmp, st?.title, Modifier.size(30.dp), contentScale = ContentScale.Fit)
+                            else Text(st?.stickers?.firstOrNull()?.emoji ?: "•", fontSize = 18.sp)
+                        }
+                    }
+                }
             }
+            // add someone's set by its link / name
+            MorphIconButton(Icons.Outlined.Add, "Добавить набор", { adding = true }, modifier = Modifier.padding(end = 4.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LazyVerticalGrid(GridCells.Adaptive(78.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
-            if (recent.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "hr") { PanelHeader("Недавние") }
-                items(recent, key = { "r" + it.id }) { StickerCell(it, onSticker) }
-            }
-            sets.forEach { set ->
-                item(span = { GridItemSpan(maxLineSpan) }, key = "h" + set.id) { PanelHeader(set.title) }
-                items(set.stickers.toList(), key = { "s" + set.id + "_" + it.id }) { StickerCell(it, onSticker) }
+        if (sections.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Нет стикеров — добавьте набор кнопкой +", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else LazyVerticalGrid(GridCells.Adaptive(78.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
+            sections.forEach { sec ->
+                item(span = { GridItemSpan(maxLineSpan) }, key = "h" + sec.key) { PanelHeader(sec.title) }
+                items(sec.stickers, key = { sec.key + "_" + it.id }) { StickerCell(it, onSticker) { preview = it } }
             }
         }
     }
+    preview?.let { st -> StickerPreview(st, onDismiss = { preview = null }, onSend = { onSticker(st) }) }
+    if (adding) AddStickerSetDialog { adding = false }
 }
 
 @Composable
@@ -276,11 +282,11 @@ private fun PanelHeader(t: String) =
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 12.dp, bottom = 6.dp))
 
 @Composable
-private fun StickerCell(s: TdApi.Sticker, onSticker: (TdApi.Sticker) -> Unit) {
+private fun StickerCell(s: TdApi.Sticker, onSticker: (TdApi.Sticker) -> Unit, onLong: (() -> Unit)? = null) {
     // static .webp stickers decode directly; animated/video ones show their webp thumbnail
     val file = if (s.format is TdApi.StickerFormatWebp) s.sticker else s.thumbnail?.file
     val bmp = rememberFileBitmap(file, 192)
-    MorphBox(onClick = { onSticker(s) }, modifier = Modifier.aspectRatio(1f).padding(3.dp), rest = 16.dp, pressed = 28.dp, color = Color.Transparent, squish = 0.88f) {
+    MorphBox(onClick = { onSticker(s) }, onLongClick = onLong, modifier = Modifier.aspectRatio(1f).padding(3.dp), rest = 16.dp, pressed = 28.dp, color = Color.Transparent, squish = 0.88f) {
         if (bmp != null) Image(bmp, s.emoji, Modifier.fillMaxSize().padding(2.dp), contentScale = ContentScale.Fit)
         else Box(contentAlignment = Alignment.Center) {
             Text(s.emoji, fontSize = 26.sp, modifier = Modifier.graphicsLayer { alpha = 0.3f })

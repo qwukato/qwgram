@@ -451,7 +451,7 @@ fun WavySeekBar(progress: Float, playing: Boolean, color: Color, track: Color, m
 @Composable
 private fun QueueSheet(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    CalmMotion { ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false), containerColor = cs.surfaceContainerLow) {
+    QSheet(onDismiss = onDismiss) {
         Text("Очередь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(Player.queue.size) { i ->
@@ -475,5 +475,5 @@ private fun QueueSheet(onDismiss: () -> Unit) {
                 }
             }
         }
-    } }
+    }
 }

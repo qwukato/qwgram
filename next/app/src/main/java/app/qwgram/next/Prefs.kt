@@ -134,7 +134,6 @@ object Prefs {
     val navStyle = S("nav_style", "floating")           // standard | floating
     val navLabels = B("nav_labels", true)
     val floatingBars = B("floating_bars", true)
-    val smoothKeyboard = B("smooth_kb", true)           // the keyboard slides in slower, on our own curve
     val hideKbOnScroll = B("hide_kb_scroll", true)        // scrolling a chat hides the keyboard
     val forwardNoAuthor = B("forward_no_author", false)   // forward as a copy by default
     val fabAction = S("fab_action", "compose")            // compose (menu: message/group/channel) | search

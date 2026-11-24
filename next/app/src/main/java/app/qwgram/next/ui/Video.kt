@@ -1,5 +1,8 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.layout.onGloballyPositioned
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -124,8 +127,15 @@ fun VideoViewerHost() {
     val appear = remember(v) { Animatable(0f) }
     val drag = remember(v) { Animatable(0f) }
     val origin = remember(v) { VideoViewer.origin.also { VideoViewer.origin = null } }
-    LaunchedEffect(v) { appear.animateTo(1f, spring(0.82f, 340f)) }
-    fun close() { scope.launch { appear.animateTo(0f, spring(0.9f, 420f, visibilityThreshold = 0.002f)); VideoViewer.current = null } }
+    LaunchedEffect(v) { appear.animateTo(1f, spring(0.86f, 300f)) }
+    var closing by remember(v) { mutableStateOf(false) }
+    fun close() {
+        if (closing) return
+        closing = true
+        scope.launch { appear.animateTo(0f, spring(1f, 380f, visibilityThreshold = 0.001f)); VideoViewer.current = null }
+    }
+    var host by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val flyBmp = rememberFileBitmap(v.thumb, 720) ?: remember(v) { Images.mini(v.mini) }
     BackHandler { close() }
 
     val path = rememberLocalPath(v.file)
@@ -159,8 +169,13 @@ fun VideoViewerHost() {
     LaunchedEffect(jump) { if (jump != 0) { delay(600); jump = 0 } }
 
     val pull = (kotlin.math.abs(drag.value) / 900f).coerceIn(0f, 1f)
-    Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = appear.value * (1f - pull)))
+    val local = origin?.translate(-host.x, -host.y)
+    val canFly = local != null && flyBmp != null
+    val flying = canFly && appear.value < 0.999f
+    val round = v.width == 240 && v.height == 240
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        Modifier.fillMaxSize().onGloballyPositioned { host = it.positionOnScreen() }
+            .background(Color.Black.copy(alpha = (appear.value * (1f - pull)).coerceIn(0f, 1f)))
             .pointerInput(v) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { c, dy -> c.consume(); scope.launch { drag.snapTo(drag.value + dy) } },
@@ -179,19 +194,22 @@ fun VideoViewerHost() {
                 )
             },
     ) {
+        val W = constraints.maxWidth.toFloat(); val H = constraints.maxHeight.toFloat()
+        val fit = fitRect(W, H, v.width, v.height)
         Box(Modifier.fillMaxSize().graphicsLayer {
-            // grows out of the bubble and goes back into it (shared-element style); otherwise a soft scale + fade
-            if (!flyFromBubble(origin, v.width, v.height, appear.value, circle = v.width == 240 && v.height == 240)) {
+            if (flying) alpha = 0f   // the flying picture stands in while it moves
+            else {
                 translationY = drag.value
-                val s = (1f - pull * 0.2f) * (0.92f + 0.08f * appear.value)
+                val s = (1f - pull * 0.2f) * (if (canFly) 1f else 0.92f + 0.08f * appear.value)
                 scaleX = s; scaleY = s
-                alpha = appear.value
+                alpha = if (canFly) 1f else appear.value
             }
         }, contentAlignment = Alignment.Center) {
+            // a TextureView (not a SurfaceView) so the video follows transforms and alpha with the rest
             if (player != null) AndroidView(
-                factory = { c -> PlayerView(c).apply { useController = false; setShutterBackgroundColor(android.graphics.Color.BLACK); this.player = player } },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxSize(),
+                factory = { c -> android.view.TextureView(c) },
+                update = { tv -> player.setVideoTextureView(tv) },
+                modifier = Modifier.aspectRatio(v.width.toFloat() / v.height.coerceAtLeast(1), matchHeightConstraintsFirst = W / H > v.width.toFloat() / v.height.coerceAtLeast(1)),
             ) else {
                 val bmp = rememberFileBitmap(v.thumb, 720) ?: remember(v) { Images.mini(v.mini) }
                 if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -202,6 +220,7 @@ fun VideoViewerHost() {
                 }
             }
         }
+        if (flying && local != null && flyBmp != null) FlyingMedia(flyBmp, local, fit.pulled(1f - pull * 0.2f, drag.value), appear.value, circle = round)
         // ±10 s hint
         AnimatedVisibility(jump != 0, Modifier.align(if (jump > 0) Alignment.CenterEnd else Alignment.CenterStart).padding(32.dp), enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {

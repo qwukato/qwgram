@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.Collections
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -258,7 +259,7 @@ class ChatController(val chatId: Long) {
     fun onEvent(u: TdApi.Update) {
         when (u) {
             is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && !hasNewer && messages.none { it.id == u.message.id }) {
-                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) flyIn.add(u.message.id)
+                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { flyIn.add(u.message.id); onOwnSend?.invoke() }
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -287,6 +288,8 @@ class ChatController(val chatId: Long) {
     val keyAlias = HashMap<Long, Long>()
     /** temporary ids of messages sent from this screen: they fly in from the composer */
     val flyIn = HashSet<Long>()
+    /** called right before our own new message is inserted (same frame): the list keeps the bottom in view */
+    var onOwnSend: (() -> Unit)? = null
 
     private fun replace(oldId: Long, m: TdApi.Message) {
         if (oldId != m.id) keyAlias[m.id] = keyAlias[oldId] ?: oldId
@@ -358,14 +361,6 @@ fun ChatScreen(chatId: Long) {
     val imeTarget = WindowInsets.imeAnimationTarget.getBottom(density)
     LaunchedEffect(imeTarget) { if (imeTarget > with(density) { 180.dp.roundToPx() }) Prefs.kbHeight.value = imeTarget }
     LaunchedEffect(imeTarget) { if (panel && imeTarget > 0) panelHolding = true }
-    // the keyboard itself slides in slower and smoother: we take over its show animation (Android 11+)
-    val rootView = androidx.compose.ui.platform.LocalView.current
-    var lastImeTarget by remember { mutableStateOf(0) }
-    LaunchedEffect(imeTarget) {
-        val wasHidden = lastImeTarget == 0
-        lastImeTarget = imeTarget
-        if (imeTarget > 0 && wasHidden && Prefs.smoothKeyboard.value && Prefs.motion.value != "off") SlowIme.show(rootView, (440 / Prefs.motionSpeed.value).toLong())
-    }
     var panelSwapToKb by remember { mutableStateOf(false) }
     LaunchedEffect(imeNow, panelHolding) {
         val kb = Prefs.kbHeight.value
@@ -379,6 +374,8 @@ fun ChatScreen(chatId: Long) {
     // the panel's visible height: slides on a smooth spring when opened/closed on its own; swaps instantly with the
     // keyboard (the keyboard covers it), so the chat never jumps
     val panelAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+    var panelWarm by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(900); panelWarm = true }
     val panelPx = with(density) { panelHeight.toPx() }
     LaunchedEffect(panel, panelPx) {
         // the keyboard's own curve (M3 emphasized decelerate), so the panel feels like a keyboard
@@ -490,6 +487,12 @@ fun ChatScreen(chatId: Long) {
             val ids = keys.mapNotNull { (it as? String)?.takeIf { k -> k.startsWith("m") }?.drop(1)?.toLongOrNull() }
             if (ids.isNotEmpty()) viewMessages(chatId, ids.toLongArray())
         }
+    }
+    // our own message: the list stays pinned to the bottom in the same frame, so the old bubbles slide up (placement
+    // animation) while the new one flies out of the input field — no jump, no second scroll
+    androidx.compose.runtime.DisposableEffect(ctl) {
+        ctl.onOwnSend = { if (listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer) listState.requestScrollToItem(0) }
+        onDispose { ctl.onOwnSend = null }
     }
     // keep the newest message in view when something arrives and we are at the bottom
     val newest = ctl.messages.firstOrNull()?.id
@@ -664,7 +667,7 @@ fun ChatScreen(chatId: Long) {
                                 MessageItem(
                                     m = e.m, grp = e.grp, chat = chat, group = group,
                                     reply = ctl.replies[id],
-                                    modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                                    modifier = Modifier.animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
@@ -779,7 +782,9 @@ fun ChatScreen(chatId: Long) {
             } else ChannelBar(chat)
             }
         }
-        if (canSend && panelAnim.value > 0.5f) Box(
+        // the panel is built once, quietly, a moment after the chat opens (height 0): opening it later is only a
+        // slide, with no first-frame stall from building the emoji/sticker grids
+        if (canSend && (panelWarm || panelAnim.value > 0.5f)) Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .height(with(density) { panelAnim.value.toDp() }).clipToBounds(),
         ) {
@@ -787,8 +792,9 @@ fun ChatScreen(chatId: Long) {
                 StickerPanel(
                     chatId, panelHeight,
                     onEmoji = { text += it },
-                    onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null; panel = false } },
-                    onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null; panel = false } },
+                    // the panel stays open after sending (Telegram): several stickers in a row
+                    onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null } },
+                    onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null } },
                 )
             }
         }
@@ -823,7 +829,7 @@ fun ChatScreen(chatId: Long) {
         AlertDialog(
             onDismissRequest = { confirmSend = null },
             title = { Text(if (content is TdApi.InputMessageSticker) "Отправить стикер?" else "Отправить GIF?") },
-            confirmButton = { QTextButton(onClick = { sendContent(chatId, content, replyTo); replyTo = null; panel = false; confirmSend = null }) { Text("Отправить") } },
+            confirmButton = { QTextButton(onClick = { sendContent(chatId, content, replyTo); replyTo = null; confirmSend = null }) { Text("Отправить") } },
             dismissButton = { QTextButton(onClick = { confirmSend = null }) { Text("Отмена") } },
         )
     }
@@ -1583,6 +1589,8 @@ private fun MessageMenu(
         if (p?.canBePinned == true) add(MenuItem(if (m.isPinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin) {
             if (m.isPinned) Td.send(TdApi.UnpinChatMessage(m.chatId, m.id)) else Td.send(TdApi.PinChatMessage(m.chatId, m.id, true, false))
         })
+        // a sticker: open its set (preview, add it)
+        (m.content as? TdApi.MessageSticker)?.sticker?.takeIf { it.setId != 0L }?.let { st -> add(MenuItem("Набор стикеров", Icons.Outlined.Collections) { StickerSetPreview.open(st.setId) }) }
         if (p?.canBeForwarded != false) add(MenuItem("Переслать", Icons.Outlined.Shortcut) { onForward() })
         if (p?.canBeForwarded != false && !TdStore.isSaved(chat)) add(MenuItem("В Избранное", Icons.Outlined.BookmarkBorder) { onSave() })
     }
@@ -1795,39 +1803,3 @@ private fun Modifier.flyFromField(done: () -> Unit): Modifier {
 }
 
 
-/** replays the keyboard's show animation with our duration and the M3 emphasized-decelerate curve */
-object SlowIme {
-    private var running = false
-    fun show(view: android.view.View, durationMs: Long) {
-        if (android.os.Build.VERSION.SDK_INT < 30 || running) return
-        val ctl = view.windowInsetsController ?: return
-        running = true
-        runCatching {
-            ctl.controlWindowInsetsAnimation(
-                android.view.WindowInsets.Type.ime(), -1, null, android.os.CancellationSignal(),
-                object : android.view.WindowInsetsAnimationControlListener {
-                    var anim: android.animation.ValueAnimator? = null
-                    override fun onReady(c: android.view.WindowInsetsAnimationController, types: Int) {
-                        val from = c.currentInsets.bottom
-                        val to = c.shownStateInsets.bottom
-                        if (to <= from) { runCatching { c.finish(true) }; return }
-                        anim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                            duration = durationMs
-                            interpolator = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-                            addUpdateListener { a ->
-                                val f = a.animatedValue as Float
-                                if (c.isReady) runCatching { c.setInsetsAndAlpha(android.graphics.Insets.of(0, 0, 0, (from + (to - from) * f).toInt()), 1f, f) }
-                            }
-                            addListener(object : android.animation.AnimatorListenerAdapter() {
-                                override fun onAnimationEnd(a: android.animation.Animator) { if (c.isReady) runCatching { c.finish(true) } }
-                            })
-                            start()
-                        }
-                    }
-                    override fun onFinished(c: android.view.WindowInsetsAnimationController) { running = false }
-                    override fun onCancelled(c: android.view.WindowInsetsAnimationController?) { anim?.cancel(); running = false }
-                },
-            )
-        }.onFailure { running = false }
-    }
-}
