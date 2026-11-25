@@ -44,6 +44,35 @@ object TdStore {
     val actions = KeyedMap<Long, Map<Long, TdApi.ChatAction>>()
 
     /** message-level events for open chat screens */
+    /** the bot keyboard (reply markup) message of each chat, when it has one */
+    val replyMarkups = androidx.compose.runtime.mutableStateMapOf<Long, TdApi.Message>()
+
+    /** the user is a member of the chat (channels / groups); private chats always count */
+    fun isMember(chat: TdApi.Chat): Boolean {
+        val st = when (val t = chat.type) {
+            is TdApi.ChatTypeSupergroup -> supergroups[t.supergroupId]?.status
+            is TdApi.ChatTypeBasicGroup -> basicGroups[t.basicGroupId]?.status
+            else -> return true
+        } ?: return true
+        return when (st) {
+            is TdApi.ChatMemberStatusLeft, is TdApi.ChatMemberStatusBanned -> false
+            is TdApi.ChatMemberStatusRestricted -> st.isMember
+            else -> true
+        }
+    }
+
+    fun isForum(chat: TdApi.Chat): Boolean = (chat.type as? TdApi.ChatTypeSupergroup)?.let { supergroups[it.supergroupId]?.isForum } == true
+
+    /** the user can moderate the chat (admins / owner) */
+    fun isAdmin(chat: TdApi.Chat): Boolean {
+        val st = when (val t = chat.type) {
+            is TdApi.ChatTypeSupergroup -> supergroups[t.supergroupId]?.status
+            is TdApi.ChatTypeBasicGroup -> basicGroups[t.basicGroupId]?.status
+            else -> null
+        }
+        return st is TdApi.ChatMemberStatusCreator || st is TdApi.ChatMemberStatusAdministrator
+    }
+
     val messageEvents = MutableSharedFlow<TdApi.Update>(extraBufferCapacity = 256)
 
     fun onUpdate(obj: TdApi.Object) {
@@ -111,6 +140,15 @@ object TdStore {
             is TdApi.UpdateChatAvailableReactions -> edit(obj.chatId) { it.availableReactions = obj.availableReactions }
             is TdApi.UpdateChatPermissions -> edit(obj.chatId) { it.permissions = obj.permissions }
             is TdApi.UpdateChatEmojiStatus -> edit(obj.chatId) { it.emojiStatus = obj.emojiStatus }
+            is TdApi.UpdateChatReplyMarkup -> {
+                val m = obj.replyMarkupMessage
+                if (m != null) replyMarkups[obj.chatId] = m else replyMarkups.remove(obj.chatId)
+                edit(obj.chatId) { it.replyMarkupMessageId = m?.id ?: 0L }
+            }
+            is TdApi.UpdateChatMessageAutoDeleteTime -> edit(obj.chatId) { it.messageAutoDeleteTime = obj.messageAutoDeleteTime }
+            is TdApi.UpdateChatViewAsTopics -> edit(obj.chatId) { it.viewAsTopics = obj.viewAsTopics }
+            is TdApi.UpdateChatBlockList -> edit(obj.chatId) { it.blockList = obj.blockList }
+            is TdApi.UpdateForumTopicInfo, is TdApi.UpdateForumTopic -> messageEvents.tryEmit(obj as TdApi.Update)
             is TdApi.UpdateChatAction -> {
                 val sender = obj.senderId
                 val uid = when (sender) {

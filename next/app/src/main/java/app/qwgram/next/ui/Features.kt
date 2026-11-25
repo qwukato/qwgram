@@ -66,6 +66,8 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Lock
 import java.io.File
 
 fun copyText(ctx: Context, s: String, toast: String = "Скопировано") {
@@ -438,6 +440,17 @@ fun GroupInfo(chat: TdApi.Chat) {
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
+        if (admin && t !is TdApi.ChatTypePrivate && !TdStore.isChannel(chat)) {
+            Spacer(Modifier.height(10.dp))
+            Surface(onClick = { Nav.push(Route.Page("perm:${chat.id}")) }, shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 4.dp), color = cs.surfaceContainerLow) {
+                ListItem(headlineContent = { Text("Разрешения") }, supportingContent = { Text("Что могут участники, медленный режим") }, leadingContent = { RowIcon(Icons.Outlined.Lock) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            }
+            Surface(onClick = { Tg.autoDelete = chat }, shape = RoundedCornerShape(4.dp, 4.dp, 20.dp, 20.dp), color = cs.surfaceContainerLow) {
+                ListItem(headlineContent = { Text("Автоудаление сообщений") }, supportingContent = { Text(if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено") }, leadingContent = { RowIcon(Icons.Outlined.Timer) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            }
+        }
         if (members.isNotEmpty()) {
             Text(
                 "Участники · $total", style = MaterialTheme.typography.titleSmall, color = cs.primary,
@@ -455,7 +468,8 @@ fun GroupInfo(chat: TdApi.Chat) {
                 }
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(cs.surfaceContainerLow)
-                        .clickable(enabled = uid != null) { Td.send(TdApi.CreatePrivateChat(uid!!, false)) { r -> if (r is TdApi.Chat) Nav.push(Route.Profile(r.id)) } }
+                        // admins get member actions (remove, ban); everyone else opens the profile
+                        .clickable(enabled = uid != null) { if (admin) Tg.member = chat to mem else Td.send(TdApi.CreatePrivateChat(uid!!, false)) { r -> if (r is TdApi.Chat) Nav.push(Route.Profile(r.id)) } }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

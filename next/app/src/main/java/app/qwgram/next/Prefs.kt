@@ -149,6 +149,7 @@ object Prefs {
     val keepDeleted = B("keep_deleted", false)            // keep messages others deleted (this session)
     val hideReactions = B("hide_reactions", false)
     val charCounter = B("char_counter", false)
+    val markdown = B("markdown", true)                 // **жирный**, __курсив__, `код`, ||спойлер|| when sending
     val showIds = B("show_ids", true)
     val confirmSticker = B("confirm_sticker", false)
     val kbHeight = I("kb_height", 0)                       // last keyboard height (px), the emoji panel uses it           // floating composer & chat header

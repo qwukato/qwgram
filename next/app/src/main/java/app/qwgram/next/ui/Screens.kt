@@ -382,7 +382,7 @@ fun SearchScreen() {
         busy = false
     }
     val cs = MaterialTheme.colorScheme
-    fun open(c: TdApi.Chat) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); Nav.push(Route.Chat(c.id)) }
+    fun open(c: TdApi.Chat) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); openChat(c) }
     // container transform: the bar grows out of the button that opened search (springy), the rest fades in after
     val origin = remember { SearchMorph.origin.also { SearchMorph.origin = null } }
     val grow = remember { androidx.compose.animation.core.Animatable(if (origin == null || Prefs.motion.value == "off") 1f else 0f) }

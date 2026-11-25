@@ -50,6 +50,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(i: Intent?) {
+        // t.me / tg:// links from other apps open here (handled once the client is ready)
+        if (i?.action == Intent.ACTION_VIEW) i.data?.toString()?.let { app.qwgram.next.ui.Links.pending = it; return }
         val id = i?.getLongExtra("chat_id", 0L) ?: 0L
         if (id != 0L) {
             Nav.home()

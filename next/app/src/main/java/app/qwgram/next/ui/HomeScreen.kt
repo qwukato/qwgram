@@ -135,6 +135,7 @@ import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -473,7 +474,11 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
 
     var cascadeGen by remember { mutableIntStateOf(0) }
     var cascadePage by remember { mutableIntStateOf(-1) }
-    val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || pager.currentPage == 0)
+    // only from a resting first folder: never mid-swipe between folders (that pulled the menu out while paging)
+    val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || (pager.settledPage == 0 && !pager.isScrollInProgress))
+    val folderCascade = remember { FolderCascade() }
+    folderCascade.enabled = Prefs.motion.value != "off" && Prefs.folderCascade.value > 0f
+    LaunchedEffect(pager) { folderCascade.run(pager) }
     SideEffect { drawer.canOpen = canOpenDrawer }
     DisposableEffect(Unit) { onDispose { drawer.canOpen = false } }
     val exDensity = androidx.compose.ui.platform.LocalDensity.current
@@ -489,6 +494,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             .then(if (canOpenDrawer) Modifier.systemGestureExclusion { c -> androidx.compose.ui.geometry.Rect(0f, c.size.height * 0.42f, exW, c.size.height * 0.42f + exH) } else Modifier),
     ) {
         // the list scrolls under the header (floating: over a fade; classic: under a solid bar)
+        androidx.compose.runtime.CompositionLocalProvider(LocalFolderCascade provides folderCascade) {
         HorizontalPager(
             state = pager,
             userScrollEnabled = Prefs.folderSwipe.value && Prefs.listSwipe.value != "actions",
@@ -503,11 +509,10 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
             Box(Modifier.fillMaxSize()) {
-            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, pageOffset = { page - (pager.currentPage + pager.currentPageOffsetFraction) },
-                // content moves left when we go to a later page (position grows past the settled page), right otherwise
-                dir = { val pos = pager.currentPage + pager.currentPageOffsetFraction; -kotlin.math.sign(pos - pager.settledPage) },
+            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, page = page, at = { pager.currentPage + pager.currentPageOffsetFraction },
                 onLong = { actionChat = it })
             }
+        }
         }
         val cs = MaterialTheme.colorScheme
         Box(
@@ -705,7 +710,7 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 }
 
 @Composable
-fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, pageOffset: () -> Float = { 0f }, dir: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
+fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, page: Int = -1, at: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
     val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
     val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
@@ -741,14 +746,14 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
     LazyColumn(
         state = state,
         contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 96.dp, top = pad.calculateTopPadding() + 4.dp),
-        modifier = Modifier.fillMaxSize().cancelPage(pageOffset).nestedScroll(pullConn),
+        modifier = Modifier.fillMaxSize().then(if (page >= 0) Modifier.cancelPage(page, at) else Modifier).nestedScroll(pullConn),
         verticalArrangement = Arrangement.spacedBy(if (Prefs.listStyle.value == "cards") 2.dp else 0.dp),
     ) {
         if (archived.isNotEmpty()) {
             if (hidden && !revealed) item(key = "archive-pull") {
                 // grows with the pull: archive icon fills up, then the row springs out
                 val p = (pull / pullMax).coerceIn(0f, 1f)
-                Box(Modifier.followFinger(0, state, pageOffset, dir).fillMaxWidth().height((p * 56f).dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.followFinger(0, state, page).fillMaxWidth().height((p * 56f).dp), contentAlignment = Alignment.Center) {
                     if (p > 0.05f) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.graphicsLayer { alpha = p; scaleX = 0.8f + 0.2f * p; scaleY = 0.8f + 0.2f * p }) {
                         androidx.compose.material3.CircularWavyProgressIndicator(progress = { p }, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(10.dp))
@@ -758,7 +763,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
             }
             item(key = "archive") {
                 androidx.compose.animation.AnimatedVisibility(
-                    !hidden || revealed, modifier = Modifier.followFinger(0, state, pageOffset, dir),
+                    !hidden || revealed, modifier = Modifier.followFinger(0, state, page),
                     enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(520, easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))) +
                         fadeIn(androidx.compose.animation.core.tween(420, 80)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(520), initialScale = 0.92f),
                     exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f))) + fadeOut(androidx.compose.animation.core.tween(240)),
@@ -775,13 +780,13 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, pageOffset, dir).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
-                ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, page).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+                ChatRow(c, list, onLong = { onLong(c) }) { openChat(c) }
             }
         }
         if (chats.isEmpty()) {
             item {
-                Box(Modifier.followFinger(0, state, pageOffset, dir)) { EmptyState(Icons.Outlined.Forum, "Здесь пока пусто", if (list is TdApi.ChatListFolder) "В этой папке нет чатов" else "Начните переписку кнопкой «Написать»") }
+                Box(Modifier.followFinger(0, state, page)) { EmptyState(Icons.Outlined.Forum, "Здесь пока пусто", if (list is TdApi.ChatListFolder) "В этой папке нет чатов" else "Начните переписку кнопкой «Написать»") }
             }
         }
     }
@@ -1020,45 +1025,85 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
     }
 }
 
-/** the page is moving between folders (not at rest, not fully off screen) */
-private fun cascading(d: Float) = kotlin.math.abs(d) in 0.0005f..0.9995f
-
 /**
- * Folder swipe cascade ("layers bounce apart"). While pages move, the list itself is held still on screen
- * ([cancelPage]) and each row carries the motion through its own spring: the top row is stiff and keeps up with
- * the finger, every row below is softer, so the rows trail in a wave and, when the page lands, catch up one after
- * another with a little bounce. Springs are linear, so the same row of the neighbouring page (same stiffness, same
- * page signal shifted by exactly one page) stays edge to edge with it: no gaps, no overlap. At rest all is zero.
+ * Folder swipe cascade. One spring per screen slot (row 0 at the top … row 12), shared by every folder page:
+ * slot i chases the pager position with its own spring (stiff at the top, softer below, a touch of bounce), stepped
+ * every frame by hand so it follows the finger continuously (no restarts, no stalls, no jump at the end).
+ * A row of page p sits at (p − pos[i])·W on screen, so the same slot of two neighbouring pages is always exactly one
+ * page apart: no gaps, no overlap, at any speed. At rest pos == pager position and nothing is translated.
  */
-@Composable
-private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float, @Suppress("UNUSED_PARAMETER") dir: () -> Float): Modifier {
-    if (Prefs.motion.value == "off" || Prefs.folderCascade.value <= 0f) return this.graphicsLayer {
-        val d = pageOffset(); if (cascading(d)) translationX = d * size.width
-    }
-    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 12) } }
-    val lag = remember { androidx.compose.animation.core.Animatable(pageOffset()) }
-    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-    val strength = Prefs.folderCascade.value
-    LaunchedEffect(rel, strength, k) {
-        // stiff at the top, softer down the list; a touch of bounce (Material 3 Expressive spatial spring)
-        val stiff = (1600f / (1f + rel * 0.55f * strength)).coerceAtLeast(260f) * k
-        val spec = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.7f, stiffness = stiff, visibilityThreshold = 0.0005f)
-        snapshotFlow { pageOffset() }.collectLatest { t -> lag.animateTo(t, spec) }
-    }
-    return graphicsLayer {
-        val d = pageOffset()
-        val l = lag.value
-        // while the list is held still the row draws the page's (lagged) position; otherwise only what's left of the lag
-        translationX = ((if (cascading(d)) l else l - d) * size.width).let { if (kotlin.math.abs(it) < 0.5f) 0f else it }
+@androidx.compose.runtime.Stable
+class FolderCascade {
+    val slots = 13
+    val pos = Array(slots) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    private val vel = FloatArray(slots)
+    /** rows are being carried by the springs (lists are held still meanwhile) */
+    var active by androidx.compose.runtime.mutableStateOf(false)
+    var enabled = true
+
+    suspend fun run(pager: androidx.compose.foundation.pager.PagerState) {
+        fun at() = pager.currentPage + pager.currentPageOffsetFraction
+        pos.forEach { it.floatValue = at() }
+        while (true) {
+            // idle until the pager moves away from where the rows rest
+            snapshotFlow { at() }.first { t -> enabled && pos.any { kotlin.math.abs(it.floatValue - t) > 0.0005f } }
+            active = true
+            var last = androidx.compose.runtime.withFrameNanos { it }
+            while (true) {
+                val now = androidx.compose.runtime.withFrameNanos { it }
+                val dt = ((now - last) / 1e9f).coerceIn(0f, 1f / 30f)
+                last = now
+                val t = at()
+                val strength = Prefs.folderCascade.value
+                val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+                var settled = true
+                for (i in 0 until slots) {
+                    var x = pos[i].floatValue
+                    var v = vel[i]
+                    if (!enabled || strength <= 0f) { x = t; v = 0f } else {
+                        val stiff = (820f / (1f + i * 0.42f * strength)).coerceAtLeast(120f) * k
+                        val damp = 2f * 0.68f * kotlin.math.sqrt(stiff)
+                        // semi-implicit Euler in small sub-steps: stable for any frame rate
+                        val n = 4
+                        val h = dt / n
+                        repeat(n) { val acc = -stiff * (x - t) - damp * v; v += acc * h; x += v * h }
+                        if (kotlin.math.abs(x - t) > 0.0004f || kotlin.math.abs(v) > 0.004f) settled = false
+                    }
+                    pos[i].floatValue = x
+                    vel[i] = v
+                }
+                if (settled && !pager.isScrollInProgress) {
+                    for (i in 0 until slots) { pos[i].floatValue = t; vel[i] = 0f }
+                    break
+                }
+            }
+            active = false
+        }
     }
 }
 
-/** keeps the list itself still while its page moves (the rows carry the movement, see [followFinger]) */
-private fun Modifier.cancelPage(pageOffset: () -> Float): Modifier =
-    if (Prefs.motion.value == "off") this else graphicsLayer {
-        val d = pageOffset()
-        if (cascading(d)) translationX = -d * size.width
+val LocalFolderCascade = androidx.compose.runtime.staticCompositionLocalOf<FolderCascade?> { null }
+
+/** a row of folder page [page]: carried by its slot's spring while the folders move (see [FolderCascade]) */
+@Composable
+private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, page: Int): Modifier {
+    val c = LocalFolderCascade.current ?: return this
+    if (page < 0 || Prefs.motion.value == "off" || Prefs.folderCascade.value <= 0f) return this
+    return graphicsLayer {
+        if (!c.active) return@graphicsLayer
+        val slot = (index - state.firstVisibleItemIndex).coerceIn(0, c.slots - 1)
+        // the list is held at the screen (see cancelPage), so the row draws its absolute position
+        translationX = ((page - c.pos[slot].floatValue) * size.width).let { if (kotlin.math.abs(it) < 0.5f) 0f else it }
     }
+}
+
+/** holds the list still on screen while the cascade carries its rows (the rows draw the movement) */
+@Composable
+private fun Modifier.cancelPage(page: Int, at: () -> Float): Modifier {
+    val c = LocalFolderCascade.current ?: return this
+    if (Prefs.motion.value == "off" || Prefs.folderCascade.value <= 0f) return this
+    return graphicsLayer { if (c.active) translationX = -(page - at()) * size.width }
+}
 
 /** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */
 @Composable

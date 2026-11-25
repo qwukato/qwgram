@@ -246,11 +246,8 @@ object Opener {
         val url = Texts.cleanUrl(if (raw.contains("://")) raw else "https://$raw")
         // sticker set links open the set preview right here (add it in one tap)
         if (url.contains("/addstickers/") || url.startsWith("tg://addstickers")) { stickerSetName(url)?.let { StickerSetPreview.openName(it); return } }
-        val tme = Regex("^https?://(?:t\\.me|telegram\\.me)/([A-Za-z0-9_]{4,})/?$").find(url)
-        if (tme != null) {
-            username(context, tme.groupValues[1])
-            return
-        }
+        // every Telegram link (chats, invites, messages, bots, proxies…) opens right here
+        if (Links.isTelegram(url)) { Links.open(context, url); return }
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: ActivityNotFoundException) {

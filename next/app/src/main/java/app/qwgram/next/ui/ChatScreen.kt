@@ -171,11 +171,23 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.sp
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Forum
 import java.io.File
 import kotlin.math.roundToInt
 
 /** Messages of one open chat, newest first. Lives as long as the chat screen. */
-class ChatController(val chatId: Long) {
+class ChatController(val chatId: Long, val topic: Int = 0) {
+    /** history of the chat, or of one forum topic */
+    private fun hist(from: Long, offset: Int, limit: Int): TdApi.Function<TdApi.Messages> =
+        if (topic != 0) TdApi.GetForumTopicHistory(chatId, topic, from, offset, limit) else TdApi.GetChatHistory(chatId, from, offset, limit, false)
+
+    /** the message belongs to what this screen shows (the whole chat, or its topic) */
+    fun inView(m: TdApi.Message): Boolean = topic == 0 || (m.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topic
+
     val messages = mutableStateListOf<TdApi.Message>()
     val replies = mutableStateMapOf<Long, TdApi.Message>()
     var loading by mutableStateOf(false)
@@ -189,7 +201,7 @@ class ChatController(val chatId: Long) {
     suspend fun jumpTo(id: Long): Boolean {
         if (messages.any { it.id == id }) return true
         loading = true
-        val r = Td.callOrNull(TdApi.GetChatHistory(chatId, id, -20, 50, false))
+        val r = Td.callOrNull(hist(id, -20, 50))
         loading = false
         if (r == null || r.messages.isEmpty()) return false
         messages.clear(); reachedEnd = false
@@ -201,7 +213,7 @@ class ChatController(val chatId: Long) {
     suspend fun loadNewer() {
         if (loading || !hasNewer || messages.isEmpty()) return
         loading = true
-        val r = Td.callOrNull(TdApi.GetChatHistory(chatId, messages.first().id, -49, 50, false))
+        val r = Td.callOrNull(hist(messages.first().id, -49, 50))
         loading = false
         val have = messages.mapTo(HashSet()) { it.id }
         val newer = r?.messages?.filter { it.id !in have && it.id > messages.first().id }.orEmpty().sortedByDescending { it.id }
@@ -222,7 +234,7 @@ class ChatController(val chatId: Long) {
         var tries = 0
         // TDLib may answer with only a few cached messages at first; ask until we have a screenful
         while (messages.size < 40 && tries < 4) {
-            val r = Td.callOrNull(TdApi.GetChatHistory(chatId, from, 0, 50, false)) ?: break
+            val r = Td.callOrNull(hist(from, 0, 50)) ?: break
             if (r.messages.isEmpty()) {
                 if (tries > 0) reachedEnd = true
                 tries++
@@ -239,7 +251,7 @@ class ChatController(val chatId: Long) {
     suspend fun loadOlder() {
         if (loading || reachedEnd || messages.isEmpty()) return
         loading = true
-        val r = Td.callOrNull(TdApi.GetChatHistory(chatId, messages.last().id, 0, 50, false))
+        val r = Td.callOrNull(hist(messages.last().id, 0, 50))
         if (r == null || r.messages.isEmpty()) reachedEnd = true else addOlder(r.messages.toList())
         loading = false
     }
@@ -264,7 +276,7 @@ class ChatController(val chatId: Long) {
 
     fun onEvent(u: TdApi.Update) {
         when (u) {
-            is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && !hasNewer && messages.none { it.id == u.message.id }) {
+            is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && inView(u.message) && !hasNewer && messages.none { it.id == u.message.id }) {
                 if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly") flyIn.add(u.message.id); onOwnSend?.invoke() }
                 messages.add(0, u.message)
                 fetchReply(u.message)
@@ -333,7 +345,7 @@ private sealed interface Entry {
 enum class Grp { Single, Top, Middle, Bottom }
 
 @Composable
-fun ChatScreen(chatId: Long) {
+fun ChatScreen(chatId: Long, topic: Int = 0) {
     val chat = TdStore.chats[chatId]
     if (chat == null) {
         LaunchedEffect(chatId) { Td.send(TdApi.GetChat(chatId)) { r -> if (r is TdApi.Chat) TdStore.onUpdate(TdApi.UpdateNewChat(r)) } }
@@ -341,14 +353,14 @@ fun ChatScreen(chatId: Long) {
         return
     }
     val ctx = LocalContext.current
-    val ctl = remember(chatId) { ChatController(chatId) }
+    val ctl = remember(chatId, topic) { ChatController(chatId, topic) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val firstUnreadId = remember(chatId) { if (chat.unreadCount > 0) chat.lastReadInboxMessageId else 0L }
+    val firstUnreadId = remember(chatId) { if (topic == 0 && chat.unreadCount > 0) chat.lastReadInboxMessageId else 0L }
 
-    var text by remember(chatId) { mutableStateOf((chat.draftMessage?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "") }
+    var text by remember(chatId) { mutableStateOf(if (topic != 0) "" else (chat.draftMessage?.content as? TdApi.DraftMessageContentText)?.text?.let { toMarkdown(it) } ?: "") }
     var replyTo by remember(chatId) { mutableStateOf<TdApi.Message?>(null) }
     var editing by remember(chatId) { mutableStateOf<TdApi.Message?>(null) }
     var menuFor by remember { mutableStateOf<TdApi.Message?>(null) }
@@ -414,9 +426,9 @@ fun ChatScreen(chatId: Long) {
             val d = if (t.isBlank() && replyTo == null) null else TdApi.DraftMessage().apply {
                 replyTo?.let { r -> this.replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
                 date = (System.currentTimeMillis() / 1000).toInt()
-                content = TdApi.DraftMessageContentText().apply { this.text = TdApi.FormattedText(t, arrayOf()) }
+                content = TdApi.DraftMessageContentText().apply { this.text = parseFormatting(t) }
             }
-            if (editing == null) Td.send(TdApi.SetChatDraftMessage(chatId, null, d))
+            if (editing == null) Td.send(TdApi.SetChatDraftMessage(chatId, if (topic != 0) TdApi.MessageTopicForum(topic) else null, d))
         }
     }
     val entries by remember(ctl) {
@@ -449,7 +461,7 @@ fun ChatScreen(chatId: Long) {
     LaunchedEffect(chatId) {
         launch { TdStore.messageEvents.collect { ctl.onEvent(it) } }
         ctl.loadInitial()
-        val saved = Prefs.chatPos(chatId)
+        val saved = if (topic != 0) null else Prefs.chatPos(chatId)
         if (firstUnreadId != 0L) {
             // unread messages: open at the first unread one (Telegram)
             val idx = ctl.messages.indexOfFirst { it.id <= firstUnreadId }
@@ -467,8 +479,9 @@ fun ChatScreen(chatId: Long) {
             val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { (it.key as? String)?.startsWith("m") == true }
             val atEnd = listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer
             val id = (info?.key as? String)?.drop(1)?.toLongOrNull()
-            if (atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.let { c -> markRead(c) }
-            if (atEnd || id == null) Prefs.setChatPos(chatId, null)
+            if (topic == 0 && atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.let { c -> markRead(c) }
+            if (topic != 0) Unit
+            else if (atEnd || id == null) Prefs.setChatPos(chatId, null)
             else Prefs.setChatPos(chatId, id to if (info.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0)
         }
     }
@@ -529,7 +542,7 @@ fun ChatScreen(chatId: Long) {
     LaunchedEffect(atBottom, newest) {
         val c = TdStore.chats.peek(chatId)
         val last = c?.lastMessage?.id ?: return@LaunchedEffect
-        if (atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0 || c.unreadReactionCount > 0)) {
+        if (topic == 0 && atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0 || c.unreadReactionCount > 0)) {
             viewMessages(chatId, longArrayOf(last))
             markRead(c)
         }
@@ -549,7 +562,7 @@ fun ChatScreen(chatId: Long) {
 
     // opened from search / media: scroll to that message once history is there
     val hasHistory = ctl.messages.isNotEmpty()
-    val routeOnTop = Nav.top == Route.Chat(chatId)
+    val routeOnTop = Nav.top == Route.Chat(chatId, topic)
     LaunchedEffect(chatId, hasHistory, routeOnTop) {
         val j = Nav.jumpTo
         if (hasHistory && routeOnTop && j != null && j.first == chatId) { Nav.jumpTo = null; jump(j.second) }
@@ -670,7 +683,7 @@ fun ChatScreen(chatId: Long) {
                             scaleX = sc; scaleY = sc
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                         }) {
-                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching)
+                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching, topicName = rememberTopicName(chatId, topic))
                         }
                         if (searching) ChatSearchBar(
                             search, origin = searchOrigin, grow = { searchGrow.value },
@@ -834,7 +847,14 @@ fun ChatScreen(chatId: Long) {
                     haptic(HapticFeedbackType.Confirm)
                     if (at == 0) scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) }
                 }
-                Composer(
+                // "@" → members, "/" → bot commands; a bot's own buttons instead of typing
+                ComposerSuggestions(chat, text, onText = { text = it }, onSendCommand = { c ->
+                    sendContent(chatId, inputText(c), replyTo); replyTo = null; text = ""; followSent = true
+                    haptic(HapticFeedbackType.Confirm)
+                })
+                if (editing == null) BotKeyboard(chat) { t -> sendContent(chatId, inputText(t)); followSent = true; haptic(HapticFeedbackType.Confirm) }
+                if (TdStore.isBot(chat) && chat.lastMessage == null && ctl.messages.isEmpty() && !ctl.loading) BotStartBar(chat)
+                else Composer(
                     chat = chat, text = text, onText = { text = it; typing(chatId) },
                     replyTo = replyTo, editing = editing,
                     panelOpen = panel,
@@ -847,7 +867,7 @@ fun ChatScreen(chatId: Long) {
                     onSendSilent = { send(silent = true) },
                     onSchedule = { at -> send(at = at) },
                 )
-            } else ChannelBar(chat)
+            } else if (canJoin(chat)) JoinBar(chat) else ChannelBar(chat)
             }
             }
         }
@@ -879,7 +899,7 @@ fun ChatScreen(chatId: Long) {
             onReply = { replyTo = m; editing = null },
             onEdit = {
                 editing = m; replyTo = null
-                text = (m.content as? TdApi.MessageText)?.text?.text ?: Texts.caption(m.content)?.text.orEmpty()
+                text = (m.content as? TdApi.MessageText)?.text?.let { toMarkdown(it) } ?: Texts.caption(m.content)?.text.orEmpty()
             },
             onForward = { forward = listOf(m) },
             onDelete = { deleteFor = listOf(m) },
@@ -916,13 +936,16 @@ fun ChatScreen(chatId: Long) {
 }
 
 fun inputText(t: String): TdApi.InputMessageText = TdApi.InputMessageText().apply {
-    text = TdApi.FormattedText(t, arrayOf())
+    // **bold**, __italic__, `code`, ||spoiler||… become Telegram formatting (Settings → Чаты → Разметка текста)
+    text = parseFormatting(t)
     clearDraft = true
 }
 
 fun sendContent(chatId: Long, content: TdApi.InputMessageContent, replyTo: TdApi.Message? = null, silent: Boolean? = null, scheduleAt: Int = 0) {
+    val topic = currentTopic(chatId)
     Td.send(TdApi.SendMessage().apply {
         this.chatId = chatId
+        topicId = topic
         this.replyTo = replyTo?.let { r -> TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
         options = TdApi.MessageSendOptions().apply {
             disableNotification = silent ?: Prefs.silentByDefault.value
@@ -1046,14 +1069,14 @@ private fun WallpaperShapes() {
 private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 
 @Composable
-private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry.Rect?) -> Unit, hideSearch: Boolean = false) {
+private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry.Rect?) -> Unit, hideSearch: Boolean = false, topicName: String? = null) {
     var menu by remember { mutableStateOf(false) }
     val pickWp = rememberWallpaperPicker("chat${chat.id}") { path -> Prefs.setChatWallpaper(chat.id, path) }
     val hasOwnWp = remember(Prefs.chatWallpaperVersion.intValue) { Prefs.chatWallpaper(chat.id) != null }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmBlock by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
-    val status = Texts.chatStatus(chat)
+    val status = if (topicName != null) chat.title else Texts.chatStatus(chat)
     val typingNow = !TdStore.actions[chat.id].isNullOrEmpty()
     val privateUser = TdStore.privateUserId(chat).takeIf { it != 0L && !TdStore.isSaved(chat) }
     val floating = Prefs.floatingBars.value
@@ -1067,7 +1090,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(topicName ?: if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (!TdStore.isSaved(chat)) EmojiStatusMark(TdStore.users[TdStore.privateUserId(chat)], 18.dp)
                     }
                     AnimatedContent(status, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "status") { st ->
@@ -1093,6 +1116,13 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
                         onClick = { menu = false; setMuted(chat, !muted) },
                     )
                     DropdownMenuItem(text = { Text("Профиль") }, leadingIcon = { Icon(Icons.Outlined.Info, null) }, onClick = { menu = false; Nav.push(Route.Profile(chat.id)) })
+                    if (TdStore.isForum(chat)) DropdownMenuItem(text = { Text("Темы") }, leadingIcon = { Icon(Icons.Outlined.Forum, null) }, onClick = { menu = false; Nav.push(Route.Page("topics:${chat.id}")) })
+                    val canTimer = (privateUser != null && !TdStore.isBot(chat)) || TdStore.isAdmin(chat)
+                    if (canTimer) DropdownMenuItem(
+                        text = { Text("Автоудаление") }, leadingIcon = { Icon(Icons.Outlined.Timer, null) },
+                        trailingIcon = { if (chat.messageAutoDeleteTime > 0) Text(autoDeleteLabel(chat.messageAutoDeleteTime), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) },
+                        onClick = { menu = false; Tg.autoDelete = chat },
+                    )
                     DropdownMenuItem(text = { Text("Отложенные") }, leadingIcon = { Icon(Icons.Outlined.Schedule, null) }, onClick = { menu = false; Nav.push(Route.Page("sched:${chat.id}")) })
                     DropdownMenuItem(text = { Text("Обои чата…") }, leadingIcon = { Icon(Icons.Outlined.Wallpaper, null) }, onClick = { menu = false; pickWp() })
                     if (hasOwnWp) DropdownMenuItem(text = { Text("Убрать обои чата") }, leadingIcon = { Icon(Icons.Outlined.HideImage, null) }, onClick = { menu = false; Prefs.setChatWallpaper(chat.id, null) })
@@ -1101,6 +1131,7 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
                         leadingIcon = { Icon(Icons.Outlined.MarkChatUnread, null) },
                         onClick = { menu = false; Td.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, !chat.isMarkedAsUnread)) },
                     )
+                    if (chat.canBeReported) DropdownMenuItem(text = { Text("Пожаловаться") }, leadingIcon = { Icon(Icons.Outlined.Flag, null) }, onClick = { menu = false; Tg.report = chat.id to longArrayOf() })
                     DropdownMenuItem(text = { Text("Очистить историю") }, leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) }, onClick = { menu = false; confirmClear = true })
                     if (privateUser != null && !TdStore.isBot(chat)) DropdownMenuItem(
                         text = { Text("Заблокировать") }, leadingIcon = { Icon(Icons.Outlined.Block, null) },
@@ -1623,6 +1654,7 @@ private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi
         contents.chunked(10).forEach { part ->
             Td.send(TdApi.SendMessageAlbum().apply {
                 this.chatId = chatId
+                topicId = currentTopic(chatId)
                 this.replyTo = replyTo?.let { r -> TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
                 options = TdApi.MessageSendOptions().apply { disableNotification = Prefs.silentByDefault.value }
                 inputMessageContents = part.toTypedArray()
@@ -1686,6 +1718,9 @@ private fun MessageMenu(
     val main = buildList {
         if (canSend && (p == null || p.canBeReplied)) add(MenuItem("Ответить", Icons.AutoMirrored.Filled.Reply) { onReply() })
         if (Texts.caption(m.content)?.text?.isNotEmpty() == true) add(MenuItem("Копировать", Icons.Outlined.ContentCopy) { onCopy() })
+        Texts.caption(m.content)?.takeIf { it.text.isNotBlank() }?.let { cap -> add(MenuItem("Перевести", Icons.Outlined.Translate) { Tg.translate = cap }) }
+        if (p?.canGetViewers == true || m.interactionInfo?.reactions?.canGetAddedReactions == true)
+            add(MenuItem(if (p?.canGetViewers == true) "Кто прочитал" else "Кто отреагировал", Icons.Outlined.Visibility) { Tg.viewers = m })
         if (p?.canGetLink == true) add(MenuItem("Ссылка на сообщение", Icons.Outlined.Link) { onCopyLink() })
         if (p?.canBeEdited == true && m.content is TdApi.MessageText) add(MenuItem("Изменить", Icons.Outlined.Edit) { onEdit() })
         if (p?.canBePinned == true) add(MenuItem(if (m.isPinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin) {
@@ -1697,7 +1732,10 @@ private fun MessageMenu(
         if (p?.canBeForwarded != false && !TdStore.isSaved(chat)) add(MenuItem("В Избранное", Icons.Outlined.BookmarkBorder) { onSave() })
     }
     val extra = listOf(MenuItem("Выбрать", Icons.Outlined.CheckCircle) { onSelect() })
-    val danger = if (p == null || p.canBeDeletedOnlyForSelf || p.canBeDeletedForAllUsers) listOf(MenuItem("Удалить", Icons.Outlined.Delete, danger = true) { onDelete() }) else emptyList()
+    val danger = buildList {
+        if (p?.canReportChat == true && !m.isOutgoing) add(MenuItem("Пожаловаться", Icons.Outlined.Flag, danger = true) { Tg.report = m.chatId to longArrayOf(m.id) })
+        if (p == null || p.canBeDeletedOnlyForSelf || p.canBeDeletedForAllUsers) add(MenuItem("Удалить", Icons.Outlined.Delete, danger = true) { onDelete() })
+    }
     val out = m.isOutgoing && !m.isChannelPost
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var below by remember { mutableStateOf(true) }

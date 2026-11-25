@@ -618,6 +618,7 @@ fun FeaturesPage2() {
             switch("Сохранять удалённые", Prefs.keepDeleted, "Удалённые собеседником остаются с пометкой (до перезапуска)")
             switch("Скрывать реакции", Prefs.hideReactions)
             switch("Счётчик символов", Prefs.charCounter, "Над полем ввода, лимит 4096")
+            switch("Разметка текста", Prefs.markdown, "**жирный**, __курсив__, ~~зачёркнутый~~, ||спойлер||, `код`, [текст](ссылка)")
             switch("Тихая отправка по умолчанию", Prefs.silentByDefault, "Получатель не услышит звук")
             switch("Подтверждать стикеры и GIF", Prefs.confirmSticker)
             switch("Пересылать без автора", Prefs.forwardNoAuthor, "Как копию, без «Переслано от» (можно менять при пересылке)")

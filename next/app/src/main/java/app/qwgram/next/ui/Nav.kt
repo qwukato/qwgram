@@ -32,7 +32,7 @@ import kotlin.math.abs
 
 sealed interface Route {
     data object Home : Route
-    data class Chat(val chatId: Long) : Route
+    data class Chat(val chatId: Long, val topic: Int = 0) : Route
     data class Profile(val chatId: Long) : Route
     data object Me : Route
     data object Search : Route
@@ -194,6 +194,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
         VideoViewerHost()
         PhotoEditorHost()
         StickerSetHost()
+        TgHost()
         VideoEditorHost()
     }
 }
