@@ -50,23 +50,35 @@ fun BlurPage() = PageScaffold("Размытие фона") {
         switch("Размытие фона", Prefs.blurOn, sub = "Стеклянные панели, кнопки и окна")
     }
     if (!Prefs.blurOn.value) return@PageScaffold
-    group("Стекло") {
-        sliderInt("Сила размытия", Prefs.blurRadius, 4..72, step = 2) { "$it dp" }
-        sliderFloat("Плотность оттенка", Prefs.blurTint, 0f..1f, steps = 19) { "${(it * 100).toInt()}%" }
-        pick("Оттенок", Prefs.blurTone, listOf(
+    group("Общее") {
+        pick("Оттенок стекла", Prefs.blurTone, listOf(
             "surface" to "Цвет панели", "container" to "Приподнятый", "accent" to "Акцентный",
             "dark" to "Тёмное стекло", "light" to "Светлое стекло", "none" to "Без оттенка",
         ))
-        sliderFloat("Зерно", Prefs.blurNoise, 0f..0.3f, steps = 29) { "${(it * 100).toInt()}%" }
+        sliderFloat("Зерно в переходах", Prefs.blurNoise, 0f..0.3f, steps = 29) { "${(it * 100).toInt()}%" }
+    }
+    group("Кнопки и панели", footer = "Плавающие кнопки, нижняя панель, поле ввода, папки, мини-плеер.") {
+        sliderInt("Сила размытия", Prefs.blurBtnRadius, 4..72, step = 2) { "$it dp" }
+        sliderFloat("Плотность оттенка", Prefs.blurBtnTint, 0f..1f, steps = 19) { "${(it * 100).toInt()}%" }
+        sliderFloat("Зерно", Prefs.blurBtnNoise, 0f..0.3f, steps = 29) { "${(it * 100).toInt()}%" }
         switch("Светлая кромка", Prefs.blurEdge, sub = "Тонкая обводка у стеклянных кнопок")
     }
-    group("Переход (прогрессивное размытие)", footer = "Заголовки и нижние панели размывают сильнее всего у края экрана и плавно растворяются к контенту.") {
-        switch("Плавный переход", Prefs.blurFade)
-        sliderFloat("Длина перехода", Prefs.blurFadeLen, 0.3f..3f, steps = 26) { "${(it * 100).toInt()}%" }
-        segmented("Кривая", Prefs.blurCurve, listOf("soft" to "Мягкая", "linear" to "Ровная", "sharp" to "Резкая"))
+    group("Переходы под заголовками", footer = "Заголовки и низ экрана: размытие сильнее у края и плавно растворяется к контенту. Без размытия переход остаётся просто цветным.") {
+        switch("Размытие в переходах", Prefs.blurFadeBlur)
+        if (Prefs.blurFadeBlur.value) {
+            sliderInt("Сила размытия", Prefs.blurFadeRadius, 4..96, step = 2) { "$it dp" }
+            sliderFloat("Плотность оттенка", Prefs.blurFadeTint, 0f..1f, steps = 19) { "${(it * 100).toInt()}%" }
+        }
+        switch("Плавный край (прогрессивно)", Prefs.blurFade)
+        if (Prefs.blurFade.value) {
+            sliderFloat("Длина перехода", Prefs.blurFadeLen, 0.3f..3f, steps = 26) { "${(it * 100).toInt()}%" }
+            segmented("Кривая", Prefs.blurCurve, listOf("soft" to "Мягкая", "linear" to "Ровная", "sharp" to "Резкая"))
+        }
+        switch("Только при прокрутке", Prefs.fadeOnScroll, sub = "Переход появляется, когда под панелью есть контент")
     }
     group("Где размывать") {
         switch("Заголовки", Prefs.blurHeaders, sub = "Верхние панели всех экранов")
+        switch("Папки", Prefs.blurChipsFolders, sub = "Кнопки папок над списком чатов")
         switch("Панели и кнопки", Prefs.blurBars, sub = "Нижняя панель, плавающие кнопки, мини-плеер")
         switch("Поле ввода", Prefs.blurComposer, sub = "Низ чата и само поле")
         switch("Даты и плашки на обоях", Prefs.blurChips)
@@ -156,5 +168,21 @@ private fun BlurPreview() {
                 contentAlignment = Alignment.Center,
             ) { Text("✎", color = cs.onPrimaryContainer, style = MaterialTheme.typography.titleMedium) }
         }
+    }
+}
+
+
+/** Settings → Energy saving: everything that trades a bit of motion for battery (off by default) */
+@Composable
+fun PowerSavePage() = PageScaffold("Энергосбережение") {
+    group(footer = "Когда включено, приложение меньше перерисовывает экран без дела и бережёт батарею. По умолчанию выключено.") {
+        switch("Энергосбережение", Prefs.powerSave, sub = "Экономить батарею за счёт части анимаций")
+    }
+    if (!Prefs.powerSave.value) return@PageScaffold
+    group("Что экономить") {
+        switch("Останавливать фоновые анимации", Prefs.psIdleAnims, sub = "Вращение обложки, волны плеера и декоративные фигуры — только когда нужны")
+        segmented("Анимированные стикеры и эмодзи", Prefs.psStickers, listOf("loop" to "Всегда", "once" to "Один раз", "still" to "Без анимации"))
+        switch("Пониженное качество размытия", Prefs.psBlurLow, sub = "Размывать уменьшенную копию")
+        switch("Не проигрывать GIF сами", Prefs.psGifs, sub = "GIF и кружки в чатах стоят на паузе, пока на них не нажмёте")
     }
 }

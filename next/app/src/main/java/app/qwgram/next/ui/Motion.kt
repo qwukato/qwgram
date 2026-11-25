@@ -627,7 +627,9 @@ fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, a
 @Composable
 fun loopPhase(running: Boolean, periodMs: Int, max: Float): androidx.compose.runtime.State<Float> {
     val a = remember { androidx.compose.animation.core.Animatable(0f) }
-    val on = running && Prefs.motion.value != "off"
+    // energy saving (Settings → Energy saving) stops it when idle; otherwise it keeps going like before
+    val idleStop = Prefs.powerSave.value && Prefs.psIdleAnims.value
+    val on = (running || !idleStop) && Prefs.motion.value != "off"
     LaunchedEffect(on) {
         if (!on) return@LaunchedEffect
         while (true) {

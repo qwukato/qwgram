@@ -99,7 +99,7 @@ private fun curve(): Easing = when (Prefs.blurCurve.value) {
 }
 
 @OptIn(ExperimentalHazeApi::class)
-private fun quality(): HazeInputScale = when (Prefs.blurQuality.value) {
+private fun quality(): HazeInputScale = if (Prefs.powerSave.value && Prefs.psBlurLow.value) HazeInputScale.Fixed(0.33f) else when (Prefs.blurQuality.value) {
     "speed" -> HazeInputScale.Fixed(0.33f)
     "best" -> HazeInputScale.None
     else -> HazeInputScale.Fixed(0.5f)
@@ -128,9 +128,9 @@ fun Modifier.glass(
 ): Modifier {
     if (state == null || !blurOn(part) || !inMainWindow()) return this
     val tone = if (tintAlpha != null) base else glassTone(base)
-    val tint = (tintAlpha ?: (Prefs.blurTint.value * strength)).coerceIn(0f, 1f)
-    val radius = Prefs.blurRadius.value.dp
-    val noise = Prefs.blurNoise.value
+    val tint = (tintAlpha ?: (Prefs.blurBtnTint.value * strength)).coerceIn(0f, 1f)
+    val radius = Prefs.blurBtnRadius.value.dp
+    val noise = Prefs.blurBtnNoise.value
     val q = quality()
     val light = MaterialTheme.colorScheme.onSurface
     return this
@@ -177,9 +177,9 @@ enum class FadeEdge { Bottom, Top }
 fun Modifier.glassFade(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true, state: HazeState? = LocalHaze.current): Modifier {
     if (state == null || !blurOn(part) || !inMainWindow()) return this
     val tone = glassTone(base)
-    val tint = Prefs.blurTint.value
+    val tint = Prefs.blurFadeTint.value
     var h by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    val radius = Prefs.blurRadius.value.dp
+    val radius = Prefs.blurFadeRadius.value.dp
     val noise = Prefs.blurNoise.value
     val fading = Prefs.blurFade.value && fadeOut
     val len = Prefs.blurFadeLen.value.coerceIn(0.3f, 3f)
@@ -233,11 +233,21 @@ fun Modifier.glassFade(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHe
         }
 }
 
+/** headers / bottom fades are glass (blur on, this part on, and "blurred fades" on) */
+@Composable
+fun fadeGlassOn(part: Prefs.B): Boolean = blurOn(part) && Prefs.blurFadeBlur.value && LocalHaze.current != null
+
+/**
+ * How much of a bar's fade shows: with "only while scrolling" it appears once content is under the bar
+ * ([scrolled] 0..1, animated by the caller), otherwise always.
+ */
+fun fadeShown(scrolled: Float): Float = if (Prefs.fadeOnScroll.value) scrolled.coerceIn(0f, 1f) else 1f
+
 /** the glass background layer of a bar: a sibling behind its content (see [glassFade]) */
 @Composable
-fun androidx.compose.foundation.layout.BoxScope.GlassFadeLayer(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true) {
-    if (!blurOn(part) || LocalHaze.current == null) return
-    Box(Modifier.matchParentSize().glassFade(open, base, part, fadeOut))
+fun androidx.compose.foundation.layout.BoxScope.GlassFadeLayer(open: FadeEdge, base: Color, part: Prefs.B = Prefs.blurHeaders, fadeOut: Boolean = true, shown: () -> Float = { 1f }) {
+    if (!fadeGlassOn(part)) return
+    Box(Modifier.matchParentSize().graphicsLayer { alpha = shown() }.glassFade(open, base, part, fadeOut))
 }
 
 /**

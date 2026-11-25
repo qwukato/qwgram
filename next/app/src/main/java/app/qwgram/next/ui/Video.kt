@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -89,16 +90,25 @@ object VideoViewer {
 @Composable
 fun LoopingVideo(path: String, modifier: Modifier = Modifier, crop: Boolean = true) {
     val ctx = LocalContext.current
+    // energy saving: GIFs wait for a tap instead of playing on their own
+    val paused = Prefs.powerSave.value && Prefs.psGifs.value
+    var tapped by remember(path) { mutableStateOf(false) }
     val player = remember(path) {
         ExoPlayer.Builder(ctx).build().apply {
             setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(path))))
             repeatMode = MPlayer.REPEAT_MODE_ALL
             volume = 0f
-            playWhenReady = true
+            playWhenReady = !paused
             prepare()
         }
     }
+    LaunchedEffect(paused, tapped) { player.playWhenReady = !paused || tapped }
     DisposableEffect(player) { onDispose { player.release() } }
+    if (paused && !tapped) Box(modifier.pointerInput(Unit) { detectTapGestures(onTap = { tapped = true }) }) {
+        AndroidView(factory = { c -> PlayerView(c).apply { useController = false; setShutterBackgroundColor(android.graphics.Color.TRANSPARENT); resizeMode = if (crop) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT; this.player = player } }, modifier = Modifier.matchParentSize())
+        Icon(Icons.Filled.PlayArrow, "GIF", tint = Color.White, modifier = Modifier.align(Alignment.Center).size(36.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)).padding(6.dp))
+        return
+    }
     AndroidView(
         factory = { c ->
             PlayerView(c).apply {

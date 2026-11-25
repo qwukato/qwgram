@@ -73,8 +73,9 @@ import androidx.compose.material.icons.filled.Check
 fun headerOverlap(): androidx.compose.ui.unit.Dp = if (Prefs.floatingBars.value) 12.dp else 0.dp
 
 /** header fade: the page colour at the top melting into transparency (the content shows through softly) */
-fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, @Suppress("UNUSED_PARAMETER") fade: androidx.compose.ui.unit.Dp = 22.dp): Modifier = drawBehind {
-    drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to color, 0.62f to color.copy(alpha = 0.92f), 1f to color.copy(alpha = 0f)))
+fun Modifier.topFade(color: androidx.compose.ui.graphics.Color, @Suppress("UNUSED_PARAMETER") fade: androidx.compose.ui.unit.Dp = 22.dp, shown: () -> Float = { 1f }): Modifier = drawBehind {
+    val a = shown()
+    if (a > 0.001f) drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to color.copy(alpha = a), 0.62f to color.copy(alpha = 0.92f * a), 1f to color.copy(alpha = 0f)))
 }
 
 /** header action: a floating round button with its own container and press morph, or a plain icon in classic mode */
@@ -104,12 +105,14 @@ fun FadeHeader(
     val cs = MaterialTheme.colorScheme
     val floating = Prefs.floatingBars.value
     val center = Prefs.centerTitle.value
-    val glassy = blurOn(Prefs.blurHeaders) && LocalHaze.current != null
+    val glassy = fadeGlassOn(Prefs.blurHeaders)
+    // the fade appears once the page is scrolled under the header (Appearance → Blur), when we know it
+    val shown: () -> Float = { if (lifted != null) fadeShown(lifted()) else 1f }
     Box(modifier.fillMaxWidth()) {
     // glass: the page blurs under the header, strongest at the top edge and melting away below (progressive)
     if (glassy) Box(
         Modifier.matchParentSize()
-            .graphicsLayer { alpha = (backgroundAlpha?.invoke() ?: 1f).coerceIn(0f, 1f) }
+            .graphicsLayer { alpha = ((backgroundAlpha?.invoke() ?: 1f) * shown()).coerceIn(0f, 1f) }
             .glassFade(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, lifted?.invoke() ?: 0f), fadeOut = floating),
     )
     Box(
@@ -121,10 +124,14 @@ fun FadeHeader(
                     val a = backgroundAlpha().coerceIn(0f, 1f)
                     if (a > 0f) {
                         val c = if (floating) cs.surface else cs.surfaceContainer
-                        drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to c.copy(alpha = a), 0.62f to c.copy(alpha = a * 0.92f), 1f to c.copy(alpha = if (floating) 0f else a)))
+                        // a long, soft fall-off (no visible edge under the title)
+                        drawRect(
+                            if (floating) androidx.compose.ui.graphics.Brush.verticalGradient(0f to c.copy(alpha = a), 0.3f to c.copy(alpha = a * 0.9f), 0.55f to c.copy(alpha = a * 0.62f), 0.8f to c.copy(alpha = a * 0.25f), 1f to c.copy(alpha = 0f))
+                            else androidx.compose.ui.graphics.SolidColor(c.copy(alpha = a)),
+                        )
                     }
                 }
-                else if (floating) Modifier.topFade(cs.surface)
+                else if (floating) Modifier.topFade(cs.surface, shown = shown)
                 // square header: page colour at rest, takes the elevated container colour as content scrolls under it
                 else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, (lifted?.invoke() ?: 0f).coerceIn(0f, 1f))) },
             )

@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.drawWithContent
@@ -494,7 +495,13 @@ fun ChatScreen(chatId: Long) {
     // our own message: the list stays pinned to the bottom in the same frame, so the old bubbles slide up (placement
     // animation) while the new one flies out of the input field — no jump, no second scroll
     androidx.compose.runtime.DisposableEffect(ctl) {
-        ctl.onOwnSend = { if (listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer) listState.requestScrollToItem(0) }
+        ctl.onOwnSend = {
+            if (listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer) {
+                // remember where the newest bubble is now: after the insert the list slides from there, not jumps
+                listState.layoutInfo.visibleItemsInfo.firstOrNull()?.let { sendFlight.pinKey = it.key; sendFlight.pinOffset = it.offset }
+                listState.requestScrollToItem(0)
+            }
+        }
         onDispose { ctl.onOwnSend = null }
     }
     // keep the newest message in view when something arrives and we are at the bottom
@@ -589,6 +596,13 @@ fun ChatScreen(chatId: Long) {
     val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
     val wallHaze = remember { dev.chrisbanes.haze.HazeState() }
     val sendFlight = remember { SendFlight() }
+    LaunchedEffect(sendFlight.shiftFrom) {
+        val (from, _) = sendFlight.shiftFrom
+        if (from == 0f) return@LaunchedEffect
+        val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+        androidx.compose.animation.core.animate(from, 0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 300f * k, visibilityThreshold = 0.5f)) { v, _ -> sendFlight.shift = v }
+        sendFlight.shift = 0f
+    }
     androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze, LocalSendFlight provides sendFlight) {
     Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
         // the wallpaper: blurred by the chrome (with the history) and, alone, by dates / service plates / bubbles
@@ -598,6 +612,8 @@ fun ChatScreen(chatId: Long) {
         val fade = wallpaperBase()
         // square header: page colour while nothing is under it, elevated colour once history scrolls beneath
         val chatLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollForward) 1f else 0f, androidx.compose.animation.core.tween(220), label = "cl")
+        // something is under the composer = the history is scrolled up from the newest message
+        val bottomLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollBackward) 1f else 0f, androidx.compose.animation.core.tween(260), label = "bl")
         Box(Modifier.fillMaxSize().padding(bottom = bottomInset).consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomInset))) {
             // ---- top: bars over a fade (content scrolls underneath, like Telegram)
             Box(
@@ -605,8 +621,8 @@ fun ChatScreen(chatId: Long) {
                     // the bar is a source too (above the history): a menu's full-screen blur shows it frosted
                     .blurSource(CHROME_Z)
                     .then(
-                        if (blurOn(Prefs.blurHeaders)) Modifier
-                        else if (Prefs.floatingBars.value) Modifier.topFade(fade)
+                        if (fadeGlassOn(Prefs.blurHeaders)) Modifier
+                        else if (Prefs.floatingBars.value) Modifier.topFade(fade, shown = { fadeShown(chatLift.value) })
                         else {
                             val cs2 = MaterialTheme.colorScheme
                             Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs2.surface, cs2.surfaceContainer, chatLift.value)) }
@@ -615,7 +631,7 @@ fun ChatScreen(chatId: Long) {
                     .onSizeChanged { topH = with(density) { it.height.toDp() } },
             ) {
             // glass under the bar (a background layer: the bar's own buttons stay crisp above it)
-            GlassFadeLayer(FadeEdge.Bottom, if (Prefs.floatingBars.value) fade else androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, chatLift.value), Prefs.blurHeaders, fadeOut = Prefs.floatingBars.value)
+            GlassFadeLayer(FadeEdge.Bottom, if (Prefs.floatingBars.value) fade else androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, chatLift.value), Prefs.blurHeaders, fadeOut = Prefs.floatingBars.value, shown = { if (Prefs.floatingBars.value) fadeShown(chatLift.value) else 1f })
             Column(Modifier.fillMaxWidth()) {
             AnimatedContent(
                 targetState = if (selecting) 2 else 0,
@@ -667,7 +683,20 @@ fun ChatScreen(chatId: Long) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
-                    modifier = Modifier.fillMaxSize().blurSource(1f),
+                    modifier = Modifier.fillMaxSize().blurSource(1f)
+                        .layout { m, c ->
+                            val pl = m.measure(c)
+                            // the insert just happened: find how far the old newest bubble moved and start from there
+                            sendFlight.pinKey?.let { k ->
+                                val now = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == k }
+                                if (now != null) {
+                                    val d = (now.offset - sendFlight.pinOffset).toFloat()
+                                    if (d > 0.5f && Prefs.motion.value != "off") { sendFlight.shift = d; sendFlight.shiftFrom = d to (sendFlight.shiftFrom.second + 1) }
+                                }
+                                sendFlight.pinKey = null
+                            }
+                            layout(pl.width, pl.height) { pl.place(0, sendFlight.shift.toInt()) }
+                        },
                     // no side padding: selection highlights span the whole width; rows pad their own content
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - headerOverlap()).coerceAtLeast(8.dp), bottom = (bottomH - if (Prefs.floatingBars.value) 10.dp else 0.dp).coerceAtLeast(8.dp)),
                 ) {
@@ -760,13 +789,16 @@ fun ChatScreen(chatId: Long) {
                 Modifier.zIndex(2f).align(Alignment.BottomCenter).fillMaxWidth()
                     .blurSource(CHROME_Z + 1f)
                     .then(
-                        if (blurOn(Prefs.blurComposer)) Modifier
-                        else Modifier.background(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f), 1f to fade)),
+                        if (fadeGlassOn(Prefs.blurComposer)) Modifier
+                        else Modifier.drawBehind {
+                            val a = fadeShown(bottomLift.value)
+                            if (a > 0.001f) drawRect(Brush.verticalGradient(0f to fade.copy(alpha = 0f), 0.3f to fade.copy(alpha = 0.8f * a), 1f to fade.copy(alpha = a)))
+                        },
                     )
                     .onSizeChanged { bottomH = with(density) { it.height.toDp() } },
             ) {
             // glass: the history blurs progressively under the composer, strongest at the bottom edge
-            GlassFadeLayer(FadeEdge.Top, fade, Prefs.blurComposer)
+            GlassFadeLayer(FadeEdge.Top, fade, Prefs.blurComposer, shown = { fadeShown(bottomLift.value) })
             Column(Modifier.fillMaxWidth()) {
             Spacer(Modifier.height(18.dp))
             if (canSend) {
@@ -1808,9 +1840,17 @@ object SendFly { var from: androidx.compose.ui.geometry.Rect? = null }
 class SendFlight {
     var token by mutableStateOf<Any?>(null)
     var layer by mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null)
+    /** the bubble's live bounds (in root) while it flies */
     var bubble by mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
-    var start by mutableStateOf(Offset.Zero)
+    /** where the typed text sat (in root): the flight starts here */
+    var from by mutableStateOf(Offset.Zero)
     val p = androidx.compose.animation.core.Animatable(1f)
+    /** the history slides up into the new bubble's room instead of jumping: placement offset of the list */
+    var shift by androidx.compose.runtime.mutableFloatStateOf(0f)
+    var shiftFrom by mutableStateOf(0f to 0)       // (start offset, token) → animated back to 0
+    /** the newest item before our message was inserted, and its offset then */
+    var pinKey: Any? = null
+    var pinOffset = 0
 }
 
 val LocalSendFlight = androidx.compose.runtime.staticCompositionLocalOf<SendFlight?> { null }
@@ -1822,33 +1862,32 @@ private fun Modifier.flyFromField(done: () -> Unit): Modifier {
     if (flight == null || from == null || Prefs.motion.value == "off") { LaunchedEffect(Unit) { done() }; return this }
     val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
     val token = remember { Any() }
-    var start by remember { mutableStateOf<Offset?>(null) }
-    var rect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var placed by remember { mutableStateOf(false) }
+    var finished by remember { mutableStateOf(false) }
     val dens = LocalDensity.current
     val pad = remember(dens) { with(dens) { Offset(12.dp.toPx(), 9.dp.toPx()) } }
-    var finished by remember { mutableStateOf(false) }
-    LaunchedEffect(start != null) {
-        val s0 = start ?: return@LaunchedEffect
-        flight.token = token; flight.layer = layer; flight.start = s0; flight.bubble = rect
+    LaunchedEffect(placed) {
+        if (!placed) return@LaunchedEffect
+        flight.token = token; flight.layer = layer; flight.from = Offset(from.left - pad.x, from.top - pad.y)
         flight.p.snapTo(0f)
         val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-        flight.p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 240f * k, visibilityThreshold = 0.001f))
+        // the same spring as the history sliding up: they arrive together
+        flight.p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 300f * k, visibilityThreshold = 0.001f))
         if (flight.token === token) { flight.token = null; flight.layer = null }
         finished = true
         done()
     }
     return this
         .onGloballyPositioned { c ->
-            val b = c.boundsInRoot()
-            rect = b
-            if (flight.token === token) flight.bubble = b
-            if (start == null) start = Offset(from.left - pad.x - b.left, from.top - pad.y - b.top)
+            // live position (the list is sliding): the overlay aims at where the bubble is right now
+            if (flight.token === token || !placed) flight.bubble = c.boundsInRoot()
+            placed = true
         }
         .drawWithContent {
             when {
                 finished -> drawContent()
-                start == null -> Unit                          // first frame: not placed yet, show nothing
-                flight.token === token -> layer.record { this@drawWithContent.drawContent() }   // drawn by the overlay
+                flight.token === token -> layer.record { this@drawWithContent.drawContent() }   // the overlay draws it
+                !placed || flight.token == null -> layer.record { this@drawWithContent.drawContent() } // about to fly: hidden
                 else -> drawContent()
             }
         }
@@ -1862,10 +1901,10 @@ private fun SendFlightOverlay(flight: SendFlight) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     androidx.compose.foundation.Canvas(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInRoot().topLeft }) {
         val t = flight.p.value
-        // x settles a touch faster than y: the bubble arcs up into place
-        val tx = (t * 1.12f).coerceAtMost(maxOf(1f, t))
-        val x = flight.bubble.left - origin.x + flight.start.x * (1f - tx)
-        val y = flight.bubble.top - origin.y + flight.start.y * (1f - t)
+        // from the typed text to the bubble's live spot; x settles a touch earlier, so it arcs up like Telegram
+        val tx = (t * 1.15f).coerceAtMost(maxOf(1f, t))
+        val x = flight.from.x + (flight.bubble.left - flight.from.x) * tx - origin.x
+        val y = flight.from.y + (flight.bubble.top - flight.from.y) * t - origin.y
         translate(x, y) { drawLayer(layer) }
     }
 }

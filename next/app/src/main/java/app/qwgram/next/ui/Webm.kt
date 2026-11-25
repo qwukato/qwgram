@@ -264,8 +264,10 @@ fun WebmImage(file: TdApi.File, modifier: Modifier = Modifier, placeholder: @Com
         val a = anim
         if (a == null || a.frames.isEmpty()) { Box(Modifier.fillMaxSize()) { placeholder() }; return@BoxWithConstraints }
         var frame by remember(a) { mutableIntStateOf(0) }
-        LaunchedEffect(a, Prefs.motion.value) {
-            if (Prefs.motion.value == "off" || a.frames.size < 2) return@LaunchedEffect
+        val ps = if (Prefs.powerSave.value) Prefs.psStickers.value else "loop"
+        LaunchedEffect(a, Prefs.motion.value, ps) {
+            if (Prefs.motion.value == "off" || a.frames.size < 2 || ps == "still") return@LaunchedEffect
+            var laps = 0
             var acc = 0L
             var last = -1L
             while (true) {
@@ -273,9 +275,10 @@ fun WebmImage(file: TdApi.File, modifier: Modifier = Modifier, placeholder: @Com
                     if (last >= 0) acc += (t - last) / 1_000_000L
                     last = t
                     var f = frame
-                    while (acc >= a.durationsMs[f]) { acc -= a.durationsMs[f]; f = (f + 1) % a.frames.size }
+                    while (acc >= a.durationsMs[f]) { acc -= a.durationsMs[f]; f = (f + 1) % a.frames.size; if (f == 0) laps++ }
                     if (f != frame) frame = f
                 }
+                if (ps == "once" && laps > 0) { frame = 0; break }
             }
         }
         Canvas(Modifier.fillMaxSize()) {

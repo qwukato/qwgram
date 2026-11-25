@@ -199,6 +199,21 @@ object Prefs {
     val blurMenus = B("blur_menus", true)              // the chat behind a message menu
     val blurWindows = B("blur_windows", true)          // behind sheets, dialogs and popups (Android 12+)
     val blurWindowRadius = I("blur_window_radius", 24) // dp
+    // separate looks for the two kinds of glass
+    val blurFadeBlur = B("blur_fade_blur", true)       // headers / bottom fades are blurred (off: a plain colour fade)
+    val blurFadeRadius = I("blur_fade_radius", 32)
+    val blurFadeTint = F("blur_fade_tint", 0.62f)
+    val blurBtnRadius = I("blur_btn_radius", 24)       // buttons, pills, composer
+    val blurBtnTint = F("blur_btn_tint", 0.55f)
+    val blurBtnNoise = F("blur_btn_noise", 0.04f)
+    val blurChipsFolders = B("blur_folders", true)     // folder chips over the chat list
+    val fadeOnScroll = B("fade_on_scroll", true)       // header / bottom fades appear only once content is under them
+    // ---- energy saving (off by default) ----
+    val powerSave = B("power_save", false)
+    val psIdleAnims = B("ps_idle_anims", true)         // stop decorative loops (record spin, waves, shapes) when idle
+    val psStickers = S("ps_stickers", "loop")          // loop | once | still — animated stickers and emoji
+    val psBlurLow = B("ps_blur_low", true)             // blur a smaller copy
+    val psGifs = B("ps_gifs", false)                   // pause GIFs / round videos in chats until tapped
 
     fun resetAppearance() {
         all.filter { it.key !in setOf(

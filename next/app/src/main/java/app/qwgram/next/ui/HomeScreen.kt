@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -211,31 +213,50 @@ fun HomeScreen() {
             containerColor = if (appWallpaperOn()) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.surface,
         ) { pad ->
             Box(Modifier.fillMaxSize().nestedScroll(fabConn)) {
-                AnimatedContent(
-                    targetState = HomeState.tab,
-                    transitionSpec = {
-                        // M3 shared axis X between top-level destinations: a short slide in the tab's direction,
-                        // the old screen fades out quickly, the new one fades in a beat later on a soft spring
-                        val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                // the tabs stay alive once opened (no rebuild on every switch: no stall, scroll kept); switching is a
+                // fade-through on the shared X axis — the old tab dissolves fast, the new one drifts in from 97%
+                val visited = remember { androidx.compose.runtime.mutableStateListOf(HomeState.tab) }
+                if (HomeState.tab !in visited) visited.add(HomeState.tab)
+                var lastTab by remember { mutableStateOf(HomeState.tab) }
+                val dir = if (HomeState.tab.ordinal >= lastTab.ordinal) 1 else -1
+                SideEffect { lastTab = HomeState.tab }
+                HomeTab.entries.forEach { t ->
+                    if (t !in visited) return@forEach
+                    androidx.compose.runtime.key(t) {
+                        val sel = HomeState.tab == t
                         val k = Prefs.motionSpeed.value
-                        val emph = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)   // M3 emphasized decelerate
-                        val dur = (420 / k).toInt()
-                        // fade-through on the shared X axis: the old screen dissolves fast, the new one drifts in a
-                        // little, grows from 96% and settles softly — no hard edges, no bounce
-                        (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(dur, easing = emph)) { dir * it / 14 } +
-                            fadeIn(androidx.compose.animation.core.tween((dur * 0.7f).toInt(), delayMillis = (dur * 0.2f).toInt(), easing = emph)) +
-                            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(dur, easing = emph), initialScale = 0.96f))
-                            .togetherWith(
-                                androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween((dur * 0.5f).toInt())) { -dir * it / 24 } +
-                                    fadeOut(androidx.compose.animation.core.tween((dur * 0.3f).toInt())),
-                            )
-                    },
-                    label = "tabs",
-                ) { t ->
-                    when (t) {
-                        HomeTab.Chats -> ChatsTab(pad, drawer)
-                        HomeTab.Contacts -> ContactsTab(pad)
-                        HomeTab.Settings -> SettingsHome(pad)
+                        val off = Prefs.motion.value == "off"
+                        val a by androidx.compose.animation.core.animateFloatAsState(
+                            if (sel) 1f else 0f,
+                            if (off) androidx.compose.animation.core.snap()
+                            else if (sel) androidx.compose.animation.core.tween((300 / k).toInt(), delayMillis = (60 / k).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
+                            else androidx.compose.animation.core.tween((130 / k).toInt(), easing = androidx.compose.animation.core.LinearEasing),
+                            label = "tab",
+                        )
+                        val enterDir = remember { mutableStateOf(1) }
+                        if (sel) SideEffect { enterDir.value = dir }
+                        Box(
+                            Modifier.fillMaxSize().zIndex(if (sel) 1f else 0f)
+                                // a hidden tab is kept laid out but placed off screen: it gets no touches
+                                .layout { m, c ->
+                                    val pl = m.measure(c)
+                                    layout(pl.width, pl.height) { if (!sel && a < 0.01f) pl.place(-pl.width * 4, 0) else pl.place(0, 0) }
+                                }
+                                .graphicsLayer {
+                                    alpha = a
+                                    if (sel && a < 1f) {
+                                        val sc = 0.97f + 0.03f * a
+                                        scaleX = sc; scaleY = sc
+                                        translationX = (1f - a) * enterDir.value * 28.dp.toPx()
+                                    }
+                                },
+                        ) {
+                            when (t) {
+                                HomeTab.Chats -> ChatsTab(pad, drawer)
+                                HomeTab.Contacts -> ContactsTab(pad)
+                                HomeTab.Settings -> SettingsHome(pad)
+                            }
+                        }
                     }
                 }
                 // scrim behind the open FAB menu
@@ -275,7 +296,7 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
     Box(
         modifier.fillMaxWidth()
             .then(
-                if (blurOn(Prefs.blurBars)) Modifier
+                if (fadeGlassOn(Prefs.blurBars)) Modifier
                 else Modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to cs.surface.copy(alpha = 0f), 0.45f to cs.surface.copy(alpha = 0.85f), 1f to cs.surface)),
             ),
     ) {
@@ -368,7 +389,9 @@ private fun BottomNav(modifier: Modifier) {
     val labels = Prefs.navLabels.value
     if (Prefs.navStyle.value == "floating") {
         Box(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 12.dp), contentAlignment = Alignment.Center) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp, shadowElevation = 3.dp) {
+            val g = blurOn(Prefs.blurBars) && LocalHaze.current != null
+            Surface(shape = CircleShape, color = if (g) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = if (g) 0.dp else 3.dp, shadowElevation = if (g) 0.dp else 3.dp,
+                modifier = Modifier.glass(CircleShape, MaterialTheme.colorScheme.surfaceContainerHigh)) {
                 Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     tabs.forEach { (t, title, icons) ->
                         val sel = HomeState.tab == t
@@ -376,7 +399,7 @@ private fun BottomNav(modifier: Modifier) {
                         Surface(
                             onClick = { HomeState.tab = t },
                             shape = CircleShape,
-                            color = if (sel) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            color = if (sel) MaterialTheme.colorScheme.secondaryContainer else if (g) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh,
                             modifier = Modifier.height(52.dp).width(w),
                         ) {
                             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -392,7 +415,12 @@ private fun BottomNav(modifier: Modifier) {
             }
         }
     } else {
-        ShortNavigationBar(modifier) {
+        // square bar: glass across the whole bottom when the blur is on
+        val g = blurOn(Prefs.blurBars) && LocalHaze.current != null
+        ShortNavigationBar(
+            modifier.then(if (g) Modifier.glass(androidx.compose.ui.graphics.RectangleShape, MaterialTheme.colorScheme.surfaceContainer, edge = false) else Modifier),
+            containerColor = if (g) Color.Transparent else androidx.compose.material3.ShortNavigationBarDefaults.containerColor,
+        ) {
             tabs.forEach { (t, title, icons) ->
                 val sel = HomeState.tab == t
                 ShortNavigationBarItem(
@@ -464,23 +492,31 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             modifier = Modifier.fillMaxSize().blurSource(),
             key = { tabs.getOrNull(it)?.title ?: it },
             beyondViewportPageCount = 1,
+            // the page lands on a soft spring with a hint of overshoot: the trailing rows close up with a little bounce
+            flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                state = pager,
+                snapAnimationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 320f * Prefs.motionSpeed.value * Prefs.motionSpeed.value),
+            ),
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
             Box(Modifier.fillMaxSize().clipToBounds()) {
-            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, cascade = if (page == cascadePage) cascadeGen else 0, pageOffset = { page - (pager.currentPage + pager.currentPageOffsetFraction) }, onLong = { actionChat = it })
+            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, pageOffset = { page - (pager.currentPage + pager.currentPageOffsetFraction) },
+                // content moves left when we go to a later page (position grows past the settled page), right otherwise
+                dir = { val pos = pager.currentPage + pager.currentPageOffsetFraction; -kotlin.math.sign(pos - pager.settledPage) },
+                onLong = { actionChat = it })
             }
         }
         val cs = MaterialTheme.colorScheme
         Box(
             Modifier.fillMaxWidth().onSizeChanged { headerH = with(hd) { it.height.toDp() } }
                 .then(
-                    if (blurOn(Prefs.blurHeaders)) Modifier
-                    else if (floating) Modifier.topFade(cs.surface)
+                    if (fadeGlassOn(Prefs.blurHeaders)) Modifier
+                    else if (floating) Modifier.topFade(cs.surface, shown = { fadeShown(homeLift.value) })
                     else Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value)) },
                 ),
         ) {
         // glass: the chats blur under the header, fading out downwards (a background layer: buttons stay crisp)
-        GlassFadeLayer(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value), Prefs.blurHeaders, fadeOut = floating)
+        GlassFadeLayer(FadeEdge.Bottom, if (floating) cs.surface else androidx.compose.ui.graphics.lerp(cs.surface, cs.surfaceContainer, homeLift.value), Prefs.blurHeaders, fadeOut = floating, shown = { if (floating) fadeShown(homeLift.value) else 1f })
         Column(Modifier.fillMaxWidth()) {
             if (Prefs.topBar.value == "search") {
                 SearchBarHeader(openDrawer, tabs.getOrNull(pager.currentPage)?.title)
@@ -496,8 +532,9 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             if (tabs.size > 1) FolderBar(tabs, pager.currentPage) { i ->
                 // tap on a folder: the list switches in place and its rows cascade in on a spring (M3 expressive)
                 scope.launch {
-                    if (Prefs.motion.value == "off" || kotlin.math.abs(i - pager.currentPage) == 0) pager.animateScrollToPage(i, animationSpec = MaterialTheme_springPager())
-                    else { cascadePage = i; cascadeGen++; pager.scrollToPage(i) }
+                    // the pages slide over (far folders: the pager jumps close first), rows trailing in the same wave
+                    if (Prefs.motion.value == "off") pager.scrollToPage(i)
+                    else pager.animateScrollToPage(i, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 260f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
                 }
             }
             if (floating) Spacer(Modifier.height(14.dp))
@@ -619,9 +656,14 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
                             scaleX = sc; scaleY = sc
                             shape = RoundedCornerShape(topStart = start.rs(), bottomStart = start.rs(), topEnd = end.rs(), bottomEnd = end.rs())
                             clip = true
-                            shadowElevation = if (floating) 2.dp.toPx() else 0f
+                            shadowElevation = if (floating && !(blurOn(Prefs.blurChipsFolders))) 2.dp.toPx() else 0f
                         }
-                        .background(bg)
+                        // glass chips over the chat list (Appearance → Blur → folders)
+                        .then(
+                            if (blurOn(Prefs.blurChipsFolders) && LocalHaze.current != null)
+                                Modifier.glass(RoundedCornerShape(topStart = start.rs(), bottomStart = start.rs(), topEnd = end.rs(), bottomEnd = end.rs()), bg, Prefs.blurChipsFolders, strength = if (sel) 1.5f else 1f)
+                            else Modifier.background(bg),
+                        )
                         .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple()) { onSelect(i) }
                         .padding(horizontal = padH),
                     contentAlignment = Alignment.Center,
@@ -654,7 +696,7 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 }
 
 @Composable
-fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, pageOffset: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
+fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, pageOffset: () -> Float = { 0f }, dir: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
     val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
     val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
@@ -724,7 +766,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, pageOffset).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, pageOffset, dir).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
                 ChatRow(c, list, onLong = { onLong(c) }) { Nav.push(Route.Chat(c.id)) }
             }
         }
@@ -960,33 +1002,24 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
 }
 
 /**
- * Folder swipe cascade (ColorOS-style "layers bounce apart"): every row follows the page through its OWN spring —
- * the top row is stiff and keeps up with the finger, each next row is softer, so the rows trail one after another
- * and bounce into place when the page lands. A tap on a folder makes the rows fly in the same way. Rows stay
- * inside their page (the page clips), and at rest nothing is moved.
+ * Folder swipe cascade. Pure geometry, no springs of its own (so it can't stutter, overlap or leave holes):
+ * while the pages move, each row trails behind its page a little more than the row above it — the top row keeps
+ * up with the finger, the lower ones follow like a soft wave — and when the page lands they all close up at the
+ * same moment the page does (the pager's own slightly springy settle gives the bounce). At rest nothing moves.
+ * [dir]: the direction the content travels (−1 left, +1 right, 0 still).
  */
 @Composable
-private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float): Modifier {
+private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float, dir: () -> Float): Modifier {
     if (Prefs.motion.value == "off") return this
-    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 12) } }
-    val lagged = remember { androidx.compose.animation.core.Animatable(pageOffset()) }
-    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-    LaunchedEffect(rel) {
-        val stiff = (1100f / (1f + rel * 0.42f)) * k
-        snapshotFlow { pageOffset() }.collectLatest { t ->
-            lagged.animateTo(t, androidx.compose.animation.core.spring(dampingRatio = 0.66f, stiffness = stiff))
-        }
-    }
+    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 14) } }
     return graphicsLayer {
-        val d = pageOffset()
-        val lag = (lagged.value - d).coerceIn(-0.45f, 0.45f)   // in pages
-        if (kotlin.math.abs(lag) < 0.0005f) return@graphicsLayer
-        translationX = lag * size.width
-        val a = kotlin.math.abs(lag)
-        // the trailing rows also drift apart a touch vertically and dip slightly — then close up as they land
-        translationY = a * rel * 5.dp.toPx()
-        val sc = 1f - 0.08f * a
-        scaleX = sc; scaleY = sc
+        val d = kotlin.math.abs(pageOffset()).coerceIn(0f, 1f)
+        if (d < 0.0005f) return@graphicsLayer
+        // trailing grows down the list, eased so the first rows stay close and the wave builds smoothly
+        val f = (0.035f + 0.026f * rel).coerceAtMost(0.32f)
+        // strongest mid-way, gone at both ends (on screen and fully off): a gentle bell, never a jump
+        val bell = 4f * d * (1f - d)
+        translationX = -dir() * f * bell * size.width
     }
 }
 
