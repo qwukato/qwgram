@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.graphics.asImageBitmap
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,32 @@ private object TgsCache {
     fun load(path: String): String? = json.get(path) ?: runCatching {
         GZIPInputStream(File(path).inputStream().buffered()).use { it.readBytes().toString(Charsets.UTF_8) }
     }.getOrNull()?.also { json.put(path, it) }
+}
+
+private val stillCache = object : android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(24 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: androidx.compose.ui.graphics.ImageBitmap) = value.width * value.height * 4
+}
+
+/**
+ * A sticker as a still picture (first frame), decoded once off the main thread and cached. Far cheaper than an
+ * animated sticker: for grids with many items (gifts) and for patterns drawn many times.
+ */
+@Composable
+fun rememberStickerStill(s: TdApi.Sticker?, px: Int): androidx.compose.ui.graphics.ImageBitmap? {
+    if (s == null) return null
+    val path = rememberLocalPath(s.sticker)
+    val key = "${s.sticker.id}@$px"
+    var img by remember(key) { mutableStateOf(stillCache.get(key)) }
+    LaunchedEffect(key, path) {
+        if (img != null || path == null) return@LaunchedEffect
+        img = withContext(Dispatchers.Default) {
+            stillCache.get(key) ?: stickerBitmap(s, px)?.let { b ->
+                val sc = px.toFloat() / maxOf(b.width, b.height)
+                (if (sc < 1f) android.graphics.Bitmap.createScaledBitmap(b, (b.width * sc).toInt().coerceAtLeast(1), (b.height * sc).toInt().coerceAtLeast(1), true) else b).asImageBitmap()
+            }?.also { stillCache.put(key, it) }
+        }
+    }
+    return img
 }
 
 /** a still picture of any sticker (for drawing it into an edited photo / video); null if not downloaded yet */

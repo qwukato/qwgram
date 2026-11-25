@@ -271,14 +271,9 @@ fun WindowBlurBehind(part: Prefs.B = Prefs.blurWindows, progress: () -> Float = 
                     if (dialogWindow != null) {
                         dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                         dialogWindow.attributes = dialogWindow.attributes.apply { blurBehindRadius = r }
-                    } else {
-                        // a Popup: its root view is added straight to the WindowManager
-                        val root = view.rootView
-                        val lp = root.layoutParams as? WindowManager.LayoutParams ?: return@runCatching
-                        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
-                        lp.blurBehindRadius = r
-                        wm.updateViewLayout(root, lp)
                     }
+                    // popups are skipped on purpose: their blur covers the popup's rectangle (a blurred square behind
+                    // a round menu)
                 }
             }
     }

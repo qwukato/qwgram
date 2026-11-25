@@ -287,8 +287,6 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
             transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 300f * k) else androidx.compose.animation.core.spring(0.95f, 520f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
-        // the screen behind the menu frosts while it is open (Appearance → Blur → menus; Android 12+)
-        WindowBlurBehind(Prefs.blurMenus) { p }
         val radiusEnd = 16.dp.rs()
         Column(
             // as wide as the longest item (no empty band on the right), within M3's 112–280dp

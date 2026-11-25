@@ -82,53 +82,60 @@ private fun rarityText(r: TdApi.UpgradedGiftAttributeRarity?): String = when (r)
     else -> ""
 }
 
-/** the backdrop of a collectible: radial glow + a ring of its pattern symbol */
+/**
+ * The backdrop of a collectible, drawn in one Canvas (cheap enough for a grid of them): the radial glow from centre
+ * to edge colour and two rings of the pattern symbol tinted with the backdrop's symbol colour.
+ */
 @Composable
-private fun GiftBackdrop(center: Color, edge: Color, symbol: TdApi.Sticker?, symbolTint: Color, ring: Float, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun GiftBackdrop(center: Color, edge: Color, symbol: TdApi.Sticker?, symbolTint: Color, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val sym = rememberStickerStill(symbol, 96)
     Box(
         modifier.drawBehind {
             drawRect(edge)
             drawRect(Brush.radialGradient(listOf(center, edge), center = Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.62f))
+            val img = sym ?: return@drawBehind
+            val unit = size.minDimension
+            val tint = androidx.compose.ui.graphics.ColorFilter.tint(symbolTint)
+            fun ring(n: Int, rx: Float, ry: Float, phase: Double, s: Float, a: Float) {
+                val side = (unit * s).toInt().coerceAtLeast(2)
+                for (i in 0 until n) {
+                    val ang = Math.toRadians(i * 360.0 / n + phase)
+                    val cx = size.width / 2f + (cos(ang) * rx * unit).toFloat()
+                    val cy = size.height * 0.45f + (sin(ang) * ry * unit).toFloat()
+                    drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset.Zero, srcSize = androidx.compose.ui.unit.IntSize(img.width, img.height),
+                        dstOffset = androidx.compose.ui.unit.IntOffset((cx - side / 2f).toInt(), (cy - side / 2f).toInt()), dstSize = androidx.compose.ui.unit.IntSize(side, side),
+                        alpha = a, colorFilter = tint)
+                }
+            }
+            ring(6, 0.34f, 0.31f, 30.0, 0.11f, 0.30f)
+            ring(10, 0.48f, 0.44f, 0.0, 0.09f, 0.16f)
         },
         contentAlignment = Alignment.Center,
-    ) {
-        if (symbol != null) {
-            // two rings of the pattern around the model, fading out (Telegram's look)
-            val pts = remember(ring) {
-                buildList {
-                    for (i in 0 until 6) { val a = Math.toRadians(i * 60.0 + 30); add(Triple(cos(a).toFloat() * 0.33f, sin(a).toFloat() * 0.3f, 0.32f)) }
-                    for (i in 0 until 8) { val a = Math.toRadians(i * 45.0); add(Triple(cos(a).toFloat() * 0.46f, sin(a).toFloat() * 0.42f, 0.16f)) }
-                }
-            }
-            pts.forEach { (x, y, a) ->
-                Box(
-                    Modifier.size((ring * 0.13f).dp).graphicsLayer {
-                        translationX = x * ring.dp.toPx(); translationY = y * ring.dp.toPx(); alpha = a
-                    },
-                ) {
-                    // tinted with the backdrop's symbol colour (keeps the sticker's shape)
-                    StickerContent(symbol, Modifier.fillMaxSize()
-                        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-                        .drawWithContent { drawContent(); drawRect(symbolTint, blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn) })
-                }
-            }
-        }
-        content()
-    }
+    ) { content() }
+}
+
+/** the gift's model / sticker: a still in grids, animated where it's the star (details) */
+@Composable
+private fun GiftArt(s: TdApi.Sticker, size: Dp, animated: Boolean) {
+    if (animated) { StickerContent(s, Modifier.size(size)); return }
+    val px = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
+    val img = rememberStickerStill(s, px)
+    if (img != null) androidx.compose.foundation.Image(img, null, Modifier.size(size))
+    else Box(Modifier.size(size))
 }
 
 /** one gift tile (regular or collectible) */
 @Composable
-private fun GiftTile(g: TdApi.ReceivedGift, size: Dp, onClick: () -> Unit) {
+private fun GiftTile(g: TdApi.ReceivedGift, size: Dp, onClick: () -> Unit, modifier: Modifier = Modifier.size(size)) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(22.dp.rs())
     when (val sg = g.gift) {
         is TdApi.SentGiftUpgraded -> {
             val u = sg.gift
             val c = u.backdrop.colors
-            Box(Modifier.size(size).clip(shape).clickable(onClick = onClick)) {
-                GiftBackdrop(argb(c.centerColor), argb(c.edgeColor), u.symbol.sticker, argb(c.symbolColor), size.value, Modifier.fillMaxSize()) {
-                    StickerContent(u.model.sticker, Modifier.size(size * 0.62f))
+            Box(modifier.clip(shape).clickable(onClick = onClick)) {
+                GiftBackdrop(argb(c.centerColor), argb(c.edgeColor), u.symbol.sticker, argb(c.symbolColor), Modifier.fillMaxSize()) {
+                    Box(Modifier.padding(bottom = 10.dp)) { GiftArt(u.model.sticker, size * 0.6f, animated = false) }
                 }
                 // the number, Telegram-like ribbon
                 Text(
@@ -142,7 +149,7 @@ private fun GiftTile(g: TdApi.ReceivedGift, size: Dp, onClick: () -> Unit) {
             val gift = sg.gift
             val bg = gift.background
             Box(
-                Modifier.size(size).clip(shape)
+                modifier.clip(shape)
                     .then(if (bg != null) Modifier.drawBehind {
                         drawRect(argb(bg.edgeColor))
                         drawRect(Brush.radialGradient(listOf(argb(bg.centerColor), argb(bg.edgeColor)), radius = this.size.maxDimension * 0.6f))
@@ -150,7 +157,7 @@ private fun GiftTile(g: TdApi.ReceivedGift, size: Dp, onClick: () -> Unit) {
                     .clickable(onClick = onClick),
                 contentAlignment = Alignment.Center,
             ) {
-                StickerContent(gift.sticker, Modifier.size(size * 0.6f))
+                Box(Modifier.padding(bottom = 10.dp)) { GiftArt(gift.sticker, size * 0.58f, animated = false) }
                 Text(
                     "★ ${gift.starCount}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFFFFB300),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp).clip(CircleShape).background(Color(0x33FFB300)).padding(horizontal = 8.dp, vertical = 2.dp),
@@ -190,12 +197,12 @@ fun ProfileGifts(owner: TdApi.MessageSender, modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.height(8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(list.take(20), key = { _, g -> g.receivedGiftId.ifEmpty { g.date.toString() + g.hashCode() } }) { i, g ->
+                itemsIndexed(list.take(12), key = { _, g -> g.receivedGiftId.ifEmpty { g.date.toString() + g.hashCode() } }) { i, g ->
                     // tiles pop in one after another
                     val a = remember { Animatable(0f) }
                     LaunchedEffect(Unit) { kotlinx.coroutines.delay(40L * i.coerceAtMost(8)); a.animateTo(1f, spring(0.6f, 380f)) }
                     Box(Modifier.graphicsLayer { val s = 0.7f + 0.3f * a.value; scaleX = s; scaleY = s; alpha = a.value.coerceIn(0f, 1f) }) {
-                        GiftTile(g, 96.dp) { open = g }
+                        GiftTile(g, 96.dp, { open = g })
                     }
                 }
             }
@@ -203,10 +210,12 @@ fun ProfileGifts(owner: TdApi.MessageSender, modifier: Modifier = Modifier) {
     }
     if (all) QSheet(onDismiss = { all = false }) {
         Text("Подарки · $total", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
-        LazyVerticalGrid(GridCells.Adaptive(104.dp), Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(list, key = { it.receivedGiftId.ifEmpty { it.date.toString() + it.hashCode() } }) { g ->
-                Box(Modifier.aspectRatio(1f)) { GiftTile(g, 112.dp) { open = g } }
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                    GiftTile(g, maxWidth, { open = g }, Modifier.fillMaxSize())
+                }
             }
         }
     }
@@ -223,9 +232,9 @@ private fun GiftDetails(g: TdApi.ReceivedGift, onDismiss: () -> Unit) {
                 is TdApi.SentGiftUpgraded -> {
                     val u = sg.gift
                     val c = u.backdrop.colors
-                    GiftBackdrop(argb(c.centerColor), argb(c.edgeColor), u.symbol.sticker, argb(c.symbolColor), 300f, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(28.dp.rs()))) {
+                    GiftBackdrop(argb(c.centerColor), argb(c.edgeColor), u.symbol.sticker, argb(c.symbolColor), Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(28.dp.rs()))) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            StickerContent(u.model.sticker, Modifier.size(150.dp))
+                            GiftArt(u.model.sticker, 150.dp, animated = true)
                             Text(u.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = argb(c.textColor).takeIf { c.textColor != 0 } ?: Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("Коллекционный · #${u.number} из ${u.maxUpgradedCount.takeIf { it > 0 } ?: u.totalUpgradedCount}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.82f))
                         }
@@ -243,7 +252,7 @@ private fun GiftDetails(g: TdApi.ReceivedGift, onDismiss: () -> Unit) {
                 is TdApi.SentGiftRegular -> {
                     val gift = sg.gift
                     Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(28.dp.rs())).background(cs.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                        StickerContent(gift.sticker, Modifier.size(150.dp))
+                        GiftArt(gift.sticker, 150.dp, animated = true)
                     }
                     Spacer(Modifier.height(12.dp))
                     val rows = buildList {

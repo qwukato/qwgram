@@ -445,10 +445,8 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
                         layout(fw, fh) { pl.place(lerp(o.left - hostPos.x, 0f).toInt(), lerp(o.top - hostPos.y, 0f).toInt()) }
                     }
                     // the very same container as the search button (colour, glass): it is the button, grown
-                    .then(
-                        if (blurOn(Prefs.blurBars) && LocalHaze.current != null) Modifier.glass(CircleShape, cs.surfaceContainerHigh)
-                        else Modifier.clip(CircleShape).background(cs.surfaceContainerHigh),
-                    )
+                    // solid (even with the blur on): a crisp container reads clearly as the button growing
+                    .clip(CircleShape).background(cs.surfaceContainerHigh)
                     .clipToBounds(),
                 contentAlignment = Alignment.CenterStart,
             ) {
@@ -459,7 +457,7 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
                 )
                 // the field's content is laid out at its final width and only revealed as the pill grows
                 // (no re-wrapping of "Поиск в чате" into a tiny box), and fades in during the second half
-                Box(Modifier.fillMaxWidth().padding(start = 50.dp, end = 16.dp).graphicsLayer { alpha = ((grow() - 0.45f) / 0.55f).coerceIn(0f, 1f) }) {
+                Box(Modifier.fillMaxWidth().padding(start = 50.dp, end = 16.dp).graphicsLayer { val g = grow(); alpha = ((g - 0.3f) / 0.5f).coerceIn(0f, 1f); translationX = (1f - g.coerceIn(0f, 1f)) * 24.dp.toPx() }) {
                 BasicTextField(
                     s.query, { s.query = it }, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface), cursorBrush = SolidColor(cs.primary),

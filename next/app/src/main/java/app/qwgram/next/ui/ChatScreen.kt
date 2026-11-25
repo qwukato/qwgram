@@ -660,7 +660,14 @@ fun ChatScreen(chatId: Long) {
                     // the header stays underneath while the search bar grows over it: it fades out as the bar grows
                     // and back in as the bar shrinks into the button — one continuous container transform
                     else -> Box {
-                        Box(Modifier.graphicsLayer { alpha = if (searching) (1f - searchGrow.value * 1.25f).coerceIn(0f, 1f) else 1f }) {
+                        // the title, avatar and buttons step back (fade + slight shrink towards the back arrow) as the field grows
+                        Box(Modifier.graphicsLayer {
+                            val g = if (searching) searchGrow.value.coerceIn(0f, 1f) else 0f
+                            alpha = (1f - g * 1.5f).coerceIn(0f, 1f)
+                            val sc = 1f - 0.04f * g
+                            scaleX = sc; scaleY = sc
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                        }) {
                             ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching)
                         }
                         if (searching) ChatSearchBar(
@@ -675,8 +682,11 @@ fun ChatScreen(chatId: Long) {
             ctl.pinned?.let { p ->
                 PinnedBar(p, onClick = { jump(p.id) }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
             }
-            Spacer(Modifier.height(18.dp))
+            // floating bars leave room for the fade; a square bar ends right under its content (no empty band)
+            if (Prefs.floatingBars.value) Spacer(Modifier.height(18.dp))
             }
+            // square bar: a hairline once the history is under it
+            if (!Prefs.floatingBars.value) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).graphicsLayer { alpha = chatLift.value }.background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
             }
             Box(
                 Modifier.fillMaxSize()
