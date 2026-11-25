@@ -363,7 +363,11 @@ private fun ViewersSheet(m: TdApi.Message, onDone: () -> Unit) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             val v = viewers
             Text(
-                if (v == null) "Просмотры" else "Прочитали · ${v.size}" + if (reactions.isNotEmpty()) " · реакций ${reactions.size}" else "",
+                when {
+                    v == null -> "Просмотры"
+                    v.isEmpty() && reactions.isNotEmpty() -> "Реакции · ${reactions.size}"
+                    else -> "Прочитали · ${v.size}" + if (reactions.isNotEmpty()) " · реакций ${reactions.size}" else ""
+                },
                 style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp),
             )
             if (v == null) Box(Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
