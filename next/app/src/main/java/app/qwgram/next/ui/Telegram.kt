@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -476,8 +477,7 @@ fun JoinBar(chat: TdApi.Chat) {
     }
 }
 
-@Composable
-private fun Modifier.navigationBarsPaddingCompat(): Modifier = this.then(Modifier.padding(bottom = with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(this).toDp() }))
+private fun Modifier.navigationBarsPaddingCompat(): Modifier = this.navigationBarsPadding()
 
 /** a bot you never talked to: Telegram's big START button */
 @Composable
