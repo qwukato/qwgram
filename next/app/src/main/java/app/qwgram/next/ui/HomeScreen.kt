@@ -749,6 +749,10 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         modifier = Modifier.fillMaxSize().then(if (page >= 0) Modifier.cancelPage(page, at) else Modifier).nestedScroll(pullConn),
         verticalArrangement = Arrangement.spacedBy(if (Prefs.listStyle.value == "cards") 2.dp else 0.dp),
     ) {
+        // stories of contacts and channels, above everything (Telegram)
+        if (list is TdApi.ChatListMain && page >= 0 && Stories.active.isNotEmpty()) item(key = "stories") {
+            StoriesStrip(Modifier.followFinger(0, state, page))
+        }
         if (archived.isNotEmpty()) {
             if (hidden && !revealed) item(key = "archive-pull") {
                 // grows with the pull: archive icon fills up, then the row springs out

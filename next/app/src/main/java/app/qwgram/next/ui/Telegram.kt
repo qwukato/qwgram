@@ -270,6 +270,7 @@ fun TgHost() {
         }) { Tg.autoDelete = null }
     }
     Tg.member?.let { (chat, mem) -> MemberActions(chat, mem) { Tg.member = null } }
+    StoryViewerHost()
 }
 
 @Composable

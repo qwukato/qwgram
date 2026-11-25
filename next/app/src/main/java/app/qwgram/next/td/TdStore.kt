@@ -148,6 +148,7 @@ object TdStore {
             is TdApi.UpdateChatMessageAutoDeleteTime -> edit(obj.chatId) { it.messageAutoDeleteTime = obj.messageAutoDeleteTime }
             is TdApi.UpdateChatViewAsTopics -> edit(obj.chatId) { it.viewAsTopics = obj.viewAsTopics }
             is TdApi.UpdateChatBlockList -> edit(obj.chatId) { it.blockList = obj.blockList }
+            is TdApi.UpdateChatActiveStories -> app.qwgram.next.ui.Stories.onUpdate(obj)
             is TdApi.UpdateForumTopicInfo, is TdApi.UpdateForumTopic -> messageEvents.tryEmit(obj as TdApi.Update)
             is TdApi.UpdateChatAction -> {
                 val sender = obj.senderId
