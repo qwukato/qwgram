@@ -1651,7 +1651,7 @@ private fun MessageMenu(
     val premium = TdStore.me?.isPremium == true
     val allReactions = remember(available) {
         available?.let { (it.topReactions + it.recentReactions + it.popularReactions).toList() }.orEmpty()
-            .distinctBy { reactionKey(it.type) }
+            .distinctBy { reactionKeyOf(it.type) }
     }
     val strip = allReactions.filter { premium || !it.needsPremium }.take(8).map { it.type }
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -1943,7 +1943,7 @@ private fun SendFlightOverlay(flight: SendFlight) {
 
 
 
-fun reactionKey(t: TdApi.ReactionType): String = when (t) {
+fun reactionKeyOf(t: TdApi.ReactionType): String = when (t) {
     is TdApi.ReactionTypeEmoji -> "e" + t.emoji.replace("\uFE0F", "")
     is TdApi.ReactionTypeCustomEmoji -> "c" + t.customEmojiId
     else -> "p"
@@ -1981,7 +1981,7 @@ private fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom
             androidx.compose.foundation.lazy.grid.GridCells.Adaptive(52.dp), Modifier.fillMaxWidth().weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
         ) {
-            items(list.size, key = { "r" + reactionKey(list[it].type) }) { i ->
+            items(list.size, key = { "r" + reactionKeyOf(list[it].type) }) { i ->
                 val r = list[i]
                 val locked = r.needsPremium && !premium
                 Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {

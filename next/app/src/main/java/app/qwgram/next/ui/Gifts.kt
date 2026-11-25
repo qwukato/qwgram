@@ -250,7 +250,7 @@ private fun GiftDetails(g: TdApi.ReceivedGift, onDismiss: () -> Unit) {
                         g.senderId?.let { add(Triple("От", TdStore.senderName(it), "")) }
                         add(Triple("Дата", Texts.dayHeader(g.date) + ", " + Texts.time(g.date), ""))
                         add(Triple("Стоимость", "★ ${gift.starCount}", ""))
-                        if (gift.overallLimits != null) add(Triple("Ограниченный", "${gift.overallLimits.remainingCount} из ${gift.overallLimits.totalCount}", ""))
+                        gift.overallLimits?.let { lim -> add(Triple("Ограниченный", "${lim.remainingCount} из ${lim.totalCount}", "")) }
                     }
                     GiftRows(rows)
                 }
