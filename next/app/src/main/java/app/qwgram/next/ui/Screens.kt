@@ -224,6 +224,11 @@ fun ProfileScreen(chatId: Long) {
                     Spacer(Modifier.height(14.dp))
                     if (user != null) Box(Modifier.appearIn(1)) { ProfileMusic(user.id) }
                     Spacer(Modifier.height(14.dp))
+                    // gifts and collectibles (NFT) on the profile
+                    val giftOwner = remember(user?.id, chat?.id) { if (user != null) TdApi.MessageSenderUser(user.id) else chat?.let { TdApi.MessageSenderChat(it.id) } }
+                    if (giftOwner != null) Box(Modifier.appearIn(2)) {
+                        Column { ProfileGifts(giftOwner); Spacer(Modifier.height(14.dp)) }
+                    }
                     Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().appearIn(2)) {
                         Column(Modifier.padding(vertical = 4.dp)) {
                             val rows = buildList {

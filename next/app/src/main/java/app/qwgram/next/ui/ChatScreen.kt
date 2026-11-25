@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.translate
@@ -263,7 +265,7 @@ class ChatController(val chatId: Long) {
     fun onEvent(u: TdApi.Update) {
         when (u) {
             is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && !hasNewer && messages.none { it.id == u.message.id }) {
-                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { flyIn.add(u.message.id); onOwnSend?.invoke() }
+                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly") flyIn.add(u.message.id); onOwnSend?.invoke() }
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -569,7 +571,8 @@ fun ChatScreen(chatId: Long) {
         searching = true
         scope.launch {
             searchGrow.snapTo(if (from == null || Prefs.motion.value == "off") 1f else 0f)
-            searchGrow.animateTo(1f, androidx.compose.animation.core.spring(0.72f, 360f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+            // a calm, springy unfold: slow enough to read as the button itself growing into the field
+            searchGrow.animateTo(1f, androidx.compose.animation.core.spring(0.78f, 230f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
         }
     }
     // opened from the profile's "Поиск": start with the search bar
@@ -579,7 +582,7 @@ fun ChatScreen(chatId: Long) {
     fun closeChatSearch() {
         scope.launch {
             keyboard?.hide()
-            if (searchOrigin != null && Prefs.motion.value != "off") searchGrow.animateTo(0f, androidx.compose.animation.core.spring(0.9f, 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
+            if (searchOrigin != null && Prefs.motion.value != "off") searchGrow.animateTo(0f, androidx.compose.animation.core.spring(0.92f, 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value, visibilityThreshold = 0.002f))
             searching = false; search.query = ""; search.results = emptyList()
         }
     }
@@ -657,8 +660,8 @@ fun ChatScreen(chatId: Long) {
                     // the header stays underneath while the search bar grows over it: it fades out as the bar grows
                     // and back in as the bar shrinks into the button — one continuous container transform
                     else -> Box {
-                        Box(Modifier.graphicsLayer { alpha = if (searching) (1f - searchGrow.value * 1.4f).coerceIn(0f, 1f) else 1f }) {
-                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) })
+                        Box(Modifier.graphicsLayer { alpha = if (searching) (1f - searchGrow.value * 1.25f).coerceIn(0f, 1f) else 1f }) {
+                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching)
                         }
                         if (searching) ChatSearchBar(
                             search, origin = searchOrigin, grow = { searchGrow.value },
@@ -937,6 +940,21 @@ private fun typing(chatId: Long) {
     Td.send(TdApi.SendChatAction(chatId, null, "", TdApi.ChatActionTyping()))
 }
 
+/** toggle any reaction type (emoji, premium custom emoji): removes it if it's ours, adds it otherwise */
+fun reactType(m: TdApi.Message, type: TdApi.ReactionType) {
+    if (type is TdApi.ReactionTypeEmoji) { react(m, type.emoji); return }
+    val mine = m.interactionInfo?.reactions?.reactions?.firstOrNull { it.isChosen && sameReaction(it.type, type) }
+    if (mine != null) Td.send(TdApi.RemoveMessageReaction(m.chatId, m.id, mine.type))
+    else Td.send(TdApi.AddMessageReaction(m.chatId, m.id, type, false, true))
+}
+
+fun sameReaction(a: TdApi.ReactionType, b: TdApi.ReactionType): Boolean = when {
+    a is TdApi.ReactionTypeEmoji && b is TdApi.ReactionTypeEmoji -> a.emoji.replace("\uFE0F", "") == b.emoji.replace("\uFE0F", "")
+    a is TdApi.ReactionTypeCustomEmoji && b is TdApi.ReactionTypeCustomEmoji -> a.customEmojiId == b.customEmojiId
+    a is TdApi.ReactionTypePaid && b is TdApi.ReactionTypePaid -> true
+    else -> false
+}
+
 fun react(m: TdApi.Message, emoji: String) {
     // Telegram's reaction list may spell an emoji with or without the FE0F selector ("❤️" vs "❤"): compare loosely
     val bare = emoji.replace("\uFE0F", "")
@@ -1013,7 +1031,7 @@ private fun WallpaperShapes() {
 private fun shapeFor2(p: androidx.graphics.shapes.RoundedPolygon) = p.asShape()
 
 @Composable
-private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry.Rect?) -> Unit) {
+private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry.Rect?) -> Unit, hideSearch: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     val pickWp = rememberWallpaperPicker("chat${chat.id}") { path -> Prefs.setChatWallpaper(chat.id, path) }
     val hasOwnWp = remember(Prefs.chatWallpaperVersion.intValue) { Prefs.chatWallpaper(chat.id) != null }
@@ -1048,7 +1066,8 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
     }
     val actions: @Composable () -> Unit = {
             var sRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-            Box(Modifier.onGloballyPositioned { sRect = it.boundsInRoot() }) { HeaderIcon(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) }) }
+            // while the search is open, the bar IS this button: the original hides so there aren't two
+            Box(Modifier.onGloballyPositioned { sRect = it.boundsInRoot() }.graphicsLayer { alpha = if (hideSearch) 0f else 1f }) { HeaderIcon(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) }) }
             Box {
                 HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
                 QMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -1622,12 +1641,19 @@ private fun MessageMenu(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var props by remember { mutableStateOf<TdApi.MessageProperties?>(null) }
-    var reactions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var available by remember { mutableStateOf<TdApi.AvailableReactions?>(null) }
+    var fullPicker by remember { mutableStateOf(false) }
     LaunchedEffect(m.id) {
         props = Td.callOrNull(TdApi.GetMessageProperties(m.chatId, m.id))
-        val av = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 8))
-        reactions = av?.let { (it.topReactions + it.recentReactions + it.popularReactions).mapNotNull { r -> (r.type as? TdApi.ReactionTypeEmoji)?.emoji }.distinct().take(24) }.orEmpty()
+        available = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 8))
     }
+    // the strip: the chat's top reactions first (emoji and premium emoji), the rest in the full picker
+    val premium = TdStore.me?.isPremium == true
+    val allReactions = remember(available) {
+        available?.let { (it.topReactions + it.recentReactions + it.popularReactions).toList() }.orEmpty()
+            .distinctBy { reactionKey(it.type) }
+    }
+    val strip = allReactions.filter { premium || !it.needsPremium }.take(8).map { it.type }
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
     // short and springy: quick stiff spring with a small overshoot
     LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 1100f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)) }
@@ -1638,6 +1664,7 @@ private fun MessageMenu(
         scope.launch { appear.animateTo(0f, androidx.compose.animation.core.tween(120)); onDismiss(); then() }
     }
     BackHandler { close() }
+    if (fullPicker) ReactionPickerSheet(allReactions, available?.allowCustomEmoji == true, premium, onDismiss = { fullPicker = false }) { t -> fullPicker = false; reactType(m, t); close() }
 
     val p = props
     val canSend = TdStore.canSend(chat)
@@ -1685,13 +1712,17 @@ private fun MessageMenu(
                 horizontalAlignment = if (out) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                if (reactions.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        reactions.forEach { e ->
-                            MorphBox(onClick = { react(m, e); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
-                                Text(e, fontSize = 24.sp)
+                if (strip.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
+                    Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            strip.forEach { t ->
+                                MorphBox(onClick = { reactType(m, t); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
+                                    ReactionGlyph(t, 28.dp)
+                                }
                             }
                         }
+                        // every reaction, including premium emoji
+                        MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Все реакции", { fullPicker = true }, size = 40.dp, color = cs.surfaceContainerHighest)
                     }
                 }
                 var index = 0
@@ -1910,3 +1941,72 @@ private fun SendFlightOverlay(flight: SendFlight) {
 }
 
 
+
+
+fun reactionKey(t: TdApi.ReactionType): String = when (t) {
+    is TdApi.ReactionTypeEmoji -> "e" + t.emoji.replace("\uFE0F", "")
+    is TdApi.ReactionTypeCustomEmoji -> "c" + t.customEmojiId
+    else -> "p"
+}
+
+/** how a reaction looks in pickers: the emoji, or the premium custom emoji (animated) */
+@Composable
+fun ReactionGlyph(t: TdApi.ReactionType, size: androidx.compose.ui.unit.Dp) {
+    when (t) {
+        is TdApi.ReactionTypeEmoji -> Text(t.emoji, fontSize = (size.value * 0.82f).sp)
+        is TdApi.ReactionTypeCustomEmoji -> CustomEmojiImage(t.customEmojiId, size)
+        else -> Text("⭐", fontSize = (size.value * 0.82f).sp)
+    }
+}
+
+/**
+ * Every reaction: the chat's emoji reactions (premium-only ones marked when you don't have Premium), and — where
+ * the chat allows it and you have Premium — your premium emoji sets, set by set.
+ */
+@Composable
+private fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom: Boolean, premium: Boolean, onDismiss: () -> Unit, onPick: (TdApi.ReactionType) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var customSets by remember { mutableStateOf<List<TdApi.StickerSet>>(emptyList()) }
+    LaunchedEffect(allowCustom, premium) {
+        if (!allowCustom || !premium) return@LaunchedEffect
+        val infos = Td.callOrNull(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji()))?.sets?.toList().orEmpty()
+        val out = ArrayList<TdApi.StickerSet>()
+        for (i in infos.take(40)) { Td.callOrNull(TdApi.GetStickerSet(i.id))?.let { out.add(it) }; if (out.size % 4 == 0) customSets = out.toList() }
+        customSets = out.toList()
+    }
+    QSheet(onDismiss = onDismiss) {
+        Text("Реакции", style = MaterialTheme.typography.titleLarge, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp))
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(52.dp), Modifier.fillMaxWidth().weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
+        ) {
+            items(list.size, key = { "r" + reactionKey(list[it].type) }) { i ->
+                val r = list[i]
+                val locked = r.needsPremium && !premium
+                Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                    MorphBox(
+                        onClick = { if (locked) android.widget.Toast.makeText(ctx, "Эта реакция доступна с Telegram Premium", android.widget.Toast.LENGTH_SHORT).show() else onPick(r.type) },
+                        modifier = Modifier.size(48.dp).graphicsLayer { alpha = if (locked) 0.45f else 1f }, rest = 24.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f,
+                    ) { ReactionGlyph(r.type, 30.dp) }
+                    if (locked) Icon(Icons.Outlined.Lock, null, tint = cs.onSurfaceVariant, modifier = Modifier.align(Alignment.BottomEnd).size(14.dp))
+                }
+            }
+            if (allowCustom && !premium) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }, key = "nop") {
+                Text("Реакции премиум-эмодзи доступны с Telegram Premium", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(12.dp))
+            }
+            customSets.forEach { set ->
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }, key = "h" + set.id) {
+                    Text(set.title, style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 4.dp))
+                }
+                items(set.stickers.size, key = { "c" + set.id + "_" + set.stickers[it].id }) { i ->
+                    val st = set.stickers[i]
+                    val id = (st.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId ?: 0L
+                    MorphBox(onClick = { if (id != 0L) onPick(TdApi.ReactionTypeCustomEmoji(id)) }, modifier = Modifier.size(48.dp), rest = 24.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
+                        StickerContent(st, Modifier.size(32.dp)) { Text(st.emoji, fontSize = 22.sp) }
+                    }
+                }
+            }
+        }
+    }
+}

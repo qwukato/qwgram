@@ -207,7 +207,13 @@ object Prefs {
     val blurBtnTint = F("blur_btn_tint", 0.55f)
     val blurBtnNoise = F("blur_btn_noise", 0.04f)
     val blurChipsFolders = B("blur_folders", true)     // folder chips over the chat list
-    val fadeOnScroll = B("fade_on_scroll", true)       // header / bottom fades appear only once content is under them
+    val fadeOnScroll = B("fade_on_scroll", true)
+    val profilePattern = B("profile_pattern", true)   // emoji pattern around the profile photo
+    val titleSize = S("title_size", "normal")          // small | normal | large — the home header title
+    val sendAnim = S("send_anim", "fly")               // fly (from the field, Telegram) | simple
+    val tabAnim = S("tab_anim", "fade")                // fade | slide | none — switching bottom tabs
+    val folderCascade = F("folder_cascade", 1f)        // strength of the rows' trailing wave on folder swipes
+    val drawerItems = S("drawer_items", "profile,group,contacts,saved,archive,settings,appearance,features,folders,invite")       // header / bottom fades appear only once content is under them
     // ---- energy saving (off by default) ----
     val powerSave = B("power_save", false)
     val psIdleAnims = B("ps_idle_anims", true)         // stop decorative loops (record spin, waves, shapes) when idle

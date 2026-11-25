@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.animation.AnimatedContent
@@ -95,6 +96,7 @@ import androidx.compose.material.icons.outlined.SportsSoccer
 import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.launch
 import app.qwgram.next.td.Td
+import app.qwgram.next.Prefs
 import app.qwgram.next.td.rememberFileBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -442,12 +444,22 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
                         val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
                         layout(fw, fh) { pl.place(lerp(o.left - hostPos.x, 0f).toInt(), lerp(o.top - hostPos.y, 0f).toInt()) }
                     }
-                    .clip(CircleShape).background(cs.surfaceContainerHighest).padding(horizontal = 16.dp).clipToBounds(),
+                    // the very same container as the search button (colour, glass): it is the button, grown
+                    .then(
+                        if (blurOn(Prefs.blurBars) && LocalHaze.current != null) Modifier.glass(CircleShape, cs.surfaceContainerHigh)
+                        else Modifier.clip(CircleShape).background(cs.surfaceContainerHigh),
+                    )
+                    .clipToBounds(),
                 contentAlignment = Alignment.CenterStart,
             ) {
+                // the button's magnifier stays: from the centre of the round button to the field's leading edge
+                Icon(
+                    Icons.Outlined.Search, null, tint = cs.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer { translationX = (11.dp.toPx()) + (14.dp.toPx() - 11.dp.toPx()) * grow() }.size(24.dp),
+                )
                 // the field's content is laid out at its final width and only revealed as the pill grows
                 // (no re-wrapping of "Поиск в чате" into a tiny box), and fades in during the second half
-                Box(Modifier.fillMaxWidth().graphicsLayer { alpha = ((grow() - 0.5f) / 0.5f).coerceIn(0f, 1f) }) {
+                Box(Modifier.fillMaxWidth().padding(start = 50.dp, end = 16.dp).graphicsLayer { alpha = ((grow() - 0.45f) / 0.55f).coerceIn(0f, 1f) }) {
                 BasicTextField(
                     s.query, { s.query = it }, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface), cursorBrush = SolidColor(cs.primary),

@@ -223,6 +223,7 @@ fun SettingsPage(id: String) {
         "ap-emoji" -> EmojiPage()
         "ap-blur" -> BlurPage()
         "power" -> PowerSavePage()
+        "drawer" -> DrawerEditorPage()
         "features" -> FeaturesPage2()
         "account" -> AccountPage()
         "notifications" -> NotificationsPage()

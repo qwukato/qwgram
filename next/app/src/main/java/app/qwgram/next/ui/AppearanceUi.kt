@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.BlurOn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
@@ -303,6 +304,7 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
         nav("Формы и аватарки", "26 форм, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
         nav("Шрифт и масштаб", "Начертание, жирность, размер", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
         nav("Эмодзи", "Twemoji, Noto или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
+        nav("Боковое меню", "Пункты и их порядок", Icons.Outlined.Menu) { Nav.push(Route.Page("drawer")) }
         nav("Размытие фона", if (Prefs.blurOn.value) "Включено · стекло, переходы, качество" else "Стеклянные панели и прогрессивное размытие", Icons.Outlined.BlurOn) { Nav.push(Route.Page("ap-blur")) }
     }
     group("Экраны") {
@@ -348,6 +350,10 @@ fun ListPage2() = PageScaffold("Список чатов") {
     group("Верх экрана") {
         segmented("Вид", Prefs.topBar, listOf("search" to "Поиск", "title" to "Заголовок"))
         pick("Текст заголовка", Prefs.titleText, listOf("qwgram" to "qwgram", "name" to "Ваше имя", "chats" to "Чаты", "folder" to "Название папки"))
+        segmented("Размер заголовка", Prefs.titleSize, listOf("small" to "Меньше", "normal" to "Обычный", "large" to "Крупнее"))
+    }
+    group("Профиль") {
+        switch("Узор вокруг фото", Prefs.profilePattern, sub = "Эмодзи фона профиля или символ подарка")
     }
     group("Жесты", footer = "С действиями: свайп влево — в архив, вправо — прочитано. Папки тогда переключаются нажатием.") {
         segmented("Свайп по чату", Prefs.listSwipe, listOf("folders" to "Папки", "actions" to "Действия"))
@@ -431,6 +437,9 @@ fun MotionPage2() = PageScaffold("Анимации и жесты") {
     }
     group("Переходы") {
         segmented("Открытие экранов", Prefs.screenAnim, listOf("slide" to "Сдвиг", "scale" to "Масштаб", "fade" to "Плавно"))
+        segmented("Вкладки внизу", Prefs.tabAnim, listOf("fade" to "Растворение", "slide" to "Сдвиг", "none" to "Сразу"))
+        segmented("Отправка сообщения", Prefs.sendAnim, listOf("fly" to "Из поля ввода", "simple" to "Простая"))
+        sliderFloat("Волна при смене папок", Prefs.folderCascade, 0f..2f, 7) { if (it == 0f) "выкл" else "${(it * 100).toInt()}%" }
     }
     group("Жесты") {
         switch("Предиктивный «назад»", Prefs.predictiveBack, "Экран сдвигается, пока вы тянете")

@@ -89,7 +89,7 @@ fun QSheet(
             fun animateTo(target: Float, velocity: Float = 0f, then: () -> Unit = {}) {
                 job?.cancel()
                 job = scope.launch {
-                    animate(off, target, velocity, spring(dampingRatio = 0.92f, stiffness = 460f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
+                    animate(off, target, velocity, spring(dampingRatio = 0.9f, stiffness = 620f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
                     then()
                 }
             }
@@ -98,10 +98,10 @@ fun QSheet(
             fun settle(v: Float) {
                 // light to flick: where the sheet *would* land with this speed decides, so a small fling is enough
                 val anchors = listOf(fullY, halfY, H).distinct().sorted()
-                val projected = off + v * 0.22f
+                val projected = off + v * 0.3f
                 val target = when {
-                    v < -450f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
-                    v > 450f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
+                    v < -300f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
+                    v > 300f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
                     else -> anchors.minBy { kotlin.math.abs(it - projected) }
                 }
                 if (target >= H - 1f) close() else animateTo(target, v)

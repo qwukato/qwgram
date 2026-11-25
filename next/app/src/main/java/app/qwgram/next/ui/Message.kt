@@ -552,13 +552,15 @@ private fun ReactionChip(m: TdApi.Message, r: TdApi.MessageReaction) {
     val fg = when { paid -> Color(0xFF5C3B00); chosen -> cs.onPrimary; else -> cs.onSurface }
     Box {
         MorphBox(
-            onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) }, rest = 14.dp, pressed = 7.dp,
+            onClick = { if (r.type is TdApi.ReactionTypeEmoji) react(m, emoji) else if (r.type is TdApi.ReactionTypeCustomEmoji) reactType(m, r.type) }, rest = 14.dp, pressed = 7.dp,
             color = bg, contentColor = fg,
             modifier = Modifier.height(28.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
                 .then(if (paid) Modifier.border(1.dp, gold.copy(alpha = 0.7f), RoundedCornerShape(14.dp)) else Modifier),
         ) {
             Row(Modifier.padding(start = 7.dp, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(emoji, fontSize = 14.sp)
+                // premium (custom emoji) reactions show their own animated emoji
+                val ce = r.type as? TdApi.ReactionTypeCustomEmoji
+                if (ce != null) CustomEmojiImage(ce.customEmojiId, 18.dp) else Text(emoji, fontSize = 14.sp)
                 Spacer(Modifier.width(3.dp))
                 androidx.compose.animation.AnimatedContent(
                     r.totalCount,

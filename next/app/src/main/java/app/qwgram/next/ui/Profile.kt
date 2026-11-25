@@ -122,17 +122,17 @@ fun ProfileBanner(
                         drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.6f))
                     },
             )
-            .padding(top = (topInset - 6.dp).coerceAtLeast(0.dp), bottom = if (bannerColors != null) 18.dp else 8.dp),
+            .padding(top = (topInset - 14.dp).coerceAtLeast(0.dp), bottom = if (bannerColors != null) 14.dp else 6.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
                 // pattern: rings of the chosen emoji around the avatar, fading outwards (Telegram Premium profile)
-                if (patternId != null && bannerColors != null) {
+                if (patternId != null && bannerColors != null && Prefs.profilePattern.value) {
                     // two rings like Telegram: an inner one close to the avatar, a fainter outer one
                     val ring = remember {
                         buildList {
-                            for (i in 0 until 8) { val a = Math.toRadians(i * 45.0 + 22.5); add(Triple((cos(a) * 96).toFloat(), (sin(a) * 88).toFloat(), 0.5f)) }
-                            for (i in 0 until 12) { val a = Math.toRadians(i * 30.0); add(Triple((cos(a) * 160).toFloat(), (sin(a) * 120).toFloat(), 0.26f)) }
+                            for (i in 0 until 8) { val a = Math.toRadians(i * 45.0 + 22.5); add(Triple((cos(a) * 82).toFloat(), (sin(a) * 72).toFloat(), 0.5f)) }
+                            for (i in 0 until 12) { val a = Math.toRadians(i * 30.0); add(Triple((cos(a) * 140).toFloat(), (sin(a) * 100).toFloat(), 0.26f)) }
                         }
                     }
                     ring.forEach { (x, y, a) ->
@@ -142,9 +142,9 @@ fun ProfileBanner(
                         }) { CustomEmojiImage(patternId, 22.dp) }
                     }
                 }
-                Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(vertical = 26.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    Box(Modifier.size(108.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                        if (chat == null) UserAvatar(user, 108.dp) else ChatAvatar(chat, 108.dp)
+                Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
+                    Box(Modifier.size(92.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                        if (chat == null) UserAvatar(user, 92.dp) else ChatAvatar(chat, 92.dp)
                     }
                     if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
                 }
@@ -154,7 +154,7 @@ fun ProfileBanner(
                 modifier = Modifier.graphicsLayer { alpha = ((appear.value - 0.2f) / 0.8f).coerceIn(0f, 1f); translationY = (1f - appear.value) * 16.dp.toPx() },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall, color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (verified) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Verified, "Подтверждён", tint = if (bannerColors != null) Color.White else cs.primary, modifier = Modifier.size(22.dp)) }
                     EmojiStatusMark(user, 26.dp, tint = if (bannerColors != null) Color.White else cs.primary, gap = 6.dp)
                 }
@@ -167,7 +167,7 @@ fun ProfileBanner(
                 }
             }
             // the actions sit inside the banner, a beat after the name
-            Box(Modifier.padding(top = 18.dp).fillMaxWidth().appearIn(0)) { actions(bannerColors != null) }
+            Box(Modifier.padding(top = 14.dp).fillMaxWidth().appearIn(0)) { actions(bannerColors != null) }
         }
     }
 }

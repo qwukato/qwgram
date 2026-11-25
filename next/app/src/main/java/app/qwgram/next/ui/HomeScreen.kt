@@ -225,7 +225,7 @@ fun HomeScreen() {
                     androidx.compose.runtime.key(t) {
                         val sel = HomeState.tab == t
                         val k = Prefs.motionSpeed.value
-                        val off = Prefs.motion.value == "off"
+                        val off = Prefs.motion.value == "off" || Prefs.tabAnim.value == "none"
                         val a by androidx.compose.animation.core.animateFloatAsState(
                             if (sel) 1f else 0f,
                             if (off) androidx.compose.animation.core.snap()
@@ -247,7 +247,7 @@ fun HomeScreen() {
                                     if (sel && a < 1f) {
                                         val sc = 0.97f + 0.03f * a
                                         scaleX = sc; scaleY = sc
-                                        translationX = (1f - a) * enterDir.value * 28.dp.toPx()
+                                        translationX = (1f - a) * enterDir.value * (if (Prefs.tabAnim.value == "slide") 90.dp else 28.dp).toPx()
                                     }
                                 },
                         ) {
@@ -580,10 +580,11 @@ fun ConnectionTitle(folderTitle: String?) {
     }
     AnimatedContent(text, transitionSpec = { fadeIn(Springs.effects()) togetherWith fadeOut(Springs.exit()) }, label = "conn") { t ->
         if (t != null) {
+            // one line, always: the status is a touch smaller than the title and never wraps
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LoadingIndicator(Modifier.size(28.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(t, style = MaterialTheme.typography.titleLarge)
+                LoadingIndicator(Modifier.size(24.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(t, style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         } else {
             val title = when (Prefs.titleText.value) {
@@ -599,7 +600,11 @@ fun ConnectionTitle(folderTitle: String?) {
             }, label = "title") { t ->
                 Text(
                     t, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    style = when (Prefs.titleSize.value) {
+                        "small" -> MaterialTheme.typography.titleLarge
+                        "large" -> MaterialTheme.typography.headlineMedium
+                        else -> MaterialTheme.typography.headlineSmall
+                    }.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
                     color = if (t == "qwgram") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -854,35 +859,45 @@ private fun AppDrawer(close: () -> Unit) {
                     }
                 }
             }
-            drawerGroup(
-                listOf(
-                    DrawerEntry("Мой профиль", Icons.Outlined.Person) { Nav.push(Route.Me) },
-                    DrawerEntry("Новая группа", Icons.Outlined.GroupAdd) { Nav.push(Route.Page("compose")) },
-                    DrawerEntry("Контакты", Icons.Outlined.Contacts) { HomeState.tab = HomeTab.Contacts },
-                    DrawerEntry("Избранное", Icons.Outlined.Bookmark) {
-                        val id = me?.id ?: return@DrawerEntry
-                        scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id, false))?.let { Nav.push(Route.Chat(it.id)) } }
-                    },
-                    DrawerEntry("Архив", Icons.Outlined.Archive) { Nav.push(Route.Archive) },
-                ), close, "Чаты",
-            )
-            drawerGroup(
-                listOf(
-                    DrawerEntry("Настройки", Icons.Outlined.Settings) { HomeState.tab = HomeTab.Settings },
-                    DrawerEntry("Внешний вид", Icons.Outlined.Palette) { Nav.push(Route.Page("appearance")) },
-                    DrawerEntry("Функции qwgram", Icons.Outlined.AutoAwesome) { Nav.push(Route.Page("features")) },
-                    DrawerEntry("Папки", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) },
-                ), close, "Приложение",
-            )
-            drawerGroup(
-                listOf(
-                    DrawerEntry("Пригласить друзей", Icons.Outlined.Share) {
+            // the user's own menu (Settings → Appearance → Side menu), drawn as three cards by kind
+            val chosen = drawerItems()
+            fun act(id: String): () -> Unit = {
+                when (id) {
+                    "profile" -> Nav.push(Route.Me)
+                    "compose" -> Nav.push(Route.Page("compose"))
+                    "group" -> Nav.push(Route.Page("compose:group"))
+                    "channel" -> Nav.push(Route.Page("compose:channel"))
+                    "contacts" -> HomeState.tab = HomeTab.Contacts
+                    "saved" -> { val id2 = me?.id; if (id2 != null) scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id2, false))?.let { Nav.push(Route.Chat(it.id)) } } }
+                    "archive" -> Nav.push(Route.Archive)
+                    "settings" -> HomeState.tab = HomeTab.Settings
+                    "appearance" -> Nav.push(Route.Page("appearance"))
+                    "blur" -> Nav.push(Route.Page("ap-blur"))
+                    "features" -> Nav.push(Route.Page("features"))
+                    "folders" -> Nav.push(Route.Page("folders"))
+                    "notifications" -> Nav.push(Route.Page("notifications"))
+                    "privacy" -> Nav.push(Route.Page("privacy"))
+                    "data" -> Nav.push(Route.Page("data"))
+                    "power" -> Nav.push(Route.Page("power"))
+                    "sessions" -> Nav.push(Route.Page("sessions"))
+                    "proxy" -> Nav.push(Route.Page("proxy"))
+                    "invite" -> {
                         val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
                             .putExtra(android.content.Intent.EXTRA_TEXT, "Пиши мне в Telegram" + (me?.usernames?.activeUsernames?.firstOrNull()?.let { ": https://t.me/$it" } ?: ""))
                         ctx.startActivity(android.content.Intent.createChooser(i, null))
-                    },
-                ), close,
-            )
+                    }
+                }
+            }
+            listOf(0 to "Чаты", 1 to "Приложение", 2 to null).forEach { (g, title) ->
+                val part = chosen.filter { it.group == g }.map { DrawerEntry(it.title, it.icon, act(it.id)) }
+                if (part.isNotEmpty()) drawerGroup(part, close, title)
+            }
+            item {
+                // edit the menu right from it
+                androidx.compose.material3.TextButton(onClick = { close(); Nav.push(Route.Page("drawer")) }, modifier = Modifier.padding(start = 8.dp, top = 8.dp)) {
+                    Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Изменить меню")
+                }
+            }
         }
     }
 }
@@ -1017,7 +1032,7 @@ private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation
         val d = kotlin.math.abs(pageOffset()).coerceIn(0f, 1f)
         if (d < 0.0005f) return@graphicsLayer
         // trailing grows down the list, eased so the first rows stay close and the wave builds smoothly
-        val f = (0.035f + 0.026f * rel).coerceAtMost(0.32f)
+        val f = (0.035f + 0.026f * rel).coerceAtMost(0.32f) * Prefs.folderCascade.value
         // strongest mid-way, gone at both ends (on screen and fully off): a gentle bell, never a jump
         val bell = 4f * d * (1f - d)
         translationX = -dir() * f * bell * size.width

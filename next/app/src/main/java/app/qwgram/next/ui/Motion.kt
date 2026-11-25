@@ -519,7 +519,7 @@ fun ButtonGroupRow(items: List<GroupButton>, modifier: Modifier = Modifier, heig
  */
 @Composable
 fun ActionTiles(items: List<GroupButton>, modifier: Modifier = Modifier, container: Color? = null, content: Color? = null) =
-    AdaptiveTiles(items.map { b -> TileAction(b.icon ?: Icons.Outlined.Search, b.label ?: b.desc ?: "", b.selected, b.onClick) }, modifier, height = 72.dp, container = container, content = content)
+    AdaptiveTiles(items.map { b -> TileAction(b.icon ?: Icons.Outlined.Search, b.label ?: b.desc ?: "", b.selected, b.onClick) }, modifier, height = 64.dp, container = container, content = content)
 
 /**
  * Lets a horizontally-dragged control (slider, pager…) own the finger: marks the gesture on DOWN, before the
