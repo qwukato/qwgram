@@ -649,6 +649,7 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
                 val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
                 val squeeze by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.94f else 1f, if (pressed) Springs.pressIn() else Springs.morphRelease(), label = "fs")
+                val chipGlass = blurOn(Prefs.blurChipsFolders)
                 Box(
                     Modifier.height(40.dp)
                         .graphicsLayer {
@@ -656,7 +657,7 @@ private fun FolderBar(tabs: List<FolderTab>, selected: Int, onSelect: (Int) -> U
                             scaleX = sc; scaleY = sc
                             shape = RoundedCornerShape(topStart = start.rs(), bottomStart = start.rs(), topEnd = end.rs(), bottomEnd = end.rs())
                             clip = true
-                            shadowElevation = if (floating && !(blurOn(Prefs.blurChipsFolders))) 2.dp.toPx() else 0f
+                            shadowElevation = if (floating && !chipGlass) 2.dp.toPx() else 0f
                         }
                         // glass chips over the chat list (Appearance → Blur → folders)
                         .then(

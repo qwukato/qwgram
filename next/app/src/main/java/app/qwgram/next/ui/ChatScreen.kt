@@ -494,6 +494,7 @@ fun ChatScreen(chatId: Long) {
     }
     // our own message: the list stays pinned to the bottom in the same frame, so the old bubbles slide up (placement
     // animation) while the new one flies out of the input field — no jump, no second scroll
+    val sendFlight = remember { SendFlight() }
     androidx.compose.runtime.DisposableEffect(ctl) {
         ctl.onOwnSend = {
             if (listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer) {
@@ -595,7 +596,6 @@ fun ChatScreen(chatId: Long) {
     // the chat recedes a little behind the open menu (no blur): slight zoom-out, the scrim dims it
     val recede by androidx.compose.animation.core.animateFloatAsState(if (menuOpen) 1f else 0f, Springs.fastSpatial(), label = "recede")
     val wallHaze = remember { dev.chrisbanes.haze.HazeState() }
-    val sendFlight = remember { SendFlight() }
     LaunchedEffect(sendFlight.shiftFrom) {
         val (from, _) = sendFlight.shiftFrom
         if (from == 0f) return@LaunchedEffect
