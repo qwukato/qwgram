@@ -875,6 +875,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                     sendContent(chatId, inputText(c), replyTo); replyTo = null; setText(""); followSent = true
                     haptic(HapticFeedbackType.Confirm)
                 })
+                // "@gif котики", "@pic закат"… — inline bots answer above the input
+                if (editing == null) InlineBotResults(chat, text, replyTo) { setText(""); replyTo = null; followSent = true; haptic(HapticFeedbackType.Confirm) }
                 if (editing == null) BotKeyboard(chat) { t -> sendContent(chatId, inputText(t)); followSent = true; haptic(HapticFeedbackType.Confirm) }
                 if (TdStore.isBot(chat) && chat.lastMessage == null && ctl.messages.isEmpty() && !ctl.loading) BotStartBar(chat)
                 else Composer(

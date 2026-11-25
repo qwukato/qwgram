@@ -1030,3 +1030,126 @@ fun DiceView(d: TdApi.MessageDice) {
 private fun DiceSticker(s: TdApi.Sticker, loop: Boolean, modifier: Modifier) {
     if (s.format is TdApi.StickerFormatTgs) TgsImage(s.sticker, modifier, loop = loop) else StickerContent(s, modifier)
 }
+
+// =====================================================================================================================
+//  Inline bots: "@gif cats", "@pic sunset", "@wiki …" — results above the input, a tap sends one
+// =====================================================================================================================
+
+private val inlineQuery = Regex("^@([A-Za-z0-9_]{3,32}) ([\\s\\S]*)$")
+
+@Composable
+fun InlineBotResults(chat: TdApi.Chat, text: String, replyTo: TdApi.Message?, onSent: () -> Unit) {
+    val ctx = LocalContext.current
+    val match = inlineQuery.find(text)
+    val botName = match?.groupValues?.get(1)
+    val query = match?.groupValues?.get(2).orEmpty()
+    var bot by remember { mutableStateOf<TdApi.User?>(null) }
+    var results by remember { mutableStateOf<TdApi.InlineQueryResults?>(null) }
+    LaunchedEffect(botName) {
+        bot = null; results = null
+        if (botName == null) return@LaunchedEffect
+        val c = Td.callOrNull(TdApi.SearchPublicChat(botName)) ?: return@LaunchedEffect
+        val u = TdStore.users[TdStore.privateUserId(c)] ?: Td.callOrNull(TdApi.GetUser(TdStore.privateUserId(c)))
+        if ((u?.type as? TdApi.UserTypeBot)?.isInline == true) bot = u
+    }
+    val b = bot
+    LaunchedEffect(b?.id, query) {
+        if (b == null) return@LaunchedEffect
+        delay(350)
+        results = Td.callOrNull(TdApi.GetInlineQueryResults(b.id, chat.id, null, query, ""))
+    }
+    val r = results
+    val show = b != null && botName != null && r != null && r.results.isNotEmpty()
+    AnimatedVisibility(show, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
+        val res = r ?: return@AnimatedVisibility
+        fun send(id: String) {
+            Td.send(TdApi.SendInlineQueryResultMessage(chat.id, currentTopic(chat.id), replyTo?.let { TdApi.InputMessageReplyToMessage().apply { messageId = it.id } }, TdApi.MessageSendOptions(), res.inlineQueryId, id, false)) { x ->
+                if (x is TdApi.Error) Toast.makeText(ctx, "Не удалось: ${x.message}", Toast.LENGTH_SHORT).show()
+            }
+            onSent()
+        }
+        val visual = res.results.all { it is TdApi.InlineQueryResultPhoto || it is TdApi.InlineQueryResultAnimation || it is TdApi.InlineQueryResultSticker || it is TdApi.InlineQueryResultVideo }
+        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            if (visual) {
+                androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().height(132.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(res.results.toList()) { item ->
+                        Box(Modifier.size(116.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable { send(inlineId(item)) }) {
+                            InlineThumb(item, Modifier.size(116.dp))
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
+                    items(res.results.toList()) { item ->
+                        val (title, sub) = inlineTitle(item)
+                        Row(Modifier.fillMaxWidth().clickable { send(inlineId(item)) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) { InlineThumb(item, Modifier.size(44.dp)) }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun inlineId(r: TdApi.InlineQueryResult): String = when (r) {
+    is TdApi.InlineQueryResultArticle -> r.id
+    is TdApi.InlineQueryResultContact -> r.id
+    is TdApi.InlineQueryResultLocation -> r.id
+    is TdApi.InlineQueryResultVenue -> r.id
+    is TdApi.InlineQueryResultGame -> r.id
+    is TdApi.InlineQueryResultAnimation -> r.id
+    is TdApi.InlineQueryResultAudio -> r.id
+    is TdApi.InlineQueryResultDocument -> r.id
+    is TdApi.InlineQueryResultPhoto -> r.id
+    is TdApi.InlineQueryResultSticker -> r.id
+    is TdApi.InlineQueryResultVideo -> r.id
+    is TdApi.InlineQueryResultVoiceNote -> r.id
+    else -> ""
+}
+
+private fun inlineTitle(r: TdApi.InlineQueryResult): Pair<String, String> = when (r) {
+    is TdApi.InlineQueryResultArticle -> r.title to r.description
+    is TdApi.InlineQueryResultContact -> "${r.contact.firstName} ${r.contact.lastName}".trim() to r.contact.phoneNumber
+    is TdApi.InlineQueryResultLocation -> r.title to ""
+    is TdApi.InlineQueryResultVenue -> r.venue.title to r.venue.address
+    is TdApi.InlineQueryResultGame -> r.game.title to r.game.description
+    is TdApi.InlineQueryResultAnimation -> r.title.ifBlank { "GIF" } to ""
+    is TdApi.InlineQueryResultAudio -> r.audio.title.ifBlank { r.audio.fileName } to r.audio.performer
+    is TdApi.InlineQueryResultDocument -> r.title to r.description
+    is TdApi.InlineQueryResultPhoto -> r.title.ifBlank { "Фото" } to r.description
+    is TdApi.InlineQueryResultSticker -> "Стикер" to ""
+    is TdApi.InlineQueryResultVideo -> r.title.ifBlank { "Видео" } to r.description
+    is TdApi.InlineQueryResultVoiceNote -> r.title.ifBlank { "Голосовое" } to ""
+    else -> "" to ""
+}
+
+/** the picture of an inline result: its thumbnail when it's a still image, the blurred mini thumbnail otherwise */
+@Composable
+private fun InlineThumb(r: TdApi.InlineQueryResult, modifier: Modifier) {
+    if (r is TdApi.InlineQueryResultSticker) { StickerContent(r.sticker, modifier.padding(8.dp)); return }
+    val (thumb, mini) = when (r) {
+        is TdApi.InlineQueryResultArticle -> r.thumbnail to null
+        is TdApi.InlineQueryResultContact -> r.thumbnail to null
+        is TdApi.InlineQueryResultLocation -> r.thumbnail to null
+        is TdApi.InlineQueryResultVenue -> r.thumbnail to null
+        is TdApi.InlineQueryResultAnimation -> r.animation.thumbnail to r.animation.minithumbnail
+        is TdApi.InlineQueryResultVideo -> r.video.thumbnail to r.video.minithumbnail
+        is TdApi.InlineQueryResultPhoto -> null to r.photo.minithumbnail
+        else -> null to null
+    }
+    val stillFile = when {
+        r is TdApi.InlineQueryResultPhoto -> r.photo.sizes.minByOrNull { kotlin.math.abs(it.width - 320) }?.photo
+        thumb != null && (thumb.format is TdApi.ThumbnailFormatJpeg || thumb.format is TdApi.ThumbnailFormatPng || thumb.format is TdApi.ThumbnailFormatWebp) -> thumb.file
+        else -> null
+    }
+    val bmp = app.qwgram.next.td.rememberFileBitmap(stillFile, maxSide = 320)
+    val miniBmp = remember(mini) { app.qwgram.next.td.Images.mini(mini) }
+    val img = bmp ?: miniBmp
+    if (img != null) androidx.compose.foundation.Image(img, null, modifier, contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+}
