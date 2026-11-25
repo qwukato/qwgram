@@ -208,7 +208,9 @@ object Prefs {
     val blurBtnNoise = F("blur_btn_noise", 0.04f)
     val blurChipsFolders = B("blur_folders", true)     // folder chips over the chat list
     val fadeOnScroll = B("fade_on_scroll", true)
-    val profilePattern = B("profile_pattern", true)   // emoji pattern around the profile photo
+    val profilePattern = B("profile_pattern", true)
+    val profileGifts = B("profile_gifts", true)
+    val profileMusic = B("profile_music", true)   // emoji pattern around the profile photo
     val titleSize = S("title_size", "normal")          // small | normal | large — the home header title
     val sendAnim = S("send_anim", "fly")               // fly (from the field, Telegram) | simple
     val tabAnim = S("tab_anim", "fade")                // fade | slide | none — switching bottom tabs

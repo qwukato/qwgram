@@ -198,8 +198,8 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
     val unread = chat.unreadCount > 0 || chat.isMarkedAsUnread
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = cs.surfaceContainerLow) {
-        WindowBlurBehind()
+    // qwgram's sheet: as tall as its content, light to swipe away
+    QSheet(onDismiss = onDismiss, wrap = true) {
         // header card: tap opens the profile
         MorphBox(
             onClick = { onDismiss(); Nav.push(Route.Profile(chat.id)) }, rest = 28.dp, pressed = 18.dp, squish = 0.98f,

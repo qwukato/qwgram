@@ -75,8 +75,10 @@ fun inMainWindow(): Boolean {
 
 /** the blur is on, supported, and this part of the interface uses it */
 @Composable
-fun blurOn(part: Prefs.B? = null): Boolean =
-    Prefs.blurOn.value && (part == null || part.value) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+fun blurOn(part: Prefs.B? = null): Boolean = BLUR_ENABLED && Prefs.blurOn.value && (part == null || part.value) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+/** the background blur is switched off for now (too costly); everything below is dormant and costs nothing */
+const val BLUR_ENABLED = false
 
 /** the surface colours the glass is tinted with (Appearance → Blur → Tone) */
 @Composable

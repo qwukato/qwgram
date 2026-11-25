@@ -173,8 +173,9 @@ fun MessageItem(
 
     Row(
         modifier.fillMaxWidth().background(tintBg).padding(start = 8.dp, end = 8.dp, top = if (firstInRun) 6.dp else 1.dp, bottom = 1.dp)
-            // a tap beside the bubble (empty side of the row) also opens the menu, like Telegram
-            .pointerInput(m.id) { detectTapGestures(onTap = { onTap(bubbleRect) }) }
+            // beside the bubble (the empty side of the row) works like Telegram: a tap opens the menu, a double tap
+            // puts the quick reaction
+            .pointerInput(m.id) { detectTapGestures(onTap = { onTap(bubbleRect) }, onDoubleTap = { onDouble() }) }
             .pointerInput(m.id) {
                 if (!Prefs.swipeReply.value) return@pointerInput
                 // only leftward drags belong to reply-swipe; rightward ones stay free for swipe-back

@@ -328,8 +328,7 @@ fun gifContent(a: TdApi.Animation): TdApi.InputMessageContent = TdApi.InputMessa
 @Composable
 fun SendOptionsSheet(onDismiss: () -> Unit, onSilent: () -> Unit, onSchedule: (Int) -> Unit) {
     var pickDate by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        WindowBlurBehind()
+    QSheet(onDismiss = onDismiss, wrap = true) {
         ListItem(headlineContent = { Text("Отправить без звука") }, supportingContent = { Text("Получатель не услышит уведомление") },
             leadingContent = { Icon(Icons.Outlined.NotificationsOff, null) }, modifier = Modifier.clickable { onSilent(); onDismiss() })
         ListItem(headlineContent = { Text("Отправить позже") }, supportingContent = { Text("Выбрать дату и время") },

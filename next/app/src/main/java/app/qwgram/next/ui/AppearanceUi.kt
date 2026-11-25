@@ -1,5 +1,6 @@
 package app.qwgram.next.ui
 
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.BlurOn
 import androidx.compose.animation.core.Animatable
@@ -299,22 +300,24 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
         )
     }
-    group("Цвет и форма") {
-        nav("Тема и цвета", "Светлая или тёмная, акцент, палитра", Icons.Outlined.Palette, 0) { Nav.push(Route.Page("ap-theme")) }
-        nav("Формы и аватарки", "26 форм, размеры, скругления", Icons.Outlined.Interests, 2) { Nav.push(Route.Page("ap-shapes")) }
+    group("Цвет и текст") {
+        nav("Тема и цвета", "Светлая или тёмная, акцент, палитра", Icons.Outlined.Palette) { Nav.push(Route.Page("ap-theme")) }
         nav("Шрифт и масштаб", "Начертание, жирность, размер", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
         nav("Эмодзи", "Twemoji, Noto или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
-        nav("Боковое меню", "Пункты и их порядок", Icons.Outlined.Menu) { Nav.push(Route.Page("drawer")) }
-        nav("Размытие фона", if (Prefs.blurOn.value) "Включено · стекло, переходы, качество" else "Стеклянные панели и прогрессивное размытие", Icons.Outlined.BlurOn) { Nav.push(Route.Page("ap-blur")) }
+        nav("Формы и аватарки", "Формы, размеры, скругления", Icons.Outlined.Interests) { Nav.push(Route.Page("ap-shapes")) }
     }
     group("Экраны") {
         nav("Список чатов", "Строки, счётчики, свайпы, архив", Icons.Outlined.ViewAgenda) { Nav.push(Route.Page("ap-list")) }
         nav("Папки", "Кнопки, вкладки или чипы", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("ap-folders")) }
-        nav("Чат и сообщения", "Пузыри, цвета, фон, жесты", Icons.Outlined.ChatBubbleOutline, 0) { Nav.push(Route.Page("ap-chat")) }
-        nav("Панели и кнопки", "Нижняя панель, «Написать», меню", Icons.Outlined.Dock) { Nav.push(Route.Page("ap-nav")) }
+        nav("Чат и сообщения", "Пузыри, цвета, фон, жесты", Icons.Outlined.ChatBubbleOutline) { Nav.push(Route.Page("ap-chat")) }
+        nav("Профиль", "Узор, подарки, музыка", Icons.Outlined.AccountCircle) { Nav.push(Route.Page("ap-profile")) }
+    }
+    group("Навигация") {
+        nav("Панели и кнопки", "Нижняя панель, «Написать», заголовки", Icons.Outlined.Dock) { Nav.push(Route.Page("ap-nav")) }
+        nav("Боковое меню", "Какие пункты и в каком порядке", Icons.Outlined.Menu) { Nav.push(Route.Page("drawer")) }
     }
     group("Движение") {
-        nav("Анимации и жесты", "Пружины, морфинг, переходы", Icons.Outlined.Animation, 2) { Nav.push(Route.Page("ap-motion")) }
+        nav("Анимации и жесты", "Пружины, морфинг, переходы", Icons.Outlined.Animation) { Nav.push(Route.Page("ap-motion")) }
     }
     group(footer = "Тема, шрифт, формы, панели и анимации вернутся к стандартным. Функции qwgram и данные не затрагиваются.") {
         action("Сбросить оформление", "Вернуть всё как было", Icons.Outlined.RestartAlt, danger = true) { askReset = true }
@@ -351,9 +354,6 @@ fun ListPage2() = PageScaffold("Список чатов") {
         segmented("Вид", Prefs.topBar, listOf("search" to "Поиск", "title" to "Заголовок"))
         pick("Текст заголовка", Prefs.titleText, listOf("qwgram" to "qwgram", "name" to "Ваше имя", "chats" to "Чаты", "folder" to "Название папки"))
         segmented("Размер заголовка", Prefs.titleSize, listOf("small" to "Меньше", "normal" to "Обычный", "large" to "Крупнее"))
-    }
-    group("Профиль") {
-        switch("Узор вокруг фото", Prefs.profilePattern, sub = "Эмодзи фона профиля или символ подарка")
     }
     group("Жесты", footer = "С действиями: свайп влево — в архив, вправо — прочитано. Папки тогда переключаются нажатием.") {
         segmented("Свайп по чату", Prefs.listSwipe, listOf("folders" to "Папки", "actions" to "Действия"))
@@ -401,6 +401,9 @@ fun ChatStylePage2() = PageScaffold("Чат и сообщения") {
 @Composable
 fun NavPage2() = PageScaffold("Панели и кнопки") {
     item { NavPreview() }
+    group("Заголовки") {
+        switch("Затемнение только при прокрутке", Prefs.fadeOnScroll, sub = "Плавный переход под шапкой и над полем ввода появляется, когда под ними есть контент")
+    }
     group("Кнопка на панели", footer = "«Поиск» вырастает в строку поиска прямо из кнопки.") {
         segmented("Действие", Prefs.fabAction, listOf("compose" to "Написать", "search" to "Поиск"))
     }
@@ -634,5 +637,18 @@ fun FeaturesPage2() {
             switch("Получать сообщения в фоне", Prefs.keepAlive) { KeepAliveService.sync(ctx) }
             switch("Текст в уведомлениях", Prefs.notifyPreview)
         }
+    }
+}
+
+
+/** Appearance → Profile */
+@Composable
+fun ProfileStylePage() = PageScaffold("Профиль") {
+    group("Шапка") {
+        switch("Узор вокруг фото", Prefs.profilePattern, sub = "Эмодзи фона профиля или символ подарка")
+    }
+    group("Разделы") {
+        switch("Подарки", Prefs.profileGifts, sub = "Подарки и коллекционные NFT")
+        switch("Музыка", Prefs.profileMusic, sub = "Карточка с треками профиля")
     }
 }

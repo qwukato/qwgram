@@ -226,8 +226,8 @@ fun ProfileGifts(owner: TdApi.MessageSender, modifier: Modifier = Modifier) {
 @Composable
 private fun GiftDetails(g: TdApi.ReceivedGift, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    QSheet(onDismiss = onDismiss, halfFirst = false) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding()) {
+    QSheet(onDismiss = onDismiss, wrap = true) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             when (val sg = g.gift) {
                 is TdApi.SentGiftUpgraded -> {
                     val u = sg.gift

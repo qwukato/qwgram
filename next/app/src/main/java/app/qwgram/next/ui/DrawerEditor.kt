@@ -1,5 +1,9 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -53,7 +57,6 @@ val DRAWER_CATALOG = listOf(
     DrawerItem("archive", "Архив", Icons.Outlined.Archive, 0),
     DrawerItem("settings", "Настройки", Icons.Outlined.Settings, 1),
     DrawerItem("appearance", "Внешний вид", Icons.Outlined.Palette, 1),
-    DrawerItem("blur", "Размытие фона", Icons.Outlined.BlurOn, 1),
     DrawerItem("features", "Функции qwgram", Icons.Outlined.AutoAwesome, 1),
     DrawerItem("folders", "Папки", Icons.Outlined.FolderOpen, 1),
     DrawerItem("notifications", "Уведомления", Icons.Outlined.Notifications, 1),
@@ -75,40 +78,74 @@ fun drawerItems(): List<DrawerItem> {
 
 private fun save(ids: List<String>) { Prefs.drawerItems.value = ids.joinToString(",") }
 
-/** Settings → Side menu: remove, add and reorder the menu's entries */
+/**
+ * Settings → Side menu. Sections match the menu's cards (Chats / App / Other); every entry has a switch (shown or
+ * not), and the shown ones can be moved up and down inside their section. A live preview of the menu sits on top.
+ */
 @Composable
 fun DrawerEditorPage() = PageScaffold("Боковое меню") {
-    val items = drawerItems()
-    val ids = items.map { it.id }
-    group("В меню", footer = "Стрелками меняется порядок. Пункты сами группируются: чаты, приложение, прочее.") {
-        if (items.isEmpty()) custom { Text("Меню пустое — добавьте пункты ниже", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp)) }
-        items.forEachIndexed { i, it ->
-            custom {
-                Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(it.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(16.dp))
-                    Text(it.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1)
-                    MorphIconButton(Icons.Outlined.KeyboardArrowUp, "Выше", { if (i > 0) save(ids.toMutableList().apply { add(i - 1, removeAt(i)) }) }, enabled = i > 0)
-                    MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Ниже", { if (i < ids.lastIndex) save(ids.toMutableList().apply { add(i + 1, removeAt(i)) }) }, enabled = i < ids.lastIndex)
-                    MorphIconButton(Icons.Outlined.RemoveCircleOutline, "Убрать", { save(ids - it.id) }, tint = MaterialTheme.colorScheme.error)
-                }
+    val chosen = drawerItems()
+    val ids = chosen.map { it.id }
+    item { DrawerPreview(chosen) }
+    listOf(0 to "Чаты", 1 to "Приложение", 2 to "Прочее").forEach { (g, title) ->
+        val on = chosen.filter { it.group == g }
+        val off = DRAWER_CATALOG.filter { it.group == g && it.id !in ids }
+        group(title, footer = if (g == 2) "Включённые пункты можно двигать стрелками внутри раздела." else null) {
+            on.forEachIndexed { i, it ->
+                custom { EditorRow(it, true, canUp = i > 0, canDown = i < on.lastIndex,
+                    onUp = { val j = ids.indexOf(on[i - 1].id); save(ids.toMutableList().apply { remove(it.id); add(j, it.id) }) },
+                    onDown = { val j = ids.indexOf(on[i + 1].id); save(ids.toMutableList().apply { remove(it.id); add(j, it.id) }) },
+                    onToggle = { save(ids - it.id) }) }
             }
-        }
-    }
-    val rest = DRAWER_CATALOG.filter { it.id !in ids }
-    if (rest.isNotEmpty()) group("Добавить") {
-        rest.forEach { it ->
-            custom {
-                Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(it.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(16.dp))
-                    Text(it.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1)
-                    MorphIconButton(Icons.Outlined.Add, "Добавить", { save(ids + it.id) }, tint = MaterialTheme.colorScheme.primary)
-                }
-            }
+            off.forEach { it -> custom { EditorRow(it, false, false, false, {}, {}, onToggle = { save(ids + it.id) }) } }
         }
     }
     group {
         action("Вернуть как было", icon = Icons.Outlined.RestartAlt) { Prefs.drawerItems.value = DRAWER_DEFAULT }
+    }
+}
+
+@Composable
+private fun EditorRow(it: DrawerItem, on: Boolean, canUp: Boolean, canDown: Boolean, onUp: () -> Unit, onDown: () -> Unit, onToggle: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        RowIcon(it.icon)
+        Spacer(Modifier.width(16.dp))
+        Text(it.title, style = MaterialTheme.typography.bodyLarge, color = if (on) cs.onSurface else cs.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        // arrows only for shown items; they slide in when the switch turns on
+        androidx.compose.animation.AnimatedVisibility(on, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandHorizontally(), exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkHorizontally()) {
+            Row {
+                MorphIconButton(Icons.Outlined.KeyboardArrowUp, "Выше", onUp, enabled = canUp, size = 40.dp, tint = if (canUp) cs.onSurfaceVariant else cs.outlineVariant)
+                MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Ниже", onDown, enabled = canDown, size = 40.dp, tint = if (canDown) cs.onSurfaceVariant else cs.outlineVariant)
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        QSwitch(on, { onToggle() })
+    }
+}
+
+/** the menu as it will look: its cards and entries, updated live */
+@Composable
+private fun DrawerPreview(items: List<DrawerItem>) {
+    val cs = MaterialTheme.colorScheme
+    androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp.rs()), color = cs.surfaceContainerLow, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Так будет выглядеть меню", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+            listOf(0, 1, 2).forEach { g ->
+                val part = items.filter { it.group == g }
+                if (part.isNotEmpty()) androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp.rs()), color = cs.surfaceContainerHigh) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        part.forEach { it ->
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(it.icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(14.dp))
+                                Text(it.title, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            }
+            if (items.isEmpty()) Text("Меню пустое", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(4.dp))
+        }
     }
 }

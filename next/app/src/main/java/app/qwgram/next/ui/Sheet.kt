@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -67,6 +69,8 @@ class QSheetScope internal constructor(val close: () -> Unit, val expand: () -> 
 fun QSheet(
     onDismiss: () -> Unit,
     halfFirst: Boolean = true,
+    /** as tall as its content (details cards): opens exactly around it, never to full screen */
+    wrap: Boolean = false,
     color: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     overlay: @Composable BoxScope.(QSheetScope) -> Unit = {},
     content: @Composable ColumnScope.(QSheetScope) -> Unit,
@@ -79,7 +83,13 @@ fun QSheet(
             val density = LocalDensity.current
             val H = constraints.maxHeight.toFloat()
             val fullY = WindowInsets.statusBars.getTop(density) + with(density) { 8.dp.toPx() }
-            val halfY = if (halfFirst) (H * 0.40f).coerceAtLeast(fullY) else fullY
+            var contentH by remember { mutableFloatStateOf(0f) }
+            val handlePx = with(density) { 36.dp.toPx() }
+            val halfY = when {
+                wrap -> (H - contentH - handlePx).coerceIn(fullY, H)
+                halfFirst -> (H * 0.40f).coerceAtLeast(fullY)
+                else -> fullY
+            }
             val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
             var off by remember { mutableFloatStateOf(H) }
             val scope = rememberCoroutineScope()
@@ -89,33 +99,35 @@ fun QSheet(
             fun animateTo(target: Float, velocity: Float = 0f, then: () -> Unit = {}) {
                 job?.cancel()
                 job = scope.launch {
-                    animate(off, target, velocity, spring(dampingRatio = 0.9f, stiffness = 620f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
+                    animate(off, target, velocity, spring(dampingRatio = 0.95f, stiffness = 480f * k, visibilityThreshold = 0.5f)) { v, _ -> off = v }
                     then()
                 }
             }
             fun close() { if (closing) return; closing = true; animateTo(H) { onDismiss() } }
-            fun expand() { if (!closing) animateTo(fullY) }
+            fun expand() { if (!closing) animateTo(if (wrap) halfY else fullY) }
             fun settle(v: Float) {
                 // light to flick: where the sheet *would* land with this speed decides, so a small fling is enough
-                val anchors = listOf(fullY, halfY, H).distinct().sorted()
-                val projected = off + v * 0.3f
+                val anchors = (if (wrap) listOf(halfY, H) else listOf(fullY, halfY, H)).distinct().sorted()
+                val projected = off + v * 0.35f
                 val target = when {
-                    v < -300f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
-                    v > 300f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
+                    v < -200f -> anchors.lastOrNull { it < off - 1f } ?: anchors.first()
+                    v > 200f -> anchors.firstOrNull { it > off + 1f } ?: anchors.last()
                     else -> anchors.minBy { kotlin.math.abs(it - projected) }
                 }
                 if (target >= H - 1f) close() else animateTo(target, v)
             }
-            LaunchedEffect(Unit) { animateTo(halfY) }
+            // a wrapping sheet waits one frame for its content's height, then rises exactly that far
+            LaunchedEffect(wrap && contentH == 0f) { if (!(wrap && contentH == 0f)) animateTo(halfY) }
             androidx.activity.compose.BackHandler { close() }
 
-            val conn = remember(fullY, H) {
+            val conn = remember(fullY, H, halfY) {
                 object : NestedScrollConnection {
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                         // finger up: lift the sheet to full height before the list scrolls
-                        if (available.y < 0f && off > fullY + 0.5f && !closing) {
+                        val top = if (wrap) halfY else fullY
+                        if (available.y < 0f && off > top + 0.5f && !closing) {
                             job?.cancel()
-                            val d = maxOf(available.y, fullY - off)
+                            val d = maxOf(available.y, top - off)
                             off += d
                             return Offset(0f, d)
                         }
@@ -131,16 +143,16 @@ fun QSheet(
                         return Offset.Zero
                     }
                     override suspend fun onPreFling(available: Velocity): Velocity {
-                        if (off > fullY + 0.5f && !closing) { settle(available.y); return available }
+                        if (off > (if (wrap) halfY else fullY) + 0.5f && !closing) { settle(available.y); return available }
                         return Velocity.Zero
                     }
                     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                        if (off > fullY + 0.5f && !closing) { settle(available.y); return available }
+                        if (off > (if (wrap) halfY else fullY) + 0.5f && !closing) { settle(available.y); return available }
                         return Velocity.Zero
                     }
                 }
             }
-            val sheetScope = remember { QSheetScope({ close() }, { expand() }, { ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f) }) }
+            val sheetScope = remember(halfY) { QSheetScope({ close() }, { expand() }, { ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f) }) }
             val progress = ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f)
             // the app behind the sheet frosts as it rises (Appearance → Blur → windows)
             WindowBlurBehind { ((H - off) / (H - halfY).coerceAtLeast(1f)).coerceIn(0f, 1f) }
@@ -159,7 +171,7 @@ fun QSheet(
                     Box(
                         Modifier.fillMaxWidth().height(36.dp)
                             .draggable(
-                                rememberDraggableState { d -> if (!closing) { job?.cancel(); off = (off + d).coerceIn(fullY, H) } },
+                                rememberDraggableState { d -> if (!closing) { job?.cancel(); off = (off + d).coerceIn(if (wrap) halfY else fullY, H) } },
                                 Orientation.Vertical,
                                 onDragStopped = { v -> if (!closing) settle(v) },
                             ),
@@ -167,7 +179,8 @@ fun QSheet(
                     ) {
                         Box(Modifier.size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)))
                     }
-                    content(sheetScope)
+                    if (wrap) Column(Modifier.fillMaxWidth().onSizeChanged { contentH = it.height.toFloat() }.navigationBarsPadding().padding(bottom = 8.dp)) { content(sheetScope) }
+                    else content(sheetScope)
                 }
             }
             Box(Modifier.fillMaxSize().padding(top = 0.dp)) { overlay(sheetScope) }

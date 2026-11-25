@@ -221,7 +221,7 @@ fun SettingsPage(id: String) {
         "ap-motion" -> MotionPage2()
         "ap-text" -> TextPage2()
         "ap-emoji" -> EmojiPage()
-        "ap-blur" -> BlurPage()
+        "ap-profile" -> ProfileStylePage()
         "power" -> PowerSavePage()
         "drawer" -> DrawerEditorPage()
         "features" -> FeaturesPage2()

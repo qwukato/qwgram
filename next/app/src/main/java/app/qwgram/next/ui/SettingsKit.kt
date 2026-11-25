@@ -258,12 +258,8 @@ fun GroupHeader(text: String) {
 @Composable
 fun RowIcon(icon: ImageVector, tone: Int = 1) {
     val cs = MaterialTheme.colorScheme
-    val (bg, fg) = when (tone) {
-        0 -> cs.primaryContainer to cs.onPrimaryContainer
-        2 -> cs.tertiaryContainer to cs.onTertiaryContainer
-        3 -> cs.errorContainer to cs.onErrorContainer
-        else -> cs.secondaryContainer to cs.onSecondaryContainer
-    }
+    // one colour for every settings icon (only destructive actions stand out)
+    val (bg, fg) = if (tone == 3) cs.errorContainer to cs.onErrorContainer else cs.secondaryContainer to cs.onSecondaryContainer
     Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = fg) }
 }
 

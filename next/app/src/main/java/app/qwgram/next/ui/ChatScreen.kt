@@ -275,8 +275,10 @@ class ChatController(val chatId: Long) {
                 val ids = u.messageIds.toSet()
                 // keep messages deleted by others (not our own deletions / not cache evictions)
                 if (Prefs.keepDeleted.value && !u.fromCache) {
-                    messages.filter { it.id in ids && !it.isOutgoing }.forEach { DeletedMessages.add(chatId, it.id) }
-                    messages.removeAll { it.id in ids && it.isOutgoing }
+                    // our own deletions always go; only messages deleted by others are kept and marked
+                    val mine = { id: Long -> (chatId xor id) in DeletedMessages.ours }
+                    messages.filter { it.id in ids && !it.isOutgoing && !mine(it.id) }.forEach { DeletedMessages.add(chatId, it.id) }
+                    messages.removeAll { it.id in ids && (it.isOutgoing || mine(it.id)) }
                 } else messages.removeAll { it.id in ids }
             }
             is TdApi.UpdateMessageContent -> if (u.chatId == chatId) mutate(u.messageId) { it.content = u.newContent }
@@ -940,6 +942,9 @@ object DeletedMessages {
     val ids = androidx.compose.runtime.mutableStateListOf<Long>()
     fun has(m: TdApi.Message) = (m.chatId xor m.id) in ids
     fun add(chatId: Long, id: Long) { ids.add(chatId xor id) }
+    /** messages WE deleted: never kept by "keep deleted messages" (that's only for what others delete) */
+    val ours = java.util.Collections.synchronizedSet(HashSet<Long>())
+    fun markOurs(chatId: Long, msgIds: LongArray) { msgIds.forEach { ours.add(chatId xor it) } }
 }
 
 private fun typing(chatId: Long) {
@@ -1817,7 +1822,14 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
             } else Text("Сообщения будут удалены у вас.")
         },
         confirmButton = {
-            QTextButton(onClick = { Td.send(TdApi.DeleteMessages(chat.id, list.map { it.id }.toLongArray(), forAll)); onDone() }) {
+            QTextButton(onClick = {
+                val ids = list.map { it.id }.toLongArray()
+                DeletedMessages.markOurs(chat.id, ids)
+                Td.send(TdApi.DeleteMessages(chat.id, ids, forAll)) { r ->
+                    if (r is TdApi.Error) android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(app.qwgram.next.App.instance, "Не удалось удалить: ${r.message}", android.widget.Toast.LENGTH_SHORT).show() }
+                }
+                onDone()
+            }) {
                 Text("Удалить", color = MaterialTheme.colorScheme.error)
             }
         },
@@ -1831,8 +1843,7 @@ private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
     val chats = TdStore.chatsIn(TdApi.ChatListMain()).filter { TdStore.canSend(it) }.take(60)
     var noAuthor by remember { mutableStateOf(Prefs.forwardNoAuthor.value) }
     var noCaption by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        WindowBlurBehind()
+    QSheet(onDismiss = onDismiss) {
         Text("Переслать в…", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         // qwgram: forward as a copy (no "Forwarded from") and optionally without captions
         Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

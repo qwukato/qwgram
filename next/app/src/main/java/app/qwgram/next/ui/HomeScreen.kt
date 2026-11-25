@@ -498,7 +498,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             // the page lands on a soft spring with a hint of overshoot: the trailing rows close up with a little bounce
             flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                 state = pager,
-                snapAnimationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.78f, stiffness = 320f * Prefs.motionSpeed.value * Prefs.motionSpeed.value),
+                snapAnimationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 360f * Prefs.motionSpeed.value * Prefs.motionSpeed.value),
             ),
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
@@ -1024,26 +1024,32 @@ fun PushDrawer(drawer: DrawerControl, drawerContent: @Composable () -> Unit, con
 private fun cascading(d: Float) = kotlin.math.abs(d) in 0.0005f..0.9995f
 
 /**
- * Folder swipe cascade, done so nothing can be cut off: while pages move, the list itself stays put on screen
- * ([cancelPage], on the LazyColumn) and every row is moved instead — by the page's offset plus a trailing that
- * grows down the list. Rows of the neighbouring pages get exactly the same trailing at the same height, so the two
- * pages always meet edge to edge: one continuous wave, no gaps, no white bands, no overlap. The list's own clipping
- * is now the screen, so rows simply slide off its edge. At rest everything is back at zero.
- * [dir]: the direction the content travels (−1 left, +1 right).
+ * Folder swipe cascade ("layers bounce apart"). While pages move, the list itself is held still on screen
+ * ([cancelPage]) and each row carries the motion through its own spring: the top row is stiff and keeps up with
+ * the finger, every row below is softer, so the rows trail in a wave and, when the page lands, catch up one after
+ * another with a little bounce. Springs are linear, so the same row of the neighbouring page (same stiffness, same
+ * page signal shifted by exactly one page) stays edge to edge with it: no gaps, no overlap. At rest all is zero.
  */
 @Composable
-private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float, dir: () -> Float): Modifier {
-    if (Prefs.motion.value == "off") return this
-    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 14) } }
+private fun Modifier.followFinger(index: Int, state: androidx.compose.foundation.lazy.LazyListState, pageOffset: () -> Float, @Suppress("UNUSED_PARAMETER") dir: () -> Float): Modifier {
+    if (Prefs.motion.value == "off" || Prefs.folderCascade.value <= 0f) return this.graphicsLayer {
+        val d = pageOffset(); if (cascading(d)) translationX = d * size.width
+    }
+    val rel by remember(index) { derivedStateOf { (index - state.firstVisibleItemIndex).coerceIn(0, 12) } }
+    val lag = remember { androidx.compose.animation.core.Animatable(pageOffset()) }
+    val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
+    val strength = Prefs.folderCascade.value
+    LaunchedEffect(rel, strength, k) {
+        // stiff at the top, softer down the list; a touch of bounce (Material 3 Expressive spatial spring)
+        val stiff = (1600f / (1f + rel * 0.55f * strength)).coerceAtLeast(260f) * k
+        val spec = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.7f, stiffness = stiff, visibilityThreshold = 0.0005f)
+        snapshotFlow { pageOffset() }.collectLatest { t -> lag.animateTo(t, spec) }
+    }
     return graphicsLayer {
         val d = pageOffset()
-        if (!cascading(d)) return@graphicsLayer
-        val a = kotlin.math.abs(d)
-        // trailing grows down the list; strongest mid-way, gone at both ends (bell), scaled by the setting
-        // capped so a row never moves against the finger (trailing ≤ the page's own travel): no gaps at the edges
-        val f = ((0.035f + 0.024f * rel) * Prefs.folderCascade.value).coerceAtMost(0.24f)
-        val bell = 4f * a * (1f - a)
-        translationX = d * size.width - dir() * f * bell * size.width
+        val l = lag.value
+        // while the list is held still the row draws the page's (lagged) position; otherwise only what's left of the lag
+        translationX = ((if (cascading(d)) l else l - d) * size.width).let { if (kotlin.math.abs(it) < 0.5f) 0f else it }
     }
 }
 

@@ -187,8 +187,7 @@ fun FolderEditPage(folderId: Int?) {
 fun ChatPickerSheet(initial: Set<Long>, onDismiss: () -> Unit, onDone: (Set<Long>) -> Unit) {
     val sel = remember { mutableStateListOf<Long>().apply { addAll(initial) } }
     val chats = remember { TdStore.chatsIn(TdApi.ChatListMain()) }
-    ModalBottomSheet(onDismissRequest = { onDone(sel.toSet()); onDismiss() }) {
-        WindowBlurBehind()
+    QSheet(onDismiss = { onDone(sel.toSet()); onDismiss() }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Выберите чаты", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             QTextButton(onClick = { onDone(sel.toSet()); onDismiss() }) { Text("Готово") }
