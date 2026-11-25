@@ -318,7 +318,10 @@ fun PollDialog(onDismiss: () -> Unit, onSend: (TdApi.InputMessageContent) -> Uni
     val options = remember { mutableStateListOf("", "") }
     var anonymous by remember { mutableStateOf(true) }
     var multiple by remember { mutableStateOf(false) }
-    val valid = question.isNotBlank() && options.count { it.isNotBlank() } >= 2
+    var quiz by remember { mutableStateOf(false) }
+    var correct by remember { mutableStateOf(-1) }
+    var explanation by remember { mutableStateOf("") }
+    val valid = question.isNotBlank() && options.count { it.isNotBlank() } >= 2 && (!quiz || options.getOrNull(correct)?.isNotBlank() == true)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { WindowBlurBehind();  Text("Новый опрос") },
@@ -327,13 +330,23 @@ fun PollDialog(onDismiss: () -> Unit, onSend: (TdApi.InputMessageContent) -> Uni
                 OutlinedTextField(question, { question = it.take(255) }, label = { Text("Вопрос") })
                 options.forEachIndexed { i, o ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // quiz: the right answer is marked with the radio button
+                        if (quiz) androidx.compose.material3.RadioButton(selected = correct == i, onClick = { correct = i })
                         OutlinedTextField(o, { options[i] = it.take(100) }, label = { Text("Вариант ${i + 1}") }, singleLine = true, modifier = Modifier.weight(1f))
-                        if (options.size > 2) MorphIconButton(Icons.Outlined.Close, "Убрать", { options.removeAt(i) })
+                        if (options.size > 2) MorphIconButton(Icons.Outlined.Close, "Убрать", { options.removeAt(i); if (correct == i) correct = -1 else if (correct > i) correct-- })
                     }
                 }
                 if (options.size < 10) QTextButton(onClick = { options.add("") }) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("Добавить вариант") }
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Анонимный", Modifier.weight(1f)); QSwitch(anonymous) { anonymous = it } }
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Несколько ответов", Modifier.weight(1f)); QSwitch(multiple) { multiple = it } }
+                if (!quiz) Row(verticalAlignment = Alignment.CenterVertically) { Text("Несколько ответов", Modifier.weight(1f)); QSwitch(multiple) { multiple = it } }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Викторина")
+                        Text("Один правильный ответ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    QSwitch(quiz) { quiz = it; if (it) multiple = false }
+                }
+                if (quiz) OutlinedTextField(explanation, { explanation = it.take(200) }, label = { Text("Пояснение (необязательно)") })
             }
         },
         confirmButton = {
@@ -343,9 +356,12 @@ fun PollDialog(onDismiss: () -> Unit, onSend: (TdApi.InputMessageContent) -> Uni
                     this.options = options.filter { it.isNotBlank() }.map { TdApi.InputPollOption(TdApi.FormattedText(it.trim(), arrayOf()), null) }.toTypedArray()
                     description = TdApi.FormattedText("", arrayOf())
                     isAnonymous = anonymous
-                    allowsMultipleAnswers = multiple
+                    allowsMultipleAnswers = multiple && !quiz
                     countryCodes = arrayOf()
-                    type = TdApi.InputPollTypeRegular(false)
+                    // the right answer's index among the options actually sent (blank ones are dropped)
+                    val correctIdx = options.take(correct.coerceAtLeast(0)).count { it.isNotBlank() }
+                    type = if (quiz) TdApi.InputPollTypeQuiz(intArrayOf(correctIdx), TdApi.FormattedText(explanation.trim(), arrayOf()), null)
+                        else TdApi.InputPollTypeRegular(false)
                 })
             }) { Text("Отправить") }
         },
