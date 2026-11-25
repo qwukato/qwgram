@@ -305,7 +305,8 @@ private fun Bubble(
     val c = m.content
     val textOnly = c is TdApi.MessageText || c is TdApi.MessageAnimatedEmoji
     val bigEmoji = Prefs.bigEmoji.value && ((c is TdApi.MessageText && c.text.entities.isEmpty() && emojiOnly.matches(c.text.text.trim())) || c is TdApi.MessageAnimatedEmoji)
-    val bare = c is TdApi.MessageSticker || bigEmoji
+    val bigCustom = if (Prefs.bigEmoji.value) remember(c) { bigCustomEmoji(c) } else null
+    val bare = c is TdApi.MessageSticker || c is TdApi.MessageDice || bigEmoji || bigCustom != null
     val media = c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
     val maxW = ((LocalBubbleArea.current ?: androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp) * (Prefs.bubbleWidth.value / 100f))
     var pressed by remember { mutableStateOf(false) }
@@ -322,6 +323,12 @@ private fun Bubble(
     if (bare) {
         Column(gestures.widthIn(max = maxW), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
             if (c is TdApi.MessageSticker) StickerView(c.sticker)
+            else if (c is TdApi.MessageDice) DiceView(c)
+            else if (bigCustom != null) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                // 1 → like an animated emoji, 2–3 → a bit smaller each (Telegram)
+                val sz = when (bigCustom.size) { 1 -> 120.dp; 2 -> 88.dp; else -> 72.dp }
+                bigCustom.forEach { id -> PremiumEmoji(id, cs.onSurface, sz) }
+            }
             else if (c is TdApi.MessageAnimatedEmoji && c.animatedEmoji?.sticker != null) {
                 // Telegram's animated emoji (a single emoji sent alone) plays like a small sticker
                 StickerContent(c.animatedEmoji.sticker!!, Modifier.size(132.dp)) {
@@ -420,6 +427,9 @@ private fun Bubble(
             } else if ((!hasCap && !media) || (hasCap && preview != null)) {
                 Meta(m, chat, metaColor, Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
             }
+            // channel post with a discussion group: comments, like Telegram
+            val ri = m.interactionInfo?.replyInfo
+            if (m.isChannelPost && ri != null && TdStore.isChannel(chat)) CommentsRow(m, ri, fg)
         }
     }
     InlineKeyboard(m, maxW)
@@ -633,8 +643,9 @@ fun RichText(ft: TdApi.FormattedText, color: Color, onLayout: ((androidx.compose
     val cs = MaterialTheme.colorScheme
     val linkColor = if (color == cs.onPrimary) cs.onPrimary else cs.primary
     val annotated = remember(ft, linkColor) { formatted(ft, linkColor, ctx) }
+    val inline = rememberEmojiInline(ft, color)
     Text(
-        annotated, style = MaterialTheme.typography.bodyLarge.copy(fontSize = Prefs.textSize.value.sp, lineHeight = (Prefs.textSize.value * 1.35f).sp), color = color,
+        annotated, inlineContent = inline, style = MaterialTheme.typography.bodyLarge.copy(fontSize = Prefs.textSize.value.sp, lineHeight = (Prefs.textSize.value * 1.35f).sp), color = color,
         onTextLayout = { r -> onLayout?.invoke(r) },
     )
 }
@@ -704,6 +715,8 @@ private fun formatted(ft: TdApi.FormattedText, link: Color, ctx: android.content
                 Td.send(TdApi.CreatePrivateChat(ty.userId, false)) { r -> if (r is TdApi.Chat) Nav.push(Route.Profile(r.id)) }
             }, s, end)
             is TdApi.TextEntityTypeHashtag, is TdApi.TextEntityTypeCashtag, is TdApi.TextEntityTypeBotCommand -> addStyle(SpanStyle(color = link), s, end)
+            // premium emoji: an inline slot over its fallback emoji (see rememberEmojiInline)
+            is TdApi.TextEntityTypeCustomEmoji -> addStringAnnotation(INLINE_TAG, "ce:${ty.customEmojiId}", s, end)
             is TdApi.TextEntityTypeBlockQuote, is TdApi.TextEntityTypeExpandableBlockQuote -> addStyle(SpanStyle(fontStyle = FontStyle.Italic, background = link.copy(alpha = 0.08f)), s, end)
             else -> Unit
         }

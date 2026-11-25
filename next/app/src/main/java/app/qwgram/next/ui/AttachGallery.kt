@@ -1,5 +1,9 @@
 package app.qwgram.next.ui
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.Casino
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.LocationOn
 import android.Manifest
 import android.content.ContentUris
 import android.content.Context
@@ -150,6 +154,9 @@ fun AttachGallerySheet(
     onFile: () -> Unit,
     onMusic: () -> Unit,
     onPoll: () -> Unit,
+    onLocation: () -> Unit = {},
+    onContact: () -> Unit = {},
+    onDice: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -201,11 +208,14 @@ fun AttachGallerySheet(
     }) {
             Column(Modifier.fillMaxWidth()) {
                 // quick actions: tonal shape buttons
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     AttachShape("Галерея", Icons.Outlined.PhotoLibrary, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, onSystemPicker)
                     AttachShape("Файл", Icons.Outlined.Description, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, onFile)
                     AttachShape("Музыка", Icons.Outlined.AudioFile, MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, onMusic)
                     if (canPoll) AttachShape("Опрос", Icons.Outlined.Poll, MaterialShapes.Flower, cs.surfaceContainerHighest, cs.onSurface, onPoll)
+                    AttachShape("Место", Icons.Outlined.LocationOn, MaterialShapes.Pentagon, cs.primaryContainer, cs.onPrimaryContainer, onLocation)
+                    AttachShape("Контакт", Icons.Outlined.Person, MaterialShapes.Gem, cs.secondaryContainer, cs.onSecondaryContainer, onContact)
+                    AttachShape("Игры", Icons.Outlined.Casino, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, onDice)
                 }
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(

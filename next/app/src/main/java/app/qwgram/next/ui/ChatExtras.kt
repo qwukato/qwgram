@@ -144,7 +144,7 @@ object RecentEmoji {
  * you can swipe between; the tab indicator follows the swipe.
  */
 @Composable
-fun StickerPanel(chatId: Long, height: Dp, onEmoji: (String) -> Unit, onSticker: (TdApi.Sticker) -> Unit, onGif: (TdApi.Animation) -> Unit) {
+fun StickerPanel(chatId: Long, height: Dp, onEmoji: (String) -> Unit, onSticker: (TdApi.Sticker) -> Unit, onGif: (TdApi.Animation) -> Unit, onCustomEmoji: (TdApi.Sticker) -> Unit = {}) {
     val cs = MaterialTheme.colorScheme
     val pager = androidx.compose.foundation.pager.rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
@@ -154,7 +154,7 @@ fun StickerPanel(chatId: Long, height: Dp, onEmoji: (String) -> Unit, onSticker:
         }
         androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
             when (page) {
-                0 -> EmojiGrid(onEmoji)
+                0 -> EmojiGrid(onEmoji, onCustomEmoji)
                 1 -> StickerGrid(onSticker)
                 else -> GifGrid(onGif)
             }
@@ -191,26 +191,74 @@ private fun currentSection(state: LazyGridState, headers: List<Int>): Int {
     return cur
 }
 
+/** installed premium emoji packs (with their emoji), loaded once */
+object EmojiPacks {
+    val sets = androidx.compose.runtime.mutableStateListOf<TdApi.StickerSet>()
+    var loaded by mutableStateOf(false)
+    private var loading = false
+    suspend fun load() {
+        if (loading || loaded) return
+        loading = true
+        val infos = Td.callOrNull(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji()))?.sets?.toList().orEmpty()
+        val out = ArrayList<TdApi.StickerSet>()
+        for (i in infos) Td.callOrNull(TdApi.GetStickerSet(i.id))?.let { out.add(it) }
+        sets.clear(); sets.addAll(out)
+        // the emoji themselves, so they show right away
+        out.forEach { st -> st.stickers.forEach { k -> (k.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.let { id -> if (id != 0L) CustomEmoji.stickers[id] = k } } }
+        loaded = true; loading = false
+    }
+}
+
+/** a grid cell: a plain emoji, or a premium one */
+private sealed interface EmojiCell { data class Plain(val e: String) : EmojiCell; data class Custom(val s: TdApi.Sticker) : EmojiCell }
+
+private fun customId(s: TdApi.Sticker) = (s.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId ?: 0L
+
 @Composable
-private fun EmojiGrid(onEmoji: (String) -> Unit) {
-    val sections = remember { EMOJI.map { (k, v) -> k to if (k == "Недавние") RecentEmoji.get() else graphemes(v) } }
+private fun EmojiGrid(onEmoji: (String) -> Unit, onCustom: (TdApi.Sticker) -> Unit) {
+    LaunchedEffect(Unit) { EmojiPacks.load() }
+    val cs = MaterialTheme.colorScheme
+    val packs = EmojiPacks.sets.toList()
+    val recentCustom = remember(EmojiPacks.loaded) { RecentCustomEmoji.get().mapNotNull { CustomEmoji.stickers[it] } }
+    // recent (premium first), the standard categories, then every installed premium pack
+    val sections: List<Triple<String, List<EmojiCell>, TdApi.Sticker?>> = remember(packs, recentCustom) {
+        EMOJI.map { (k, v) ->
+            val plain = (if (k == "Недавние") RecentEmoji.get() else graphemes(v)).map { EmojiCell.Plain(it) }
+            Triple(k, if (k == "Недавние") recentCustom.map { EmojiCell.Custom(it) } + plain else plain, null)
+        } + packs.map { st -> Triple(st.title, st.stickers.map { EmojiCell.Custom(it) }, st.stickers.firstOrNull()) }
+    }
     val headers = remember(sections) {
         var idx = 0
-        sections.map { (_, l) -> val h = idx; idx += 1 + l.size; h }
+        sections.map { (_, l, _) -> val h = idx; idx += 1 + l.size; h }
     }
     val state = rememberLazyGridState()
     val scope = rememberCoroutineScope()
-    val current by remember { derivedStateOf { currentSection(state, headers) } }
+    val current by remember(headers) { derivedStateOf { currentSection(state, headers) } }
     Column(Modifier.fillMaxSize()) {
         CategoryStrip(sections.size, current, { i -> scope.launch { state.animateScrollToItem(headers[i]) } }) { i ->
-            Icon(EMOJI_ICONS.getOrElse(i) { Icons.Outlined.EmojiEmotions }, sections[i].first, Modifier.size(22.dp))
+            val cover = sections[i].third
+            if (cover != null) {
+                val still = rememberStickerStill(cover, 72)
+                if (still != null) Image(still, sections[i].first, Modifier.size(24.dp)) else Icon(Icons.Outlined.EmojiEmotions, sections[i].first, Modifier.size(22.dp))
+            } else Icon(EMOJI_ICONS.getOrElse(i) { Icons.Outlined.EmojiEmotions }, sections[i].first, Modifier.size(22.dp))
         }
         LazyVerticalGrid(GridCells.Adaptive(46.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
-            sections.forEach { (title, list) ->
+            sections.forEach { (title, list, _) ->
                 item(span = { GridItemSpan(maxLineSpan) }) { PanelHeader(title) }
-                items(list) { e ->
-                    MorphBox(onClick = { RecentEmoji.add(e); onEmoji(e) }, modifier = Modifier.size(46.dp), rest = 14.dp, pressed = 23.dp, color = Color.Transparent, squish = 0.85f) {
-                        Text(e, fontSize = 27.sp)
+                items(list) { cell ->
+                    MorphBox(
+                        onClick = {
+                            when (cell) {
+                                is EmojiCell.Plain -> { RecentEmoji.add(cell.e); onEmoji(cell.e) }
+                                is EmojiCell.Custom -> onCustom(cell.s)
+                            }
+                        },
+                        modifier = Modifier.size(46.dp), rest = 14.dp, pressed = 23.dp, color = Color.Transparent, squish = 0.85f,
+                    ) {
+                        when (cell) {
+                            is EmojiCell.Plain -> Text(cell.e, fontSize = 27.sp)
+                            is EmojiCell.Custom -> PremiumEmoji(customId(cell.s), cs.onSurface, 32.dp)
+                        }
                     }
                 }
             }

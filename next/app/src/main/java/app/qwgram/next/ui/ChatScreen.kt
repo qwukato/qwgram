@@ -180,13 +180,30 @@ import java.io.File
 import kotlin.math.roundToInt
 
 /** Messages of one open chat, newest first. Lives as long as the chat screen. */
-class ChatController(val chatId: Long, val topic: Int = 0) {
-    /** history of the chat, or of one forum topic */
-    private fun hist(from: Long, offset: Int, limit: Int): TdApi.Function<TdApi.Messages> =
-        if (topic != 0) TdApi.GetForumTopicHistory(chatId, topic, from, offset, limit) else TdApi.GetChatHistory(chatId, from, offset, limit, false)
+class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L) {
+    /** history of the chat, of one forum topic, or of a comment / reply thread */
+    private fun hist(from: Long, offset: Int, limit: Int): TdApi.Function<TdApi.Messages> = when {
+        topic != 0 -> TdApi.GetForumTopicHistory(chatId, topic, from, offset, limit)
+        thread != 0L -> TdApi.GetMessageThreadHistory(chatId, thread, from, offset, limit)
+        else -> TdApi.GetChatHistory(chatId, from, offset, limit, false)
+    }
 
-    /** the message belongs to what this screen shows (the whole chat, or its topic) */
-    fun inView(m: TdApi.Message): Boolean = topic == 0 || (m.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topic
+    /** the message belongs to what this screen shows (the whole chat, its topic, or the thread) */
+    fun inView(m: TdApi.Message): Boolean = when {
+        topic != 0 -> (m.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topic
+        thread != 0L -> (m.topicId as? TdApi.MessageTopicThread)?.messageThreadId == thread || m.id == thread
+        else -> true
+    }
+
+    /** a thread starts with its post (the channel post / the first message), shown above the comments */
+    private var rootAdded = false
+    private suspend fun addRoot() {
+        if (thread == 0L || rootAdded) return
+        rootAdded = true
+        val info = Td.callOrNull(TdApi.GetMessageThread(chatId, thread)) ?: return
+        val have = messages.mapTo(HashSet()) { it.id }
+        messages.addAll(info.messages.filter { it.id !in have }.sortedByDescending { it.id })
+    }
 
     val messages = mutableStateListOf<TdApi.Message>()
     val replies = mutableStateMapOf<Long, TdApi.Message>()
@@ -236,7 +253,7 @@ class ChatController(val chatId: Long, val topic: Int = 0) {
         while (messages.size < 40 && tries < 4) {
             val r = Td.callOrNull(hist(from, 0, 50)) ?: break
             if (r.messages.isEmpty()) {
-                if (tries > 0) reachedEnd = true
+                if (tries > 0 || thread != 0L) { reachedEnd = true; addRoot() }
                 tries++
                 continue
             }
@@ -252,7 +269,7 @@ class ChatController(val chatId: Long, val topic: Int = 0) {
         if (loading || reachedEnd || messages.isEmpty()) return
         loading = true
         val r = Td.callOrNull(hist(messages.last().id, 0, 50))
-        if (r == null || r.messages.isEmpty()) reachedEnd = true else addOlder(r.messages.toList())
+        if (r == null || r.messages.isEmpty()) { reachedEnd = true; addRoot() } else addOlder(r.messages.toList())
         loading = false
     }
 
@@ -345,7 +362,7 @@ private sealed interface Entry {
 enum class Grp { Single, Top, Middle, Bottom }
 
 @Composable
-fun ChatScreen(chatId: Long, topic: Int = 0) {
+fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     val chat = TdStore.chats[chatId]
     if (chat == null) {
         LaunchedEffect(chatId) { Td.send(TdApi.GetChat(chatId)) { r -> if (r is TdApi.Chat) TdStore.onUpdate(TdApi.UpdateNewChat(r)) } }
@@ -353,14 +370,18 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
         return
     }
     val ctx = LocalContext.current
-    val ctl = remember(chatId, topic) { ChatController(chatId, topic) }
+    val ctl = remember(chatId, topic, thread) { ChatController(chatId, topic, thread) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val firstUnreadId = remember(chatId) { if (topic == 0 && chat.unreadCount > 0) chat.lastReadInboxMessageId else 0L }
+    val firstUnreadId = remember(chatId) { if (topic == 0 && thread == 0L && chat.unreadCount > 0) chat.lastReadInboxMessageId else 0L }
 
-    var text by remember(chatId) { mutableStateOf(if (topic != 0) "" else (chat.draftMessage?.content as? TdApi.DraftMessageContentText)?.text?.let { toMarkdown(it) } ?: "") }
+    // the input text (+ the premium emoji in it, kept as entities) — a draft comes back with its formatting
+    val draftIn = remember(chatId) { if (topic != 0 || thread != 0L) null else (chat.draftMessage?.content as? TdApi.DraftMessageContentText)?.text?.let { toInput(it) } }
+    var text by remember(chatId) { mutableStateOf(draftIn?.first ?: "") }
+    val ce = remember(chatId) { ComposerEmoji().apply { draftIn?.second?.let { set(it) } } }
+    fun setText(n: String) { ce.update(text, n); text = n }
     var replyTo by remember(chatId) { mutableStateOf<TdApi.Message?>(null) }
     var editing by remember(chatId) { mutableStateOf<TdApi.Message?>(null) }
     var menuFor by remember { mutableStateOf<TdApi.Message?>(null) }
@@ -426,9 +447,9 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
             val d = if (t.isBlank() && replyTo == null) null else TdApi.DraftMessage().apply {
                 replyTo?.let { r -> this.replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
                 date = (System.currentTimeMillis() / 1000).toInt()
-                content = TdApi.DraftMessageContentText().apply { this.text = parseFormatting(t) }
+                content = TdApi.DraftMessageContentText().apply { this.text = parseFormatting(t, ce.list.toTypedArray()) }
             }
-            if (editing == null) Td.send(TdApi.SetChatDraftMessage(chatId, if (topic != 0) TdApi.MessageTopicForum(topic) else null, d))
+            if (editing == null) Td.send(TdApi.SetChatDraftMessage(chatId, if (topic != 0) TdApi.MessageTopicForum(topic) else if (thread != 0L) TdApi.MessageTopicThread(thread) else null, d))
         }
     }
     val entries by remember(ctl) {
@@ -461,7 +482,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
     LaunchedEffect(chatId) {
         launch { TdStore.messageEvents.collect { ctl.onEvent(it) } }
         ctl.loadInitial()
-        val saved = if (topic != 0) null else Prefs.chatPos(chatId)
+        val saved = if (topic != 0 || thread != 0L) null else Prefs.chatPos(chatId)
         if (firstUnreadId != 0L) {
             // unread messages: open at the first unread one (Telegram)
             val idx = ctl.messages.indexOfFirst { it.id <= firstUnreadId }
@@ -479,8 +500,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
             val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { (it.key as? String)?.startsWith("m") == true }
             val atEnd = listState.firstVisibleItemIndex <= 1 && !ctl.hasNewer
             val id = (info?.key as? String)?.drop(1)?.toLongOrNull()
-            if (topic == 0 && atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.let { c -> markRead(c) }
-            if (topic != 0) Unit
+            if (topic == 0 && thread == 0L && atEnd && Prefs.markReadOnOpen.value) TdStore.chats.peek(chatId)?.let { c -> markRead(c) }
+            if (topic != 0 || thread != 0L) Unit
             else if (atEnd || id == null) Prefs.setChatPos(chatId, null)
             else Prefs.setChatPos(chatId, id to if (info.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0)
         }
@@ -542,7 +563,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
     LaunchedEffect(atBottom, newest) {
         val c = TdStore.chats.peek(chatId)
         val last = c?.lastMessage?.id ?: return@LaunchedEffect
-        if (topic == 0 && atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0 || c.unreadReactionCount > 0)) {
+        if (topic == 0 && thread == 0L && atBottom && Prefs.markReadOnOpen.value && (c.unreadCount > 0 || c.isMarkedAsUnread || c.unreadMentionCount > 0 || c.unreadReactionCount > 0)) {
             viewMessages(chatId, longArrayOf(last))
             markRead(c)
         }
@@ -562,7 +583,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
 
     // opened from search / media: scroll to that message once history is there
     val hasHistory = ctl.messages.isNotEmpty()
-    val routeOnTop = Nav.top == Route.Chat(chatId, topic)
+    val routeOnTop = Nav.top == Route.Chat(chatId, topic, thread)
     LaunchedEffect(chatId, hasHistory, routeOnTop) {
         val j = Nav.jumpTo
         if (hasHistory && routeOnTop && j != null && j.first == chatId) { Nav.jumpTo = null; jump(j.second) }
@@ -575,7 +596,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
         search.current?.let { jump(it.id) }
     }
 
-    val canSend = TdStore.canSend(chat)
+    // comments can be written without joining the discussion group (unless it asks to join first)
+    val canSend = TdStore.canSend(chat) || (thread != 0L && canCommentWithoutJoin(chat))
     val group = TdStore.isGroup(chat)
     val selecting = selected.isNotEmpty()
     // in-chat search grows out of the header's search button and shrinks back into it (springy container transform)
@@ -683,7 +705,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
                             scaleX = sc; scaleY = sc
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                         }) {
-                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching, topicName = rememberTopicName(chatId, topic))
+                            ChatTopBar(chat, onSearch = { r -> openChatSearch(r) }, hideSearch = searching, topicName = if (thread != 0L) "Комментарии" else rememberTopicName(chatId, topic))
                         }
                         if (searching) ChatSearchBar(
                             search, origin = searchOrigin, grow = { searchGrow.value },
@@ -833,36 +855,37 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
                 fun send(silent: Boolean? = null, at: Int = 0) {
                     val t = text.trim()
                     if (t.isEmpty()) return
+                    val emo = ce.forTrimmed(text, t)
                     val ed = editing
                     if (ed != null) {
-                        Td.send(TdApi.EditMessageText(chatId, ed.id, null, inputText(t)))
+                        Td.send(TdApi.EditMessageText(chatId, ed.id, null, inputText(t, emo)))
                         editing = null
                     } else {
-                        sendContent(chatId, inputText(t), replyTo, silent, at)
+                        sendContent(chatId, inputText(t, emo), replyTo, silent, at)
                         replyTo = null
                         if (at > 0) Toast.makeText(ctx, "Сообщение запланировано", Toast.LENGTH_SHORT).show()
                     }
-                    text = ""
+                    setText("")
                     followSent = at == 0
                     haptic(HapticFeedbackType.Confirm)
                     if (at == 0) scope.launch { if (ctl.hasNewer) ctl.reset(); listState.animateScrollToItem(0) }
                 }
                 // "@" → members, "/" → bot commands; a bot's own buttons instead of typing
-                ComposerSuggestions(chat, text, onText = { text = it }, onSendCommand = { c ->
-                    sendContent(chatId, inputText(c), replyTo); replyTo = null; text = ""; followSent = true
+                ComposerSuggestions(chat, text, onText = { setText(it) }, onSendCommand = { c ->
+                    sendContent(chatId, inputText(c), replyTo); replyTo = null; setText(""); followSent = true
                     haptic(HapticFeedbackType.Confirm)
                 })
                 if (editing == null) BotKeyboard(chat) { t -> sendContent(chatId, inputText(t)); followSent = true; haptic(HapticFeedbackType.Confirm) }
                 if (TdStore.isBot(chat) && chat.lastMessage == null && ctl.messages.isEmpty() && !ctl.loading) BotStartBar(chat)
                 else Composer(
-                    chat = chat, text = text, onText = { text = it; typing(chatId) },
+                    chat = chat, text = text, onText = { setText(it); typing(chatId) },
                     replyTo = replyTo, editing = editing,
                     panelOpen = panel,
                     onTogglePanel = {
                         if (panel) { panelHolding = true; keyboard?.show() } else { panel = true; keyboard?.hide() }
                     },
                     onFocusText = { if (panel) panelHolding = true },
-                    onCancel = { if (editing != null) text = ""; replyTo = null; editing = null },
+                    onCancel = { if (editing != null) setText(""); replyTo = null; editing = null },
                     onSend = { send() },
                     onSendSilent = { send(silent = true) },
                     onSchedule = { at -> send(at = at) },
@@ -880,7 +903,21 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
             Box(Modifier.wrapContentHeight(Alignment.Top, unbounded = true)) {
                 StickerPanel(
                     chatId, panelHeight,
-                    onEmoji = { text += it },
+                    onEmoji = { setText(text + it) },
+                    // premium emoji: Premium can send them anywhere, everyone in Saved Messages (Telegram's rule)
+                    onCustomEmoji = { st ->
+                        val id = (st.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId ?: 0L
+                        if (id == 0L) return@StickerPanel
+                        if (TdStore.me?.isPremium != true && !TdStore.isSaved(chat)) {
+                            Toast.makeText(ctx, "Эмодзи из наборов доступны с Telegram Premium (без него — только в Избранном)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val e = st.emoji.ifBlank { "⭐" }
+                            val at = text.length
+                            setText(text + e)
+                            ce.add(at, e.length, id)
+                            RecentCustomEmoji.add(id)
+                        }
+                    },
                     // the panel stays open after sending (Telegram): several stickers in a row
                     onSticker = { s -> if (Prefs.confirmSticker.value) confirmSend = stickerContent(s) else { sendContent(chatId, stickerContent(s), replyTo); replyTo = null } },
                     onGif = { a -> if (Prefs.confirmSticker.value) confirmSend = gifContent(a) else { sendContent(chatId, gifContent(a), replyTo); replyTo = null } },
@@ -899,7 +936,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
             onReply = { replyTo = m; editing = null },
             onEdit = {
                 editing = m; replyTo = null
-                text = (m.content as? TdApi.MessageText)?.text?.let { toMarkdown(it) } ?: Texts.caption(m.content)?.text.orEmpty()
+                val (t0, e0) = (m.content as? TdApi.MessageText)?.text?.let { toInput(it) } ?: (Texts.caption(m.content)?.text.orEmpty() to emptyList())
+                text = t0; ce.set(e0)
             },
             onForward = { forward = listOf(m) },
             onDelete = { deleteFor = listOf(m) },
@@ -935,9 +973,9 @@ fun ChatScreen(chatId: Long, topic: Int = 0) {
     }
 }
 
-fun inputText(t: String): TdApi.InputMessageText = TdApi.InputMessageText().apply {
+fun inputText(t: String, emoji: Array<TdApi.TextEntity> = arrayOf()): TdApi.InputMessageText = TdApi.InputMessageText().apply {
     // **bold**, __italic__, `code`, ||spoiler||… become Telegram formatting (Settings → Чаты → Разметка текста)
-    text = parseFormatting(t)
+    text = parseFormatting(t, emoji)
     clearDraft = true
 }
 
@@ -1398,6 +1436,7 @@ private fun Composer(
     val cs = MaterialTheme.colorScheme
     val haptic = rememberHaptic()
     var attach by remember { mutableStateOf(false) }
+    var extra by remember { mutableStateOf<String?>(null) }   // location / contact / dice sheet
     val recorder = remember { VoiceRecorder(ctx.applicationContext) }
     var recording by remember { mutableStateOf(false) }
     var recSecs by remember { mutableIntStateOf(0) }
@@ -1588,6 +1627,11 @@ private fun Composer(
     }
 
     if (poll) PollDialog(onDismiss = { poll = false }) { content -> sendContent(chat.id, content, replyTo); poll = false; onCancel() }
+    when (extra) {
+        "location" -> LocationSender(chat.id, replyTo) { extra = null; onCancel() }
+        "contact" -> ContactPicker(chat.id, replyTo) { extra = null; onCancel() }
+        "dice" -> DicePicker(chat.id, replyTo) { extra = null; onCancel() }
+    }
     if (sendOptions) SendOptionsSheet(onDismiss = { sendOptions = false }, onSilent = onSendSilent, onSchedule = onSchedule)
     if (attach) AttachGallerySheet(
         canPoll = chat.type !is TdApi.ChatTypeSecret && chat.type !is TdApi.ChatTypePrivate,
@@ -1597,6 +1641,9 @@ private fun Composer(
         onFile = { attach = false; pickFile.launch(arrayOf("*/*")) },
         onMusic = { attach = false; pickFile.launch(arrayOf("audio/*")) },
         onPoll = { attach = false; poll = true },
+        onLocation = { attach = false; extra = "location" },
+        onContact = { attach = false; extra = "contact" },
+        onDice = { attach = false; extra = "dice" },
     )
 }
 

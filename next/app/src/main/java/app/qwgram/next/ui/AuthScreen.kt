@@ -104,7 +104,7 @@ fun AppRoot() {
 fun RouteScreen(route: Route) {
     when (route) {
         Route.Home -> HomeScreen()
-        is Route.Chat -> androidx.compose.runtime.key(route.chatId, route.topic) { ChatScreen(route.chatId, route.topic) }
+        is Route.Chat -> androidx.compose.runtime.key(route.chatId, route.topic, route.thread) { ChatScreen(route.chatId, route.topic, route.thread) }
         is Route.Profile -> ProfileScreen(route.chatId)
         Route.Me -> ProfileScreen(0L)
         Route.Search -> SearchScreen()

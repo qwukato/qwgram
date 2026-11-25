@@ -32,7 +32,7 @@ import kotlin.math.abs
 
 sealed interface Route {
     data object Home : Route
-    data class Chat(val chatId: Long, val topic: Int = 0) : Route
+    data class Chat(val chatId: Long, val topic: Int = 0, val thread: Long = 0L) : Route
     data class Profile(val chatId: Long) : Route
     data object Me : Route
     data object Search : Route

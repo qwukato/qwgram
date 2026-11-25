@@ -35,6 +35,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -89,8 +90,50 @@ fun openChat(chat: TdApi.Chat) {
 }
 
 /** the topic of the forum chat screen on top (messages sent from it go there) */
-fun currentTopic(chatId: Long): TdApi.MessageTopic? =
-    (Nav.top as? Route.Chat)?.takeIf { it.chatId == chatId && it.topic != 0 }?.let { TdApi.MessageTopicForum(it.topic) }
+fun currentTopic(chatId: Long): TdApi.MessageTopic? {
+    val r = (Nav.top as? Route.Chat)?.takeIf { it.chatId == chatId } ?: return null
+    return when {
+        r.topic != 0 -> TdApi.MessageTopicForum(r.topic)
+        r.thread != 0L -> TdApi.MessageTopicThread(r.thread)
+        else -> null
+    }
+}
+
+/** opens the comments of a channel post (its thread in the discussion group) */
+fun openComments(ctx: Context, m: TdApi.Message) {
+    Td.send(TdApi.GetMessageThread(m.chatId, m.id)) { r ->
+        if (r is TdApi.MessageThreadInfo) Td.send(TdApi.GetChat(r.chatId)) { c ->
+            if (c is TdApi.Chat) { TdStore.onUpdate(TdApi.UpdateNewChat(c)); Nav.push(Route.Chat(r.chatId, thread = r.messageThreadId)) }
+        } else Toast.makeText(ctx, "Комментарии недоступны", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** "N комментариев" under a channel post: who commented, then into the discussion */
+@Composable
+fun CommentsRow(m: TdApi.Message, ri: TdApi.MessageReplyInfo, fg: Color) {
+    val ctx = LocalContext.current
+    HorizontalDivider(color = fg.copy(alpha = 0.12f), modifier = Modifier.padding(top = 4.dp))
+    Row(
+        Modifier.fillMaxWidth().clickable { openComments(ctx, m) }.padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (ri.recentReplierIds.isNotEmpty()) {
+            Box(Modifier.width((20 + 14 * (ri.recentReplierIds.size.coerceAtMost(3) - 1)).dp).height(22.dp)) {
+                ri.recentReplierIds.take(3).forEachIndexed { i, s -> SenderAvatar(s, 22.dp, Modifier.padding(start = (14 * i).dp)) }
+            }
+            Spacer(Modifier.width(8.dp))
+        } else {
+            Icon(Icons.AutoMirrored.Outlined.Chat, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(10.dp))
+        }
+        val n = ri.replyCount
+        Text(
+            if (n == 0) "Прокомментировать" else "$n " + Texts.plural(n, "комментарий", "комментария", "комментариев"),
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f),
+        )
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.primary)
+    }
+}
 
 object Links {
     /** a link that came from outside (another app) before the client was ready */
@@ -183,8 +226,9 @@ object Tg {
 }
 
 /** text → Telegram formatting: **bold**, __italic__, ~~strike~~, ||spoiler||, `code`, ```code block```, [text](link) */
-fun parseFormatting(t: String): TdApi.FormattedText {
-    val plain = TdApi.FormattedText(t, arrayOf())
+fun parseFormatting(t: String, extra: Array<TdApi.TextEntity> = arrayOf()): TdApi.FormattedText {
+    // premium emoji go in as entities; markdown parsing keeps them and fixes their offsets
+    val plain = TdApi.FormattedText(t, extra)
     if (!Prefs.markdown.value) return plain
     return runCatching { Client.execute(TdApi.ParseMarkdown(plain)) as? TdApi.FormattedText }.getOrNull() ?: plain
 }
@@ -832,4 +876,157 @@ private fun copyPermissions(p: TdApi.ChatPermissions) = TdApi.ChatPermissions().
     n.canAddLinkPreviews = p.canAddLinkPreviews; n.canReactToMessages = p.canReactToMessages; n.canEditTag = p.canEditTag
     n.canChangeInfo = p.canChangeInfo; n.canInviteUsers = p.canInviteUsers; n.canPinMessages = p.canPinMessages
     n.canCreateTopics = p.canCreateTopics
+}
+
+fun canCommentWithoutJoin(chat: TdApi.Chat): Boolean {
+    val t = chat.type as? TdApi.ChatTypeSupergroup ?: return false
+    val sg = TdStore.supergroups[t.supergroupId] ?: return false
+    return sg.status is TdApi.ChatMemberStatusLeft && !sg.joinToSendMessages && chat.permissions.canSendBasicMessages
+}
+
+// =====================================================================================================================
+//  Attachments: location, contact, dice; the dice message itself
+// =====================================================================================================================
+
+/** asks for location access, finds where you are and offers to send it */
+@Composable
+fun LocationSender(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var loc by remember { mutableStateOf<android.location.Location?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    fun locate() {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val providers = listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER).filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        // the freshest known fix right away, then a current one when the system has it
+        try {
+            providers.mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }?.let { loc = it }
+            if (providers.isEmpty()) { if (loc == null) failed = true; return }
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                lm.getCurrentLocation(providers.first(), null, ctx.mainExecutor) { l -> if (l != null) loc = l else if (loc == null) failed = true }
+            } else if (loc == null) failed = true
+        } catch (e: SecurityException) { failed = true }
+    }
+    val perm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        if (r.values.any { it }) locate() else { Toast.makeText(ctx, "Нет доступа к геопозиции", Toast.LENGTH_SHORT).show(); onDone() }
+    }
+    LaunchedEffect(Unit) {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) locate() else perm.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+    QSheet(onDismiss = onDone, wrap = true) { sheet ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Геопозиция", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(16.dp))
+            val l = loc
+            when {
+                l != null -> {
+                    Text("%.5f, %.5f".format(java.util.Locale.US, l.latitude, l.longitude), style = MaterialTheme.typography.titleMedium)
+                    Text("точность ~${l.accuracy.toInt()} м", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                failed -> Text("Не удалось определить местоположение. Включите геолокацию и попробуйте снова.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> { LoadingIndicator(); Text("Определяем местоположение…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(
+                enabled = l != null,
+                onClick = {
+                    val p = l ?: return@Button
+                    sendContent(chatId, TdApi.InputMessageLocation(TdApi.Location(p.latitude, p.longitude, p.accuracy.toDouble())), replyTo)
+                    sheet.close()
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text("Отправить мою геопозицию") }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** share one of your Telegram contacts */
+@Composable
+fun ContactPicker(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var users by remember { mutableStateOf<List<TdApi.User>?>(null) }
+    var q by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        val ids = Td.callOrNull(TdApi.GetContacts())?.userIds?.toList().orEmpty()
+        users = ids.mapNotNull { TdStore.users[it] ?: Td.callOrNull(TdApi.GetUser(it)) }.sortedBy { TdStore.fullName(it).lowercase() }
+    }
+    QSheet(onDismiss = onDone, halfFirst = true) { sheet ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Text("Отправить контакт", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+            OutlinedTextField(q, { q = it }, placeholder = { Text("Поиск") }, singleLine = true, shape = CircleShape, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            val list = users?.filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
+            if (list == null) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
+            else LazyColumn(Modifier.fillMaxWidth().weightFill(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(list, key = { _, u -> u.id }) { i, u ->
+                    Row(
+                        Modifier.segment(i, list.size).clickable {
+                            if (u.phoneNumber.isBlank()) { Toast.makeText(ctx, "Номер этого контакта скрыт", Toast.LENGTH_SHORT).show(); return@clickable }
+                            sendContent(chatId, TdApi.InputMessageContact(TdApi.Contact(u.phoneNumber, u.firstName, u.lastName, "", u.id)), replyTo)
+                            sheet.close()
+                        }.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        UserAvatar(u, 40.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(TdStore.fullName(u), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (u.phoneNumber.isNotBlank()) "+" + u.phoneNumber else Texts.status(u), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun Modifier.weightFill(): Modifier = this.heightIn(max = 560.dp)
+
+private val DICE = listOf("🎲" to "Кубик", "🎯" to "Дартс", "🏀" to "Баскетбол", "⚽" to "Футбол", "🎳" to "Боулинг", "🎰" to "Слоты")
+
+/** Telegram's dice games: the result is decided by the server and played as an animation */
+@Composable
+fun DicePicker(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
+    QSheet(onDismiss = onDone, wrap = true) { sheet ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Text("Игры", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp))
+            DICE.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { (e, name) ->
+                        Surface(
+                            onClick = { sendContent(chatId, TdApi.InputMessageDice(e, true), replyTo); sheet.close() },
+                            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f),
+                        ) {
+                            Column(Modifier.padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(e, fontSize = androidx.compose.ui.unit.TextUnit(36f, androidx.compose.ui.unit.TextUnitType.Sp))
+                                Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+/** a dice message: the roll animation, then the result (slot machine = its five layers) */
+@Composable
+fun DiceView(d: TdApi.MessageDice) {
+    val st = d.finalState ?: d.initialState
+    val rolling = d.finalState == null
+    Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
+        when (st) {
+            is TdApi.DiceStickersRegular -> DiceSticker(st.sticker, rolling, Modifier.size(150.dp))
+            is TdApi.DiceStickersSlotMachine -> listOf(st.background, st.lever, st.leftReel, st.centerReel, st.rightReel).forEach { DiceSticker(it, rolling, Modifier.size(150.dp)) }
+            else -> Text(d.emoji, fontSize = androidx.compose.ui.unit.TextUnit(72f, androidx.compose.ui.unit.TextUnitType.Sp))
+        }
+    }
+}
+
+@Composable
+private fun DiceSticker(s: TdApi.Sticker, loop: Boolean, modifier: Modifier) {
+    if (s.format is TdApi.StickerFormatTgs) TgsImage(s.sticker, modifier, loop = loop) else StickerContent(s, modifier)
 }

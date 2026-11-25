@@ -167,6 +167,13 @@ object Texts {
             is TdApi.MessagePoll -> "📊 " + c.poll.question.text
             is TdApi.MessageCall -> if (c.isVideo) "Видеозвонок" else "Звонок"
             is TdApi.MessageGame -> "Игра"
+            is TdApi.MessageDice -> c.emoji
+            is TdApi.MessageVenue -> "📍 " + c.venue.title
+            is TdApi.MessageStory -> "История"
+            is TdApi.MessageInvoice -> "Счёт"
+            is TdApi.MessageGiveaway -> "🎁 Розыгрыш"
+            is TdApi.MessageGift -> "🎁 Подарок"
+            is TdApi.MessageUpgradedGift -> "🎁 Подарок"
             else -> service(m) ?: "Сообщение"
         }
         if (!withSender || m.isOutgoing || service(m) != null) return if (m.isOutgoing && withSender && service(m) == null) "Вы: $body" else body
