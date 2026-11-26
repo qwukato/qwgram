@@ -70,7 +70,7 @@ val DRAWER_CATALOG = listOf(
     DrawerItem("invite", "Пригласить друзей", Icons.Outlined.Share, 2),
 )
 
-const val DRAWER_DEFAULT = "profile,group,contacts,saved,archive,settings,appearance,features,folders,invite"
+const val DRAWER_DEFAULT = "profile,story,group,contacts,saved,archive,settings,appearance,features,folders,invite"
 
 /** the menu's items, in the user's order */
 fun drawerItems(): List<DrawerItem> {
