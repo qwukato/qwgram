@@ -123,8 +123,8 @@ private fun ProfileCard(me: TdApi.User?) {
             // slow endless turn; with energy saving it only eases into place once
             val turnOnce = remember { androidx.compose.animation.core.Animatable(-40f) }
             LaunchedEffect(Unit) { turnOnce.animateTo(20f, androidx.compose.animation.core.spring(0.7f, 60f)) }
-            val loop = loopPhase(!(Prefs.powerSave.value && Prefs.psIdleAnims.value), 40000, 360f)
-            val turnV = if (Prefs.powerSave.value && Prefs.psIdleAnims.value) turnOnce.value else loop.value
+            val loop = loopPhase(!(app.qwgram.next.Power.on && Prefs.psIdleAnims.value), 40000, 360f)
+            val turnV = if (app.qwgram.next.Power.on && Prefs.psIdleAnims.value) turnOnce.value else loop.value
             Box(
                 Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-50).dp).size(200.dp)
                     .graphicsLayer { rotationZ = if (Prefs.motion.value == "off") 20f else turnV; alpha = 0.16f }
@@ -181,7 +181,7 @@ fun SettingsHome(pad: PaddingValues) {
                 nav("Уведомления и звуки", "Чаты, группы, каналы", Icons.Outlined.Notifications) { Nav.push(Route.Page("notifications")) }
                 nav("Конфиденциальность", "Кто видит номер, время, фото", Icons.Outlined.Lock) { Nav.push(Route.Page("privacy")) }
                 nav("Данные и память", "Кэш, автозагрузка", Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
-                nav("Энергосбережение", if (Prefs.powerSave.value) "Включено" else "Выключено", Icons.Outlined.BatterySaver) { Nav.push(Route.Page("power")) }
+                nav("Энергосбережение", if (app.qwgram.next.Power.on) "Включено" else "Выключено", Icons.Outlined.BatterySaver) { Nav.push(Route.Page("power")) }
                 nav("Папки с чатами", "Создать и настроить", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
                 nav("Заблокированные", "Пользователи и боты", Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             }

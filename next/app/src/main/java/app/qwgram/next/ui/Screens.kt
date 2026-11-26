@@ -601,7 +601,7 @@ fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: Str
     val wob = remember { androidx.compose.animation.core.Animatable(-14f) }
     LaunchedEffect(Unit) { wob.animateTo(0f, androidx.compose.animation.core.spring(0.25f, 40f)) }
     val sway = loopPhase(true, 4800, (2 * Math.PI).toFloat())
-    val rot = if (Prefs.powerSave.value && Prefs.psIdleAnims.value) wob.value else kotlin.math.sin(sway.value) * 8f
+    val rot = if (app.qwgram.next.Power.on && Prefs.psIdleAnims.value) wob.value else kotlin.math.sin(sway.value) * 8f
     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(112.dp).graphicsLayer { rotationZ = rot }.clip(androidx.compose.material3.MaterialShapes.Cookie9Sided.asShape()).background(cs.secondaryContainer), contentAlignment = Alignment.Center) {
             Icon(icon, null, Modifier.size(40.dp).graphicsLayer { rotationZ = -rot }, tint = cs.onSecondaryContainer)

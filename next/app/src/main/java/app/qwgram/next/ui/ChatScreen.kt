@@ -294,7 +294,7 @@ class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L
     fun onEvent(u: TdApi.Update) {
         when (u) {
             is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && inView(u.message) && !hasNewer && messages.none { it.id == u.message.id }) {
-                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly") flyIn.add(u.message.id); onOwnSend?.invoke() }
+                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly" && !(app.qwgram.next.Power.on && Prefs.psSendAnim.value)) flyIn.add(u.message.id); onOwnSend?.invoke() }
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -793,6 +793,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                         if (!selecting) when (Prefs.doubleTap.value) {
                                             "react" -> react(e.m, Prefs.doubleTapEmoji.value)
                                             "reply" -> if (canSend) { replyTo = e.m; editing = null }
+                                            "copy" -> Texts.caption(e.m.content)?.text?.takeIf { it.isNotBlank() }?.let { copy(ctx, it); Toast.makeText(ctx, "Скопировано", Toast.LENGTH_SHORT).show() }
                                         }
                                     },
                                     onSwipeReply = { if (canSend && !selecting) { haptic(HapticFeedbackType.TextHandleMove); replyTo = e.m; editing = null } },
@@ -995,6 +996,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
 fun inputText(t: String, emoji: Array<TdApi.TextEntity> = arrayOf()): TdApi.InputMessageText = TdApi.InputMessageText().apply {
     // **bold**, __italic__, `code`, ||spoiler||… become Telegram formatting (Settings → Чаты → Разметка текста)
     text = parseFormatting(t, emoji)
+    // Features → links without a preview
+    if (Prefs.noLinkPreview.value) linkPreviewOptions = TdApi.LinkPreviewOptions(true, "", false, false, false)
     clearDraft = true
 }
 
@@ -1776,6 +1779,8 @@ private fun mimeOf(ctx: Context, uri: Uri): String =
 /** several photos/videos go as one album (2–10), anything else one by one */
 private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi.Message?) {
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        // Features → photos and videos as files, without compression
+        if (Prefs.photosAsFiles.value) { uris.forEach { sendUri(ctx, chatId, it, asDocument = true, replyTo) }; return@launch }
         if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo) }; return@launch }
         val contents = uris.mapNotNull { uri ->
             val f = copyToCache(ctx, uri) ?: return@mapNotNull null

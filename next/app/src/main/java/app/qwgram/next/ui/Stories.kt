@@ -87,9 +87,12 @@ object Stories {
         if (s.stories.isEmpty() || s.list == null) active.remove(s.chatId) else active[s.chatId] = s
     }
 
+    /** stories are wanted (not hidden in Features, not paused by energy saving) */
+    val shown: Boolean get() = !app.qwgram.next.Prefs.hideStories.value && !(app.qwgram.next.Power.on && app.qwgram.next.Prefs.psStories.value)
+
     /** asks TDLib for the main story list (several pages) */
     fun load() {
-        if (loaded) return
+        if (loaded || !shown) return
         loaded = true
         fun page(n: Int) { if (n < 6) Td.send(TdApi.LoadActiveStories(TdApi.StoryListMain())) { r -> if (r !is TdApi.Error) page(n + 1) } }
         page(0)

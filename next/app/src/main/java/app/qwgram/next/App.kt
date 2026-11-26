@@ -18,6 +18,7 @@ class App : Application() {
         if (Prefs.emojiStyle.value == "noto") runCatching {
             androidx.emoji2.text.EmojiCompat.init(androidx.emoji2.bundled.BundledEmojiCompatConfig(this).setReplaceAll(true))
         }
+        Power.init(this)
         Notifier.init(this)
         Td.init(this)
     }

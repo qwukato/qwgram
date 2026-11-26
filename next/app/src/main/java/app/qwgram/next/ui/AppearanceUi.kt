@@ -1,6 +1,8 @@
 package app.qwgram.next.ui
 
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.outlined.Search
 import org.drinkless.tdlib.TdApi
 
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -180,13 +182,15 @@ fun NavPreview() = PreviewCard("панели") {
             }
             if (Prefs.fabStyle.value != "none") {
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(40.dp).clip(fabPolygon().asShape()).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp), tint = cs.onPrimaryContainer)
-                }
+                PreviewFab()
             }
-        } else Row(Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf(Icons.AutoMirrored.Outlined.Chat, Icons.Outlined.Person, Icons.Outlined.Settings).forEachIndexed { i, ic ->
-                Box(Modifier.clip(CircleShape).background(if (i == 0) cs.secondaryContainer else Color.Transparent).padding(horizontal = 14.dp, vertical = 4.dp)) { Icon(ic, null, Modifier.size(18.dp)) }
+        } else Column(horizontalAlignment = Alignment.End) {
+            // square bar: the FAB floats above its right end
+            if (Prefs.fabStyle.value != "none") Box(Modifier.padding(end = 12.dp, bottom = 8.dp)) { PreviewFab() }
+            Row(Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                listOf(Icons.AutoMirrored.Outlined.Chat, Icons.Outlined.Person, Icons.Outlined.Settings).forEachIndexed { i, ic ->
+                    Box(Modifier.clip(CircleShape).background(if (i == 0) cs.secondaryContainer else Color.Transparent).padding(horizontal = 14.dp, vertical = 4.dp)) { Icon(ic, null, Modifier.size(18.dp)) }
+                }
             }
         }
     }
@@ -394,7 +398,7 @@ fun ChatStylePage2() = PageScaffold("Чат и сообщения") {
         }
     }
     group("Жесты") {
-        pick("Двойной тап", Prefs.doubleTap, listOf("react" to "Реакция", "reply" to "Ответить", "none" to "Ничего"))
+        pick("Двойной тап", Prefs.doubleTap, listOf("react" to "Реакция", "reply" to "Ответить", "copy" to "Копировать текст", "none" to "Ничего"))
         row { m -> Box(m) { QuickReactionRow() } }
         switch("Ответ свайпом влево", Prefs.swipeReply)
         switch("Отправка по Enter", Prefs.sendByEnter)
@@ -649,6 +653,7 @@ fun FeaturesPage2() {
         group("Призрачный режим", footer = "Можно читать и писать, оставаясь незаметным.") {
             switch("Не показываться в сети", Prefs.ghostOffline, "Статус «в сети» не отправляется") { applyOnline(true) }
             switch("Не отправлять «печатает…»", Prefs.ghostTyping)
+            switchState("Не отмечать прочитанным", !Prefs.markReadOnOpen.value, "Сообщения остаются непрочитанными, пока вы не прочитаете их явно") { Prefs.markReadOnOpen.value = !it }
             switchState("Не отмечать прочитанным", !Prefs.markReadOnOpen.value, "Собеседник не увидит двух галочек") { Prefs.markReadOnOpen.value = !it }
         }
         group("Сообщения") {
@@ -661,6 +666,9 @@ fun FeaturesPage2() {
             switch("Пересылать без автора", Prefs.forwardNoAuthor, "Как копию, без «Переслано от» (можно менять при пересылке)")
             switch("Прятать клавиатуру при прокрутке", Prefs.hideKbOnScroll)
             switch("Время с секундами", Prefs.seconds, "У сообщений")
+            switch("Без предпросмотра ссылок", Prefs.noLinkPreview, "Ссылки отправляются без карточки сайта")
+            switch("Фото и видео без сжатия", Prefs.photosAsFiles, "Отправляются файлами, в исходном качестве")
+            switch("Скрывать истории", Prefs.hideStories, "Полоса историй над чатами не показывается")
         }
         group("Приватность") {
             switch("Скрывать свой номер", Prefs.hidePhone, "В настройках, профиле и меню")
@@ -709,5 +717,22 @@ private fun QuickReactionRow() {
             Prefs.doubleTapEmoji.value = when (t) { is TdApi.ReactionTypeCustomEmoji -> "ce:${t.customEmojiId}"; is TdApi.ReactionTypeEmoji -> t.emoji; else -> v }
             open = false
         }
+    }
+}
+
+
+/** the FAB in the preview: its shape and its action's icon (the icon swaps with a spin when the action changes) */
+@Composable
+private fun PreviewFab() {
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.size(40.dp).clip(fabPolygon().asShape()).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+        androidx.compose.animation.AnimatedContent(
+            Prefs.fabAction.value,
+            transitionSpec = {
+                (androidx.compose.animation.scaleIn(Springs.fastSpatial(), 0.5f) + androidx.compose.animation.fadeIn(Springs.effects()))
+                    .togetherWith(androidx.compose.animation.scaleOut(Springs.exit(), 0.5f) + androidx.compose.animation.fadeOut(Springs.exit()))
+            },
+            label = "fabIcon",
+        ) { a -> Icon(if (a == "search") Icons.Outlined.Search else Icons.Outlined.Edit, null, Modifier.size(18.dp), tint = cs.onPrimaryContainer) }
     }
 }

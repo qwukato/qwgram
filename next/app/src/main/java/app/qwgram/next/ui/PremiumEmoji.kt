@@ -48,6 +48,11 @@ fun rememberEmojiInline(ft: TdApi.FormattedText, tint: Color): Map<String, Inlin
 fun PremiumEmoji(id: Long, tint: Color, modifier: Modifier = Modifier) {
     LaunchedEffect(id) { CustomEmoji.request(id) }
     val s = CustomEmoji.stickers[id] ?: run { Box(modifier); return }
+    // energy saving: a still picture instead of the animation
+    if (app.qwgram.next.Power.on && app.qwgram.next.Prefs.psPremiumEmoji.value) {
+        val still = rememberStickerStill(s, 96)
+        if (still != null) { androidx.compose.foundation.Image(still, s.emoji, modifier); return }
+    }
     val repaint = (s.fullType as? TdApi.StickerFullTypeCustomEmoji)?.needsRepainting == true
     val m = if (repaint) modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent { drawContent(); drawRect(tint, blendMode = BlendMode.SrcIn) } else modifier

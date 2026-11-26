@@ -104,7 +104,7 @@ fun TgsImage(file: TdApi.File, modifier: Modifier = Modifier, loop: Boolean = tr
     val comp by rememberLottieComposition(LottieCompositionSpec.JsonString(j), cacheKey = "tgs:$path")
     if (comp == null) { Box(modifier) { placeholder() }; return }
     // energy saving: stickers can play once or stay still (Settings → Energy saving)
-    val ps = if (Prefs.powerSave.value) Prefs.psStickers.value else "loop"
+    val ps = if (app.qwgram.next.Power.on) Prefs.psStickers.value else "loop"
     LottieAnimation(
         comp, modifier = modifier,
         iterations = if (loop && ps == "loop") LottieConstants.IterateForever else 1,

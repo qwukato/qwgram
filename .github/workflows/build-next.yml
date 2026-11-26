@@ -120,7 +120,13 @@ jobs:
           [ -n "$URL" ] && curl -fsSL "$URL" -o $D/blobmoji.ttf
           # Noto preview pictures for the emoji picker in Appearance (the set itself comes with emoji2-bundled)
           P=next/app/src/main/assets/emoji_preview; mkdir -p $P
-          for c in 1f600 1f525; do curl -fsSL https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/72/emoji_u$c.png -o $P/noto_$c.png; done
+          for c in 1f600 1f525; do
+            for path in png/72/emoji_u$c.png png/128/emoji_u$c.png; do
+              U=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/googlefonts/noto-emoji/contents/$path" \
+                | python3 -c "import sys,json; print(json.load(sys.stdin).get('download_url') or '')" 2>/dev/null)
+              [ -n "$U" ] && curl -fsSL "$U" -o $P/noto_$c.png && break
+            done
+          done
           ls -la $D $P
           exit 0
 

@@ -94,13 +94,14 @@ fun isAppDark(): Boolean = when (Prefs.themeMode.state.value) {
 
 @Composable
 fun QwTheme(content: @Composable () -> Unit) {
-    val dark = isAppDark()
+    // energy saving can force a dark / pure-black look (less power on OLED screens)
+    val dark = isAppDark() || (app.qwgram.next.Power.on && Prefs.psDark.value)
     val ctx = LocalContext.current
     val dynamic = Prefs.dynamicColor.state.value && Build.VERSION.SDK_INT >= 31
     val seed = Prefs.seed.state.value
     val variant = Prefs.paletteStyle.state.value
     val contrast = Prefs.contrast.state.value
-    val amoled = Prefs.amoled.state.value
+    val amoled = Prefs.amoled.state.value || (app.qwgram.next.Power.on && Prefs.psAmoled.value)
     val scheme = remember(dark, dynamic, seed, variant, contrast, amoled) {
         if (dynamic) {
             val s = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)

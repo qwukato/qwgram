@@ -215,6 +215,21 @@ object Prefs {
     val titleSize = S("title_size", "normal")          // small | normal | large — the home header title
     val sendAnim = S("send_anim", "fly")               // fly (from the field, Telegram) | simple
     val tabAnim = S("tab_anim", "fade")                // fade | slide | none — switching bottom tabs
+    // energy saving extras
+    val psAuto = B("ps_auto", false)                   // turn energy saving on by itself on a low battery
+    val psAutoLevel = I("ps_auto_level", 20)           // … at or under this percent (not while charging)
+    val psDark = B("ps_dark", false)                   // dark theme while saving
+    val psAmoled = B("ps_amoled", true)                // pure black background while saving (OLED)
+    val psCascade = B("ps_cascade", true)              // no folder wave while saving
+    val psSendAnim = B("ps_send_anim", false)          // plain sending (no flight from the input)
+    val psStories = B("ps_stories", false)             // don't load stories
+    val psPremiumEmoji = B("ps_premium_emoji", false)  // premium emoji as still pictures
+    val psProfile = B("ps_profile", true)              // no pattern / gift animations in profiles
+    val psBackground = B("ps_background", false)       // pause background syncing while saving
+    // features
+    val hideStories = B("hide_stories", false)
+    val noLinkPreview = B("no_link_preview", false)    // send links without a preview
+    val photosAsFiles = B("photos_as_files", false)    // photos / videos go as files (no compression)
     val folderCascade = F("folder_cascade", 1f)        // strength of the rows' trailing wave on folder swipes
     val cascadeBounce = F("cascade_bounce", 0.55f)      // 0 = no overshoot … 1 = very springy
     val cascadeSpeed = F("cascade_speed", 1f)          // how fast the rows catch up

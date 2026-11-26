@@ -264,7 +264,7 @@ fun WebmImage(file: TdApi.File, modifier: Modifier = Modifier, placeholder: @Com
         val a = anim
         if (a == null || a.frames.isEmpty()) { Box(Modifier.fillMaxSize()) { placeholder() }; return@BoxWithConstraints }
         var frame by remember(a) { mutableIntStateOf(0) }
-        val ps = if (Prefs.powerSave.value) Prefs.psStickers.value else "loop"
+        val ps = if (app.qwgram.next.Power.on) Prefs.psStickers.value else "loop"
         LaunchedEffect(a, Prefs.motion.value, ps) {
             if (Prefs.motion.value == "off" || a.frames.size < 2 || ps == "still") return@LaunchedEffect
             var laps = 0

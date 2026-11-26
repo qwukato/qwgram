@@ -91,7 +91,7 @@ object VideoViewer {
 fun LoopingVideo(path: String, modifier: Modifier = Modifier, crop: Boolean = true) {
     val ctx = LocalContext.current
     // energy saving: GIFs wait for a tap instead of playing on their own
-    val paused = app.qwgram.next.Prefs.powerSave.value && app.qwgram.next.Prefs.psGifs.value
+    val paused = app.qwgram.next.Power.on && app.qwgram.next.Prefs.psGifs.value
     var tapped by remember(path) { mutableStateOf(false) }
     val player = remember(path) {
         ExoPlayer.Builder(ctx).build().apply {

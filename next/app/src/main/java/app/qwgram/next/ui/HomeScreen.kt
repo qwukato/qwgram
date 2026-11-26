@@ -478,8 +478,9 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     // only from a resting first folder: never mid-swipe between folders (that pulled the menu out while paging)
     val canOpenDrawer = Prefs.drawer.value && (tabs.size <= 1 || (pager.settledPage == 0 && !pager.isScrollInProgress))
     val folderCascade = remember { FolderCascade() }
-    folderCascade.enabled = Prefs.motion.value != "off" && Prefs.folderCascade.value > 0f
+    folderCascade.enabled = Prefs.motion.value != "off" && Prefs.folderCascade.value > 0f && !(app.qwgram.next.Power.on && Prefs.psCascade.value)
     LaunchedEffect(pager) { folderCascade.run(pager) }
+    LaunchedEffect(Stories.shown) { Stories.load() }
     SideEffect { drawer.canOpen = canOpenDrawer }
     DisposableEffect(Unit) { onDispose { drawer.canOpen = false } }
     val exDensity = androidx.compose.ui.platform.LocalDensity.current
@@ -756,7 +757,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         verticalArrangement = Arrangement.spacedBy(if (Prefs.listStyle.value == "cards") 2.dp else 0.dp),
     ) {
         // stories of contacts and channels, above everything (Telegram)
-        if (list is TdApi.ChatListMain && page >= 0 && Stories.active.isNotEmpty()) item(key = "stories") {
+        if (list is TdApi.ChatListMain && page >= 0 && Stories.active.isNotEmpty() && Stories.shown) item(key = "stories") {
             StoriesStrip(Modifier.followFinger(0, state, page))
         }
         if (archived.isNotEmpty()) {

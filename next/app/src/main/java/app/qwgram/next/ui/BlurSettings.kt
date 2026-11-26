@@ -176,12 +176,38 @@ private fun BlurPreview() {
 @Composable
 fun PowerSavePage() = PageScaffold("Энергосбережение") {
     group(footer = "Когда включено, приложение меньше перерисовывает экран без дела и бережёт батарею. По умолчанию выключено.") {
-        switch("Энергосбережение", Prefs.powerSave, sub = "Экономить батарею за счёт части анимаций")
+        switch("Энергосбережение", Prefs.powerSave, sub = "Экономить батарею за счёт части анимаций") { app.qwgram.next.Power.changed() }
+        switch("Включать при низком заряде", Prefs.psAuto, sub = "Само, когда заряд ниже порога и телефон не заряжается") { app.qwgram.next.Power.changed() }
+        if (Prefs.psAuto.value) sliderInt("Порог заряда", Prefs.psAutoLevel, 5..50, 5) { "$it%" }
     }
-    if (!Prefs.powerSave.value) return@PageScaffold
-    group("Что экономить") {
+    item {
+        // what's happening right now
+        val on = app.qwgram.next.Power.on
+        val auto = app.qwgram.next.Power.auto && !Prefs.powerSave.value
+        androidx.compose.material3.Text(
+            (if (on) (if (auto) "Сейчас включено автоматически" else "Сейчас включено") else "Сейчас выключено") +
+                " · заряд ${app.qwgram.next.Power.battery}%" + if (app.qwgram.next.Power.charging) ", заряжается" else "",
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = androidx.compose.ui.Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        )
+    }
+    if (!Prefs.powerSave.value && !Prefs.psAuto.value) return@PageScaffold
+    group("Анимации", footer = "Действует, только пока энергосбережение включено.") {
         switch("Останавливать фоновые анимации", Prefs.psIdleAnims, sub = "Вращение обложки, волны плеера и декоративные фигуры — только когда нужны")
         segmented("Анимированные стикеры и эмодзи", Prefs.psStickers, listOf("loop" to "Всегда", "once" to "Один раз", "still" to "Без анимации"))
+        switch("Премиум-эмодзи картинкой", Prefs.psPremiumEmoji, sub = "Эмодзи из наборов в тексте не анимируются")
         switch("Не проигрывать GIF сами", Prefs.psGifs, sub = "GIF и кружки в чатах стоят на паузе, пока на них не нажмёте")
+        switch("Без волны при смене папок", Prefs.psCascade)
+        switch("Простая отправка", Prefs.psSendAnim, sub = "Сообщение появляется сразу, без полёта из поля ввода")
+        switch("Спокойный профиль", Prefs.psProfile, sub = "Без узора вокруг фото")
+    }
+    group("Экран") {
+        switch("Тёмная тема", Prefs.psDark, sub = "На время экономии")
+        switch("Чёрный фон", Prefs.psAmoled, sub = "На OLED-экранах чёрный почти не тратит энергию")
+    }
+    group("Сеть и фон") {
+        switch("Не загружать истории", Prefs.psStories, sub = "Полоса историй прячется, истории не скачиваются")
+        switch("Пауза фоновой работы", Prefs.psBackground, sub = "Сообщения не приходят, пока qwgram закрыт — сильно экономит батарею") { app.qwgram.next.Power.changed() }
     }
 }

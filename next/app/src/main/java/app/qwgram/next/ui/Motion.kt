@@ -667,7 +667,7 @@ fun FabMenu(expanded: Boolean, onToggle: (Boolean) -> Unit, icon: ImageVector, a
 fun loopPhase(running: Boolean, periodMs: Int, max: Float): androidx.compose.runtime.State<Float> {
     val a = remember { androidx.compose.animation.core.Animatable(0f) }
     // energy saving (Settings → Energy saving) stops it when idle; otherwise it keeps going like before
-    val idleStop = Prefs.powerSave.value && Prefs.psIdleAnims.value
+    val idleStop = app.qwgram.next.Power.on && Prefs.psIdleAnims.value
     val on = (running || !idleStop) && Prefs.motion.value != "off"
     LaunchedEffect(on) {
         if (!on) return@LaunchedEffect

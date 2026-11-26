@@ -42,7 +42,8 @@ class KeepAliveService : Service() {
     companion object {
         fun sync(context: Context) {
             val i = Intent(context, KeepAliveService::class.java)
-            if (Prefs.keepAlive.value) {
+            // energy saving may pause the background work (only if the user asked for that)
+            if (Prefs.keepAlive.value && !(Power.on && Prefs.psBackground.value)) {
                 try {
                     ContextCompat.startForegroundService(context, i)
                 } catch (_: Exception) {

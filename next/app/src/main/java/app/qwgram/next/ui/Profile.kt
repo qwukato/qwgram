@@ -133,7 +133,7 @@ fun ProfileBanner(
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
                 // pattern: rings of the chosen emoji around the avatar, fading outwards (Telegram Premium profile)
-                if (patternId != null && bannerColors != null && app.qwgram.next.Prefs.profilePattern.value) {
+                if (patternId != null && bannerColors != null && app.qwgram.next.Prefs.profilePattern.value && !(app.qwgram.next.Power.on && app.qwgram.next.Prefs.psProfile.value)) {
                     // two rings like Telegram: an inner one close to the avatar, a fainter outer one
                     val ring = remember {
                         buildList {
