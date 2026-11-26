@@ -395,6 +395,8 @@ fun SearchScreen() {
     val fromBottom = remember { SearchMorph.bottom.also { SearchMorph.bottom = false } }
     val dens = androidx.compose.ui.platform.LocalDensity.current
     val winH = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toFloat()
+    val imeIns = WindowInsets.ime
+    val navIns = WindowInsets.navigationBars
     // container transform: the bar grows out of the button that opened search (springy), the rest fades in after
     val origin = remember { SearchMorph.origin.also { SearchMorph.origin = null } }
     val grow = remember { androidx.compose.animation.core.Animatable(if (origin == null || Prefs.motion.value == "off") 1f else 0f) }
@@ -437,7 +439,7 @@ fun SearchScreen() {
                         // the bar's final spot is fixed (screen top, under the status bar): known from the first frame,
                         // so the grow starts exactly on the button with no jump
                         hostPos = if (!fromBottom) androidx.compose.ui.geometry.Offset(12.dp.toPx(), statusTopPx + 6.dp.toPx())
-                        else androidx.compose.ui.geometry.Offset(12.dp.toPx(), winH - maxOf(WindowInsets.ime.getBottom(dens), WindowInsets.navigationBars.getBottom(dens)) - 8.dp.toPx() - 56.dp.toPx())
+                        else androidx.compose.ui.geometry.Offset(12.dp.toPx(), winH - maxOf(imeIns.getBottom(dens), navIns.getBottom(dens)) - 8.dp.toPx() - 56.dp.toPx())
                         val fw = c.maxWidth; val fh = c.maxHeight.coerceAtMost(56.dp.roundToPx())
                         val p = grow.value
                         val o = origin
