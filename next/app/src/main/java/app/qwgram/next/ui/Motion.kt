@@ -407,12 +407,12 @@ class TileAction(val icon: ImageVector, val label: String, val selected: Boolean
  * (icon beside a label of up to two lines). Text keeps its size. The press layer stays inside each tile.
  */
 @Composable
-fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height: Dp = 84.dp, container: Color? = null, content: Color? = null) {
+fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height: Dp = 84.dp, container: Color? = null, content: Color? = null, groupTop: Boolean = true, groupBottom: Boolean = true) {
     val cs = MaterialTheme.colorScheme
     val style = MaterialTheme.typography.labelLarge
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
-        val gap = 4.dp
+        val gap = 2.dp
         val n = items.size.coerceAtLeast(1)
         val tileW = (maxWidth - gap * (n - 1)) / n
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -420,16 +420,15 @@ fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height
         val fitsRow = items.all { it2 ->
             it2.label.split(' ').all { w -> with(density) { measurer.measure(w, style).size.width.toDp() } <= tileW - 12.dp }
         }
+        // one connected group (M3): outer corners big, the touching ones small; it may continue above / below
         @Composable
-        fun tile(i: Int, a: TileAction, count: Int, mod: Modifier, wide: Boolean) {
-            val outer = 24.dp
-            val inner = 8.dp
-            val first = i == 0
-            val last = i == count - 1
-            MorphBox(
-                onClick = a.onClick, rest = if (first || last) outer else inner, pressed = 30.dp, squish = 0.95f,
-                color = if (a.selected) (if (container != null) Color.White.copy(alpha = 0.34f) else cs.secondaryContainer) else container ?: cs.surfaceContainerHighest,
-                contentColor = if (a.selected) (content ?: cs.onSecondaryContainer) else content ?: cs.onSurface,
+        fun tile(seat: Seat, a: TileAction, mod: Modifier, wide: Boolean) {
+            ConnectedTile(
+                seat.copy(groupTop = groupTop, groupBottom = groupBottom), onClick = a.onClick,
+                color = container ?: cs.surfaceContainerHighest, contentColor = content ?: cs.onSurface,
+                selected = a.selected,
+                selectedColor = if (container != null) Color.White.copy(alpha = 0.34f) else cs.secondaryContainer,
+                selectedContentColor = content ?: cs.onSecondaryContainer,
                 modifier = mod,
             ) {
                 if (!wide) Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp)) {
@@ -444,15 +443,13 @@ fun AdaptiveTiles(items: List<TileAction>, modifier: Modifier = Modifier, height
             }
         }
         if (fitsRow) Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)) {
-            items.forEachIndexed { i, a -> tile(i, a, items.size, Modifier.weight(1f).heightIn(min = height), wide = false) }
+            items.forEachIndexed { i, a -> tile(Seat(0, 1, i, items.size), a, Modifier.weight(1f).heightIn(min = height), wide = false) }
         } else Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)) {
-            items.chunked(2).forEachIndexed { r, row ->
+            val rows = items.chunked(2)
+            rows.forEachIndexed { r, row ->
                 Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap), modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                    row.forEachIndexed { c, a ->
-                        val idx = r * 2 + c
-                        tile(idx, a, items.size, Modifier.weight(1f).fillMaxHeight().heightIn(min = 60.dp), wide = true)
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                    // a lone last tile spans the row (like the examples: one wide tile under / over two)
+                    row.forEachIndexed { c, a -> tile(Seat(r, rows.size, c, row.size), a, Modifier.weight(1f).fillMaxHeight().heightIn(min = 60.dp), wide = true) }
                 }
             }
         }

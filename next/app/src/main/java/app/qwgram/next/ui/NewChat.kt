@@ -182,9 +182,10 @@ fun NewMessagePage(start: String = "") {
 
 @Composable
 private fun ActionCard(title: String, sub: String, icon: androidx.compose.ui.graphics.vector.ImageVector, top: Boolean, onClick: () -> Unit) {
-    MorphBox(
-        onClick = onClick, modifier = Modifier.fillMaxWidth(), rest = if (top) 20.dp else 20.dp, pressed = 12.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerLow, contentAlignment = Alignment.CenterStart, squish = 0.98f,
+    // the two cards are one connected group (M3): big outer corners, small where they touch
+    ConnectedTile(
+        Seat.stacked(if (top) 0 else 1, 2), onClick = onClick, modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow, contentAlignment = Alignment.CenterStart,
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             RowIcon(icon, 0)

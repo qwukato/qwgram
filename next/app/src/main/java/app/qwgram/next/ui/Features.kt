@@ -548,14 +548,15 @@ fun InlineKeyboard(m: TdApi.Message, maxWidth: androidx.compose.ui.unit.Dp) {
     val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard ?: return
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.widthIn(max = maxWidth).padding(top = 3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        kb.rows.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                row.forEach { b ->
-                    MorphBox(
-                        onClick = { pressInline(ctx, m, b) },
-                        modifier = Modifier.weight(1f).heightIn(min = 40.dp), rest = 14.dp, pressed = 22.dp,
-                        color = cs.secondaryContainer.copy(alpha = 0.9f), contentColor = cs.onSecondaryContainer, squish = 0.96f,
+    // the bot's buttons as one connected group (M3): rows 2 dp apart, big outer corners, small touching ones
+    Column(Modifier.widthIn(max = maxWidth).padding(top = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        kb.rows.forEachIndexed { r, row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                row.forEachIndexed { c, b ->
+                    ConnectedTile(
+                        Seat(r, kb.rows.size, c, row.size), onClick = { pressInline(ctx, m, b) },
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp), big = 18.dp, small = 5.dp,
+                        color = cs.secondaryContainer.copy(alpha = 0.9f), contentColor = cs.onSecondaryContainer,
                     ) {
                         Text(b.text, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))

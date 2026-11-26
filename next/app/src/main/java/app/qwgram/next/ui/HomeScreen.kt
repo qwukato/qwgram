@@ -719,12 +719,13 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
         if (count > 0 && Prefs.folderCounters.value) {
             Spacer(Modifier.width(6.dp))
             Box(
-                Modifier.height(20.dp).clip(CircleShape)
+                // a true circle for one digit (width at least the height), a pill only for longer numbers
+                Modifier.height(20.dp).widthIn(min = 20.dp).clip(CircleShape)
                     .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = if (count > 9) 6.dp else 0.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.surface)
+                Text(if (count > 999) "999+" else count.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.surface, maxLines = 1)
             }
         }
     }

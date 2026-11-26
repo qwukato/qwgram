@@ -226,8 +226,9 @@ fun ProfileScreen(chatId: Long) {
                                 )
                                 else -> emptyList()
                             }
-                            if (acts.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                acts.forEach { (icon, label, st) -> ProfileAction(icon, label, st.first, Modifier.weight(1f), onColor, st.second) }
+                            // one connected group (M3): big outer corners, small touching ones
+                            if (acts.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                acts.forEachIndexed { i, (icon, label, st) -> ProfileAction(icon, label, st.first, Modifier.weight(1f), onColor, Seat(0, 1, i, acts.size), st.second) }
                             }
                         },
                     )
@@ -335,14 +336,15 @@ private fun rememberIntro(): Boolean {
 }
 
 @Composable
-private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier, onColor: Boolean = false, onClick: () -> Unit) {
+private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier, onColor: Boolean = false, seat: Seat = Seat(0, 1, 0, 1), onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    // active (e.g. muted) tiles get rounder and tonal; on a coloured banner everything is white-on-glass
-    val rest by androidx.compose.animation.core.animateDpAsState(if (active) 30.dp else 22.dp, Springs.fastSpatial(), label = "pa")
-    val bgT = when { onColor -> Color.White.copy(alpha = if (active) 0.32f else 0.18f); active -> cs.secondaryContainer; else -> cs.surfaceContainerHigh }
+    // active (e.g. muted) tiles are tonal; on a coloured banner everything is white-on-glass
     val fgT = when { onColor -> Color.White; active -> cs.onSecondaryContainer; else -> cs.onSurface }
-    val bg by androidx.compose.animation.animateColorAsState(bgT, Springs.effects(), label = "pb")
-    MorphBox(onClick = onClick, modifier = modifier.height(76.dp), rest = rest, pressed = 14.dp, color = bg, contentColor = fgT) {
+    ConnectedTile(
+        seat, onClick = onClick, modifier = modifier.height(76.dp), big = 26.dp,
+        color = if (onColor) Color.White.copy(alpha = 0.18f) else cs.surfaceContainerHigh, contentColor = fgT,
+        selected = active, selectedColor = if (onColor) Color.White.copy(alpha = 0.32f) else cs.secondaryContainer, selectedContentColor = fgT,
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null, tint = if (onColor) Color.White else if (active) cs.onSecondaryContainer else cs.primary)
             Spacer(Modifier.height(6.dp))

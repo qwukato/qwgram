@@ -638,11 +638,14 @@ fun BotKeyboard(chat: TdApi.Chat, onSendText: (String) -> Unit) {
         }
         AnimatedVisibility(shown, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.padding(top = 6.dp)) {
-                Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    kb.rows.forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            row.forEach { b ->
-                                FilledTonalButton(
+                Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    kb.rows.forEachIndexed { r, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            row.forEachIndexed { c, b ->
+                                // one connected group of keys (M3)
+                                ConnectedTile(
+                                    Seat(r, kb.rows.size, c, row.size), big = 18.dp, small = 5.dp,
+                                    color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                                     onClick = {
                                         when (val t = b.type) {
                                             is TdApi.KeyboardButtonTypeRequestPhoneNumber -> askPhone = b.text
@@ -653,9 +656,8 @@ fun BotKeyboard(chat: TdApi.Chat, onSendText: (String) -> Unit) {
                                             else -> { onSendText(b.text); if (kb.oneTime) shown = false }
                                         }
                                     },
-                                    shape = RoundedCornerShape(14.dp),
                                     modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                                ) { Text(b.text, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+                                ) { Text(b.text, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) }
                             }
                         }
                     }
@@ -1005,12 +1007,15 @@ fun DicePicker(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
     QSheet(onDismiss = onDone, wrap = true) { sheet ->
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Text("Игры", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp))
-            DICE.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (e, name) ->
-                        Surface(
+            // a connected 3×2 grid (M3)
+            val diceRows = DICE.chunked(3)
+            diceRows.forEachIndexed { r, row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    row.forEachIndexed { c, (e, name) ->
+                        ConnectedTile(
+                            Seat(r, diceRows.size, c, row.size),
                             onClick = { sendContent(chatId, TdApi.InputMessageDice(e, true), replyTo); sheet.close() },
-                            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f),
+                            big = 28.dp, modifier = Modifier.weight(1f),
                         ) {
                             Column(Modifier.padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(e, fontSize = androidx.compose.ui.unit.TextUnit(36f, androidx.compose.ui.unit.TextUnitType.Sp))
@@ -1019,7 +1024,7 @@ fun DicePicker(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(2.dp))
             }
         }
     }

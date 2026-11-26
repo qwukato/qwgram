@@ -487,19 +487,20 @@ private fun FontCards() {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val opts = listOf("google" to "Google Sans", "system" to "Системный", "serif" to "С засечками", "mono" to "Моноширинный")
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        opts.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { (k, title) ->
+    // a connected 2-column grid (M3): outer corners big, touching ones small
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val fontRows = opts.chunked(2)
+        fontRows.forEachIndexed { r, row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                row.forEachIndexed { c, (k, title) ->
                     val sel = Prefs.font.value == k
                     val fam = remember(k) {
                         when (k) { "serif" -> androidx.compose.ui.text.font.FontFamily.Serif; "mono" -> androidx.compose.ui.text.font.FontFamily.Monospace
                             else -> Fonts.family(ctx, k, "system") ?: androidx.compose.ui.text.font.FontFamily.Default }
                     }
-                    val bg by animateColorAsState(if (sel) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "fb")
-                    MorphBox(
-                        onClick = { Prefs.font.value = k }, rest = if (sel) 32.dp else 18.dp, pressed = 10.dp,
-                        color = bg, contentColor = if (sel) cs.onPrimaryContainer else cs.onSurface, contentAlignment = Alignment.Center,
+                    ConnectedTile(
+                        Seat(r, fontRows.size, c, row.size), onClick = { Prefs.font.value = k }, big = 28.dp,
+                        selected = sel, selectedColor = cs.primaryContainer, selectedContentColor = cs.onPrimaryContainer,
                         modifier = Modifier.weight(1f).heightIn(min = 96.dp),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(10.dp)) {
@@ -519,21 +520,24 @@ private fun WallpaperCard() {
     val cs = MaterialTheme.colorScheme
     val pick = rememberWallpaperPicker("global") { path -> Prefs.wallpaperImage.value = path; Prefs.wallpaper.value = "image" }
     val bmp = rememberPathBitmap(Prefs.wallpaperImage.value, 800)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        MorphBox(
-            onClick = pick, rest = 28.dp, pressed = 16.dp, color = cs.surfaceContainerHigh, contentAlignment = Alignment.Center,
+    // photo | remove: a connected pair (M3)
+    val n = if (bmp != null) 2 else 1
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        ConnectedTile(
+            Seat(0, 1, 0, n), onClick = pick, big = 28.dp,
             modifier = Modifier.weight(1f).height(150.dp),
         ) {
-            if (bmp != null) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp.rs()))) { PhotoWallpaper(bmp, Prefs.wallpaperDim.value * 0.6f) }
+            if (bmp != null) Box(Modifier.fillMaxSize()) { PhotoWallpaper(bmp, Prefs.wallpaperDim.value * 0.6f) }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
                 Icon(Icons.Outlined.AddPhotoAlternate, null)
                 Spacer(Modifier.height(6.dp))
                 Text(if (bmp == null) "Выбрать фото" else "Заменить фото", style = MaterialTheme.typography.titleSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-        if (bmp != null) MorphBox(
+        if (bmp != null) ConnectedTile(
+            Seat(0, 1, 1, n),
             onClick = { Prefs.wallpaperImage.value = ""; Prefs.wallpaperEverywhere.value = false; if (Prefs.wallpaper.value == "image") Prefs.wallpaper.value = "shapes" },
-            rest = 28.dp, pressed = 16.dp, color = cs.errorContainer, contentColor = cs.onErrorContainer, contentAlignment = Alignment.Center,
+            big = 28.dp, color = cs.errorContainer, contentColor = cs.onErrorContainer,
             modifier = Modifier.width(96.dp).height(150.dp),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
@@ -590,14 +594,14 @@ private fun EmojiCards() {
         if (Fonts.blobAvailable(ctx)) add("blob" to "Blob")
         add("system" to "Системные")
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        opts.forEach { (k, title) ->
+    // a connected row (M3): the chosen set is filled
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        opts.forEachIndexed { i, (k, title) ->
             val sel = Prefs.emojiStyle.value == k
             val preview = remember(k) { emojiPreview(ctx, k) }
-            val bg by animateColorAsState(if (sel) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "eb")
-            MorphBox(
-                onClick = { Prefs.emojiStyle.value = k }, rest = if (sel) 32.dp else 18.dp, pressed = 10.dp,
-                color = bg, contentColor = if (sel) cs.onPrimaryContainer else cs.onSurface, contentAlignment = Alignment.Center,
+            ConnectedTile(
+                Seat(0, 1, i, opts.size), onClick = { Prefs.emojiStyle.value = k }, big = 28.dp,
+                selected = sel, selectedColor = cs.primaryContainer, selectedContentColor = cs.onPrimaryContainer,
                 modifier = Modifier.weight(1f).heightIn(min = 104.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {

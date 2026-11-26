@@ -200,10 +200,10 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
     val unread = chat.unreadCount > 0 || chat.isMarkedAsUnread
     // qwgram's sheet: as tall as its content, light to swipe away
     QSheet(onDismiss = onDismiss, wrap = true) {
-        // header card: tap opens the profile
-        MorphBox(
-            onClick = { onDismiss(); Nav.push(Route.Profile(chat.id)) }, rest = 28.dp, pressed = 18.dp, squish = 0.98f,
-            color = cs.surfaceContainerHigh, contentAlignment = Alignment.CenterStart,
+        // one connected group (M3): the chat card on top, the quick actions in a row, "delete" at the bottom
+        ConnectedTile(
+            Seat(0, 1, 0, 1, groupBottom = false), onClick = { onDismiss(); Nav.push(Route.Profile(chat.id)) },
+            color = cs.surfaceContainerHigh, contentAlignment = Alignment.CenterStart, big = 28.dp,
             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
         ) {
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -215,8 +215,8 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        // quick actions: a connected row of tonal tiles, each morphs on press; "on" states are filled
+        Spacer(Modifier.height(2.dp))
+        // quick actions: the middle of the group, each tile morphs on press; "on" states are filled
         data class A(val title: String, val icon: ImageVector, val on: Boolean, val act: () -> Unit)
         val acts = buildList {
             add(A(if (pinned) "Открепить" else "Закрепить", Icons.Outlined.PushPin, pinned) { Td.send(TdApi.ToggleChatIsPinned(list, chat.id, !pinned)) })
@@ -228,10 +228,10 @@ fun ChatActionsSheet(chat0: TdApi.Chat, onDismiss: () -> Unit) {
                 Td.send(TdApi.AddChatToList(chat.id, if (archived) TdApi.ChatListMain() else TdApi.ChatListArchive()))
             })
         }
-        AdaptiveTiles(acts.map { TileAction(it.icon, it.title, it.on, it.act) }, Modifier.padding(horizontal = 16.dp))
-        Spacer(Modifier.height(10.dp))
-        MorphBox(
-            onClick = { confirmDelete = true }, rest = 24.dp, pressed = 14.dp, squish = 0.97f,
+        AdaptiveTiles(acts.map { TileAction(it.icon, it.title, it.on, it.act) }, Modifier.padding(horizontal = 16.dp), groupTop = false, groupBottom = false)
+        Spacer(Modifier.height(2.dp))
+        ConnectedTile(
+            Seat(0, 1, 0, 1, groupTop = false), onClick = { confirmDelete = true }, big = 28.dp,
             color = cs.errorContainer, contentColor = cs.onErrorContainer,
             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(56.dp),
         ) {
