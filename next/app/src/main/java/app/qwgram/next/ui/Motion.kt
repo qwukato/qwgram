@@ -256,7 +256,7 @@ fun MorphIconButton(
  * Drop-in for DropdownMenu (same children: DropdownMenuItem …).
  */
 @Composable
-fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val state = remember { androidx.compose.animation.core.MutableTransitionState(false) }
     state.targetState = expanded
     if (!state.currentState && !state.targetState && state.isIdle) return
