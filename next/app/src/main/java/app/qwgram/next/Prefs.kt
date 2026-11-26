@@ -230,6 +230,8 @@ object Prefs {
     val hideStories = B("hide_stories", false)
     val noLinkPreview = B("no_link_preview", false)    // send links without a preview
     val photosAsFiles = B("photos_as_files", false)    // photos / videos go as files (no compression)
+    val cascadeAppear = B("cascade_appear", true)      // screens ripple in (rows rise one after another)
+    val psAppear = B("ps_appear", true)                // energy saving: no ripple-in
     val folderCascade = F("folder_cascade", 1f)        // strength of the rows' trailing wave on folder swipes
     val cascadeBounce = F("cascade_bounce", 0.55f)      // 0 = no overshoot … 1 = very springy
     val cascadeSpeed = F("cascade_speed", 1f)          // how fast the rows catch up

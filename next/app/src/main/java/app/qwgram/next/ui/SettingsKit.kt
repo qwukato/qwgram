@@ -222,20 +222,20 @@ class GroupScope {
 
 fun LazyListScope.group(header: String? = null, footer: String? = null, build: GroupScope.() -> Unit) {
     val g = GroupScope().apply(build)
-    if (header != null) item { GroupHeader(header) } else item { Spacer(Modifier.height(10.dp)) }
+    if (header != null) item { Box(Modifier.rise()) { GroupHeader(header) } } else item { Spacer(Modifier.height(10.dp)) }
     val n = g.rows.size
     g.rows.forEachIndexed { i, r ->
         item {
             val big = 24.dp.rs()
             val top = if (i == 0) big else 4.dp.rs()
             val bottom = if (i == n - 1) big else 4.dp.rs()
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(rowColor())) {
+            Box(Modifier.rise().fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(rowColor())) {
                 r(Modifier)
             }
         }
     }
     if (footer != null) item {
-        Text(footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        Text(footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rise().padding(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 
@@ -245,7 +245,7 @@ fun Modifier.segment(i: Int, n: Int, color: Color = rowColor()): Modifier {
     val big = 24.dp.rs(); val small = 4.dp.rs()
     val top = if (i == 0) big else small
     val bottom = if (i == n - 1) big else small
-    return fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(color)
+    return rise().fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(color)
 }
 
 @Composable

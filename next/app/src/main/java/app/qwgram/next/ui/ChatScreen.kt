@@ -775,7 +775,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                 MessageItem(
                                     m = e.m, grp = e.grp, chat = chat, group = group, album = e.album,
                                     reply = ctl.replies[id],
-                                    modifier = Modifier.animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
+                                    // the bubbles on screen when the chat opens ripple in from the bottom up
+                                    modifier = Modifier.rise(fromBottom = true, lift = 22.dp).animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,

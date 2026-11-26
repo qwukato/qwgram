@@ -403,8 +403,10 @@ fun SearchScreen() {
     }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(250); try { focus.requestFocus() } catch (_: Exception) {} }
+    val riseClock = LocalRiseClock.current
     LaunchedEffect(q) {
         val query = q.trim()
+        riseClock?.restart()
         if (query.isEmpty()) { local.clear(); global.clear(); messages = emptyList(); return@LaunchedEffect }
         delay(250)
         busy = true
@@ -418,6 +420,7 @@ fun SearchScreen() {
         if (q2.length >= 3) Td.callOrNull(TdApi.SearchPublicChats(q2, null))?.chatIds?.forEach { g.add(it) }
         Td.callOrNull(TdApi.SearchChatsOnServer(query, null, 30))?.chatIds?.forEach { g.add(it) }
         global.clear(); global.addAll(g.filter { it !in local })
+        riseClock?.restart()
         Td.callOrNull(TdApi.SearchMessages().apply { this.query = query; offset = ""; limit = 50; chatList = null })?.let { messages = it.messages.toList() }
         busy = false
     }
@@ -553,7 +556,7 @@ fun SearchScreen() {
                         }
                     }
                     itemsIndexed(recentChats, key = { _, c -> "r${c.id}" }) { i, c ->
-                        Box(Modifier.clip(segShape(i, recentChats.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } }
+                        Box(Modifier.rise().clip(segShape(i, recentChats.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } }
                     }
                 }
                 if (topChats.isEmpty() && recentChats.isEmpty()) item { EmptyState(Icons.Outlined.Search, "Начните вводить", "Ищите чаты, людей, каналы по @username и сообщения") }
@@ -564,11 +567,11 @@ fun SearchScreen() {
                 val showMessages = filter == SearchFilter.All || filter == SearchFilter.Messages
                 if (showChats && loc.isNotEmpty()) {
                     item { SectionHeader("Чаты и контакты") }
-                    itemsIndexed(loc, key = { _, c -> "l${c.id}" }) { i, c -> Box(Modifier.clip(segShape(i, loc.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
+                    itemsIndexed(loc, key = { _, c -> "l${c.id}" }) { i, c -> Box(Modifier.rise().clip(segShape(i, loc.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
                 }
                 if (showChats && glo.isNotEmpty()) {
                     item { SectionHeader("Глобальный поиск") }
-                    itemsIndexed(glo, key = { _, c -> "g${c.id}" }) { i, c -> Box(Modifier.clip(segShape(i, glo.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
+                    itemsIndexed(glo, key = { _, c -> "g${c.id}" }) { i, c -> Box(Modifier.rise().clip(segShape(i, glo.size)).background(cs.surfaceContainerLow)) { ChatRow(c, null) { open(c) } } }
                 }
                 val msgs = if (showMessages) messages.filter { TdStore.chats[it.chatId] != null } else emptyList()
                 if (msgs.isNotEmpty()) {
@@ -701,7 +704,7 @@ fun ContactsTab(pad: PaddingValues) {
                     headlineContent = { Text(TdStore.fullName(u), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text(Texts.status(u), color = if (Texts.isOnline(u)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     leadingContent = { UserAvatar(u, 48.dp) },
-                    modifier = Modifier.clickable {
+                    modifier = Modifier.rise().clickable {
                         scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(u.id, false))?.let { Nav.push(Route.Chat(it.id)) } }
                     },
                 )

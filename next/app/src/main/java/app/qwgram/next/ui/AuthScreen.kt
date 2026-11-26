@@ -101,7 +101,8 @@ fun AppRoot() {
 }
 
 @Composable
-fun RouteScreen(route: Route) {
+fun RouteScreen(route: Route) = ProvideRise {
+    // every screen has its own cascade clock: what it shows on opening ripples in (see Cascade.kt)
     when (route) {
         Route.Home -> HomeScreen()
         is Route.Chat -> androidx.compose.runtime.key(route.chatId, route.topic, route.thread) { ChatScreen(route.chatId, route.topic, route.thread) }

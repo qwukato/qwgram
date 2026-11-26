@@ -179,8 +179,11 @@ fun QSheet(
                     ) {
                         Box(Modifier.size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)))
                     }
-                    if (wrap) Column(Modifier.fillMaxWidth().onSizeChanged { contentH = it.height.toFloat() }.navigationBarsPadding().padding(bottom = 8.dp)) { content(sheetScope) }
-                    else content(sheetScope)
+                    // the sheet's rows ripple in as it opens (its own cascade clock)
+                    ProvideRise {
+                        if (wrap) Column(Modifier.fillMaxWidth().onSizeChanged { contentH = it.height.toFloat() }.navigationBarsPadding().padding(bottom = 8.dp)) { content(sheetScope) }
+                        else content(sheetScope)
+                    }
                 }
             }
             Box(Modifier.fillMaxSize().padding(top = 0.dp)) { overlay(sheetScope) }

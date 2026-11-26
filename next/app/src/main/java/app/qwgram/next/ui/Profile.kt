@@ -67,6 +67,11 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.rememberFileBitmap
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.NotificationsOff
+import androidx.compose.material.icons.outlined.Notifications
 
 private fun argb(c: Int) = Color(0xFF000000.toInt() or c)
 
@@ -234,6 +239,39 @@ fun ProfileMenu(chat: TdApi.Chat?, user: TdApi.User?, me: Boolean) {
                     scope.launch { Td.callOrNull(TdApi.CreateNewSecretChat(user.id))?.let { Nav.push(Route.Chat(it.id)) } ?: Toast.makeText(ctx, "Не удалось начать секретный чат", Toast.LENGTH_SHORT).show() }
                 },
             )
+            // always there, so the menu is never empty (a group without a public link used to open a blank strip)
+            if (chat != null && !me) {
+                val live = TdStore.chats[chat.id] ?: chat
+                val muted = TdStore.isMuted(live)
+                DropdownMenuItem(
+                    text = { Text(if (muted) "Включить уведомления" else "Без звука") },
+                    leadingIcon = { Icon(if (muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff, null) },
+                    onClick = { open = false; setMuted(live, !muted) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Поиск сообщений") }, leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                    onClick = { open = false; ChatSearchRequest.chatId = chat.id; Nav.push(Route.Chat(chat.id)) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Скопировать ID") }, leadingIcon = { Icon(Icons.Outlined.Tag, null) },
+                onClick = { open = false; copyText(ctx, (user?.id ?: chat?.id ?: 0L).toString()) },
+            )
+            if (chat != null && !isPrivate && (TdStore.isGroup(chat) || TdStore.isChannel(chat)) && TdStore.isMember(chat)) {
+                var leave by remember { mutableStateOf(false) }
+                DropdownMenuItem(
+                    text = { Text(if (TdStore.isChannel(chat)) "Покинуть канал" else "Покинуть группу", color = MaterialTheme.colorScheme.error) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null, tint = MaterialTheme.colorScheme.error) },
+                    onClick = { leave = true },
+                )
+                if (leave) androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { leave = false },
+                    title = { Text(if (TdStore.isChannel(chat)) "Покинуть канал?" else "Покинуть группу?") },
+                    text = { Text(chat.title) },
+                    confirmButton = { QTextButton(onClick = { leave = false; open = false; Td.send(TdApi.LeaveChat(chat.id)); Nav.pop() }) { Text("Покинуть", color = MaterialTheme.colorScheme.error) } },
+                    dismissButton = { QTextButton(onClick = { leave = false }) { Text("Отмена") } },
+                )
+            }
             if (!me && isPrivate && user != null) {
                 val blocked = chat?.blockList != null
                 DropdownMenuItem(

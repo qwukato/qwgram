@@ -167,7 +167,7 @@ fun HomeScreen() {
     }
     LaunchedEffect(HomeState.tab) { fabExpanded = true }
 
-    PushDrawer(drawer, drawerContent = { AppDrawer { drawer.close() } }) {
+    PushDrawer(drawer, drawerContent = { AppDrawer({ drawer.value }) { drawer.close() } }) {
         var fabOpen by remember { mutableStateOf(false) }
         var addContact by remember { mutableStateOf(false) }
         val floatingNav = Prefs.navStyle.value == "floating"
@@ -254,10 +254,13 @@ fun HomeScreen() {
                                     }
                                 },
                         ) {
-                            when (t) {
-                                HomeTab.Chats -> ChatsTab(pad, drawer)
-                                HomeTab.Contacts -> ContactsTab(pad)
-                                HomeTab.Settings -> SettingsHome(pad)
+                            // each tab ripples in the first time it's opened (its own cascade clock)
+                            ProvideRise {
+                                when (t) {
+                                    HomeTab.Chats -> ChatsTab(pad, drawer)
+                                    HomeTab.Contacts -> ContactsTab(pad)
+                                    HomeTab.Settings -> SettingsHome(pad)
+                                }
                             }
                         }
                     }
@@ -803,7 +806,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
         itemsIndexed(chats, key = { _, it -> it.id }, contentType = { _, _ -> 0 }) { idx, c0 ->
             // read the live chat by key: only this row recomposes when its counters change
             val c = TdStore.chats[c0.id] ?: c0
-            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.followFinger(idx, state, page).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
+            SwipeChatRow(c, list, enabled = Prefs.listSwipe.value == "actions", modifier = Modifier.rise().followFinger(idx, state, page).animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) {
                 ChatRow(c, list, onLong = { onLong(c) }) { openChat(c) }
             }
         }
@@ -851,7 +854,7 @@ private fun ArchiveRow(archived: List<TdApi.Chat>, hidden: Boolean, onToggleHidd
 // ------------------------------------------------------------------ drawer
 
 @Composable
-private fun AppDrawer(close: () -> Unit) {
+private fun AppDrawer(progress: () -> Float, close: () -> Unit) {
     val me = TdStore.me
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -861,11 +864,12 @@ private fun AppDrawer(close: () -> Unit) {
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            var seq = 0   // running index of the rows, for the ripple
             item {
                 // account card
-                MorphBox(
+                MorphBox(modifier = Modifier.drawerIn(0, progress).fillMaxWidth(),
                     onClick = { close(); Nav.push(Route.Me) }, rest = 28.dp, pressed = 16.dp, squish = 0.98f,
-                    color = cs.primaryContainer, contentColor = cs.onPrimaryContainer, modifier = Modifier.fillMaxWidth(),
+                    color = cs.primaryContainer, contentColor = cs.onPrimaryContainer,
                     contentAlignment = Alignment.TopStart,
                 ) {
                     Column(Modifier.padding(16.dp)) {
@@ -922,7 +926,7 @@ private fun AppDrawer(close: () -> Unit) {
             }
             listOf(0 to "Чаты", 1 to "Приложение", 2 to null).forEach { (g, title) ->
                 val part = chosen.filter { it.group == g }.map { DrawerEntry(it.title, it.icon, act(it.id)) }
-                if (part.isNotEmpty()) drawerGroup(part, close, title)
+                if (part.isNotEmpty()) { drawerGroup(part, close, title, seq + 1, progress); seq += part.size + 1 }
             }
             item {
                 // edit the menu right from it
@@ -937,9 +941,9 @@ private fun AppDrawer(close: () -> Unit) {
 private class DrawerEntry(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: () -> Unit)
 
 /** segmented group like in settings: caption, one tonal card per section, 2dp gaps, big outer corners */
-private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: List<DrawerEntry>, close: () -> Unit, title: String? = null) {
+private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: List<DrawerEntry>, close: () -> Unit, title: String? = null, first: Int = 0, progress: () -> Float = { 1f }) {
     item {
-        if (title != null) Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 8.dp))
+        if (title != null) Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.drawerIn(first, progress).padding(start = 16.dp, top = 18.dp, bottom = 8.dp))
         else Spacer(Modifier.height(10.dp))
     }
     items.forEachIndexed { i, e ->
@@ -948,7 +952,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
             val bottom = if (i == items.lastIndex) 20.dp else 4.dp
             val cs = MaterialTheme.colorScheme
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(cs.surfaceContainerHigh)
+                Modifier.drawerIn(first + 1 + i, progress).fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom)).background(cs.surfaceContainerHigh)
                     .clickable { close(); e.action() }.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -960,6 +964,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
             }
         }
     }
+}
+
+/**
+ * The side menu's rows follow the menu out one after another (the same ripple as the folder rows): each lags a bit
+ * more behind the menu's progress, so they slide in from the left in a wave — tied to the finger, so it never stutters.
+ */
+private fun Modifier.drawerIn(i: Int, progress: () -> Float): Modifier = graphicsLayer {
+    if (!Cascade.on) return@graphicsLayer
+    val lag = i.coerceAtMost(12) * 0.04f
+    val t = ((progress() - lag) / (1f - lag)).coerceIn(0f, 1f)
+    // ease-out so they land softly
+    val e = 1f - (1f - t) * (1f - t)
+    translationX = -(1f - e) * 56.dp.toPx()
+    alpha = 0.2f + 0.8f * e
 }
 
 /** state of the push drawer: 0 = closed, 1 = open; driven by fingers or springs */
@@ -1135,7 +1153,7 @@ private fun Modifier.cancelPage(page: Int, at: () -> Float): Modifier {
 /** rows of a freshly selected folder rise in one after another (first ~12 rows, 26 ms apart, bouncy spring) */
 @Composable
 private fun Modifier.cascadeIn(index: Int, gen: Int): Modifier {
-    if (gen == 0 || index > 12) return this
+    if (gen == 0 || index > 12 || !Cascade.on) return this
     val v = remember(gen) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(gen) {
         kotlinx.coroutines.delay(index * 26L)

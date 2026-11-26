@@ -449,6 +449,7 @@ fun MotionPage2() = PageScaffold("Анимации и жесты") {
         segmented("Открытие экранов", Prefs.screenAnim, listOf("slide" to "Сдвиг", "scale" to "Масштаб", "fade" to "Плавно"))
         segmented("Вкладки внизу", Prefs.tabAnim, listOf("fade" to "Растворение", "slide" to "Сдвиг", "none" to "Сразу"))
         segmented("Отправка сообщения", Prefs.sendAnim, listOf("fly" to "Из поля ввода", "simple" to "Простая"))
+        switch("Каскадное появление", Prefs.cascadeAppear, "Строки экранов, шторок, меню и сообщений всплывают одна за другой")
         sliderFloat("Волна при смене папок", Prefs.folderCascade, 0f..3f, 11) { if (it == 0f) "выкл" else "${(it * 100).toInt()}%" }
         sliderFloat("Пружинистость волны", Prefs.cascadeBounce, 0f..1f, 9) { if (it == 0f) "без отскока" else "${(it * 100).toInt()}%" }
         sliderFloat("Скорость волны", Prefs.cascadeSpeed, 0.4f..2f, 7) { "×" + "%.1f".format(it) }
