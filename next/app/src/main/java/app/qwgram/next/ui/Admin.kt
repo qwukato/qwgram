@@ -90,8 +90,6 @@ fun InviteLinksPage(chatId: Long) {
     var picked by remember { mutableStateOf<TdApi.ChatInviteLink?>(null) }
     LaunchedEffect(chatId, tick) {
         val me = TdStore.me?.id ?: 0L
-        // the primary link is made on first ask when the chat has none yet
-        Td.callOrNull(TdApi.GetChatInviteLinks(chatId, me, false, 0, "", 1)).let { r -> if (r == null || r.inviteLinks.none { it.isPrimary }) Td.callOrNull(TdApi.ReplacePrimaryChatInviteLink(chatId)) }
         links = Td.callOrNull(TdApi.GetChatInviteLinks(chatId, me, false, 0, "", 100))?.inviteLinks?.sortedByDescending { it.isPrimary }.orEmpty()
         revoked = Td.callOrNull(TdApi.GetChatInviteLinks(chatId, me, true, 0, "", 50))?.inviteLinks?.toList().orEmpty()
     }
@@ -484,5 +482,189 @@ private fun StoryComposeSheet(uri: Uri, onDone: () -> Unit) {
             ) { Text(if (busy) "Загрузка…" else "Опубликовать") }
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+// =====================================================================================================================
+//  Chat photo, adding members, statistics
+// =====================================================================================================================
+
+object AdminTools {
+    var photoFor by mutableStateOf<Long?>(null)
+    var addTo by mutableStateOf<Long?>(null)
+}
+
+@Composable
+fun AdminToolsHost() {
+    val ctx = LocalContext.current
+    val photoChat = AdminTools.photoFor
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        val id = AdminTools.photoFor
+        AdminTools.photoFor = null
+        if (u != null && id != null) {
+            val f = uriToCacheFile(ctx, u)
+            if (f == null) toast(ctx, "Не удалось прочитать фото")
+            else Td.send(TdApi.SetChatPhoto(id, TdApi.InputChatPhotoStatic(TdApi.InputFileLocal(f.path)))) { r ->
+                toast(ctx, if (r is TdApi.Error) "Не удалось: ${r.message}" else "Фото обновляется…")
+            }
+        }
+    }
+    LaunchedEffect(photoChat) { if (photoChat != null) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    AdminTools.addTo?.let { AddMembersSheet(it) { AdminTools.addTo = null } }
+}
+
+@Composable
+private fun AddMembersSheet(chatId: Long, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var users by remember { mutableStateOf<List<TdApi.User>?>(null) }
+    val chosen = remember { mutableStateListOf<Long>() }
+    var q by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        val ids = Td.callOrNull(TdApi.GetContacts())?.userIds?.toList().orEmpty()
+        users = ids.mapNotNull { TdStore.users[it] ?: Td.callOrNull(TdApi.GetUser(it)) }.sortedBy { TdStore.fullName(it).lowercase() }
+    }
+    QSheet(onDismiss = onDone, halfFirst = true) { sheet ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Text("Добавить участников", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+            OutlinedTextField(q, { q = it }, placeholder = { Text("Поиск") }, singleLine = true, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            val list = users?.filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
+            if (list == null) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
+            else androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(list, key = { _, u -> u.id }) { i, u ->
+                    Row(
+                        Modifier.segment(i, list.size).clickable { if (u.id in chosen) chosen.remove(u.id) else chosen.add(u.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        UserAvatar(u, 40.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Text(TdStore.fullName(u), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        androidx.compose.material3.Checkbox(u.id in chosen, { v -> if (v) chosen.add(u.id) else chosen.remove(u.id) })
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Button(
+                enabled = chosen.isNotEmpty(),
+                onClick = {
+                    Td.send(TdApi.AddChatMembers(chatId, chosen.toLongArray())) { r ->
+                        toast(ctx, when {
+                            r is TdApi.Error -> "Не удалось: ${r.message}"
+                            r is TdApi.FailedToAddMembers && r.failedToAddMembers.isNotEmpty() -> "Не всех удалось добавить: настройки приватности"
+                            else -> "Добавлено"
+                        })
+                    }
+                    sheet.close()
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text(if (chosen.isEmpty()) "Выберите контакты" else "Добавить (${chosen.size})") }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** the numbers of a channel / big group for the last period (Telegram's statistics without the charts) */
+@Composable
+fun StatsPage(chatId: Long) {
+    var stats by remember { mutableStateOf<TdApi.ChatStatistics?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(chatId) {
+        try { stats = Td.call(TdApi.GetChatStatistics(chatId, false)) } catch (e: Exception) { error = "Статистика недоступна для этого чата" }
+    }
+    PageScaffold("Статистика") {
+        val s = stats
+        when {
+            error != null -> item { Text(error!!, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(32.dp)) }
+            s == null -> item { Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) { LoadingIndicator() } }
+            s is TdApi.ChatStatisticsChannel -> {
+                group("За период ${shortDate(s.period.startDate)} — ${shortDate(s.period.endDate)}") {
+                    value("Подписчики", stat(s.memberCount))
+                    value("Просмотров на пост", stat(s.meanMessageViewCount))
+                    value("Репостов на пост", stat(s.meanMessageShareCount))
+                    value("Реакций на пост", stat(s.meanMessageReactionCount))
+                    value("Просмотров историй", stat(s.meanStoryViewCount))
+                    value("С уведомлениями", "%.1f%%".format(s.enabledNotificationsPercentage))
+                }
+            }
+            s is TdApi.ChatStatisticsSupergroup -> {
+                group("За период ${shortDate(s.period.startDate)} — ${shortDate(s.period.endDate)}") {
+                    value("Участники", stat(s.memberCount))
+                    value("Сообщения", stat(s.messageCount))
+                    value("Читающие", stat(s.viewerCount))
+                    value("Пишущие", stat(s.senderCount))
+                }
+            }
+        }
+    }
+}
+
+private fun stat(v: TdApi.StatisticalValue): String {
+    val n = v.value.toLong()
+    val d = v.value - v.previousValue
+    val sign = if (d >= 0) "+" else "−"
+    return if (v.previousValue == 0.0 && d == 0.0) "$n" else "$n  ($sign${kotlin.math.abs(d).toLong()}, ${"%.1f".format(v.growthRatePercentage)}%)"
+}
+
+// =====================================================================================================================
+//  Two-step verification (cloud password)
+// =====================================================================================================================
+
+@Composable
+fun PasswordPage() {
+    val ctx = LocalContext.current
+    var state by remember { mutableStateOf<TdApi.PasswordState?>(null) }
+    var dialog by remember { mutableStateOf<String?>(null) }   // "set" / "change" / "off"
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) { state = Td.callOrNull(TdApi.GetPasswordState()) }
+    PageScaffold("Облачный пароль") {
+        val s = state
+        if (s == null) { item { Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) { LoadingIndicator() } }; return@PageScaffold }
+        item {
+            Text(
+                if (s.hasPassword) "Двухэтапная проверка включена. При входе на новом устройстве нужен будет этот пароль." + if (s.passwordHint.isNotBlank()) "\nПодсказка: ${s.passwordHint}" else ""
+                else "Дополнительный пароль, который спрашивается при входе на новом устройстве после кода из SMS.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+            )
+        }
+        group {
+            if (!s.hasPassword) action("Установить пароль", icon = Icons.Outlined.Add) { dialog = "set" }
+            else {
+                action("Сменить пароль") { dialog = "change" }
+                action("Отключить пароль", danger = true) { dialog = "off" }
+            }
+        }
+    }
+    dialog?.let { mode ->
+        var old by remember { mutableStateOf("") }
+        var new1 by remember { mutableStateOf("") }
+        var new2 by remember { mutableStateOf("") }
+        var hint by remember { mutableStateOf("") }
+        val pw = androidx.compose.ui.text.input.PasswordVisualTransformation()
+        val ok = when (mode) { "off" -> old.isNotEmpty(); "change" -> old.isNotEmpty() && new1.isNotEmpty() && new1 == new2; else -> new1.isNotEmpty() && new1 == new2 }
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(when (mode) { "set" -> "Новый пароль"; "change" -> "Сменить пароль"; else -> "Отключить пароль" }) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (mode != "set") OutlinedTextField(old, { old = it }, label = { Text("Текущий пароль") }, singleLine = true, visualTransformation = pw)
+                    if (mode != "off") {
+                        OutlinedTextField(new1, { new1 = it }, label = { Text("Новый пароль") }, singleLine = true, visualTransformation = pw)
+                        OutlinedTextField(new2, { new2 = it }, label = { Text("Ещё раз") }, singleLine = true, visualTransformation = pw, isError = new2.isNotEmpty() && new1 != new2)
+                        OutlinedTextField(hint, { hint = it.take(64) }, label = { Text("Подсказка (необязательно)") }, singleLine = true)
+                    }
+                }
+            },
+            confirmButton = {
+                QTextButton(enabled = ok, onClick = {
+                    val f = if (mode == "off") TdApi.SetPassword(old, "", "", false, "") else TdApi.SetPassword(if (mode == "set") "" else old, new1, hint.trim(), false, "")
+                    Td.send(f) { r ->
+                        if (r is TdApi.Error) toast(ctx, if (r.message.contains("PASSWORD_HASH_INVALID")) "Неверный пароль" else "Не удалось: ${r.message}")
+                        else { toast(ctx, if (mode == "off") "Пароль отключён" else "Пароль сохранён"); dialog = null; tick++ }
+                    }
+                }) { Text("Готово") }
+            },
+            dismissButton = { QTextButton(onClick = { dialog = null }) { Text("Отмена") } },
+        )
     }
 }

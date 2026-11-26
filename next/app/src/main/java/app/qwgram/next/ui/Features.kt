@@ -66,6 +66,8 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.AddAPhoto
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Lock
@@ -421,6 +423,7 @@ fun GroupInfo(chat: TdApi.Chat) {
         else -> null
     }
     val admin = status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
+    var canStats by remember { mutableStateOf(false) }
     LaunchedEffect(chat.id) {
         when (t) {
             is TdApi.ChatTypeBasicGroup -> Td.callOrNull(TdApi.GetBasicGroupFullInfo(t.basicGroupId))?.let { f ->
@@ -429,6 +432,7 @@ fun GroupInfo(chat: TdApi.Chat) {
             is TdApi.ChatTypeSupergroup -> {
                 val f = Td.callOrNull(TdApi.GetSupergroupFullInfo(t.supergroupId))
                 link = f?.inviteLink?.inviteLink; desc = f?.description.orEmpty(); total = f?.memberCount ?: 0
+                canStats = f?.canGetStatistics == true
                 if (f?.canGetMembers == true && !t.isChannel) {
                     members = Td.callOrNull(TdApi.GetSupergroupMembers(t.supergroupId, null, 0, 200))?.members?.toList().orEmpty()
                 }
@@ -461,6 +465,9 @@ fun GroupInfo(chat: TdApi.Chat) {
             // admin tools, one segmented container (links & requests for every chat, member rights for groups)
             val pending = chat.pendingJoinRequests?.totalCount ?: 0
             val rows = buildList {
+                add(AdminRow("Фото ${if (TdStore.isChannel(chat)) "канала" else "группы"}", "Выбрать новое из галереи", Icons.Outlined.AddAPhoto) { AdminTools.photoFor = chat.id })
+                add(AdminRow(if (TdStore.isChannel(chat)) "Добавить подписчиков" else "Добавить участников", "Из ваших контактов", Icons.Outlined.PersonAdd) { AdminTools.addTo = chat.id })
+                if (canStats) add(AdminRow("Статистика", "Подписчики, просмотры, рост", Icons.Outlined.BarChart) { Nav.push(Route.Page("stats:${chat.id}")) })
                 add(AdminRow("Ссылки-приглашения", "Создать, отозвать, лимиты и сроки", Icons.Outlined.Link) { Nav.push(Route.Page("links:${chat.id}")) })
                 if (pending > 0) add(AdminRow("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
                 if (!TdStore.isChannel(chat)) add(AdminRow("Разрешения", "Что могут участники, медленный режим", Icons.Outlined.Lock) { Nav.push(Route.Page("perm:${chat.id}")) })

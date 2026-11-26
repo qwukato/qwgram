@@ -97,6 +97,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloat
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.Key
 
 // ------------------------------------------------------------------ settings tab
 
@@ -209,6 +210,7 @@ fun SettingsPage(id: String) {
         id.startsWith("folder:") -> { FolderEditPage(id.removePrefix("folder:").toIntOrNull()); return }
         id.startsWith("topics:") -> { TopicsPage(id.removePrefix("topics:").toLong()); return }
         id.startsWith("perm:") -> { PermissionsPage(id.removePrefix("perm:").toLong()); return }
+        id.startsWith("stats:") -> { StatsPage(id.removePrefix("stats:").toLong()); return }
         id.startsWith("links:") -> { InviteLinksPage(id.removePrefix("links:").toLong()); return }
         id.startsWith("requests:") -> { JoinRequestsPage(id.removePrefix("requests:").toLong()); return }
         id.startsWith("admin:") -> { val (c, u) = id.removePrefix("admin:").split(":").map { it.toLong() }; AdminRightsPage(c, u); return }
@@ -233,6 +235,7 @@ fun SettingsPage(id: String) {
         "account" -> AccountPage()
         "notifications" -> NotificationsPage()
         "privacy" -> PrivacyPage()
+        "2fa" -> { PasswordPage(); return }
         "data" -> DataPage()
         "sessions" -> SessionsPage()
         "folders" -> FoldersListPage()
@@ -534,6 +537,7 @@ private fun PrivacyPage() {
         "Звонки" to TdApi.UserPrivacySettingAllowCalls(),
         "Голосовые сообщения" to TdApi.UserPrivacySettingAllowPrivateVoiceAndVideoNoteMessages(),
         "Приглашения в группы" to TdApi.UserPrivacySettingAllowChatInvites(),
+        "Дата рождения" to TdApi.UserPrivacySettingShowBirthdate(),
     )
     val values = remember { mutableStateOf(Array(items.size) { -1 }) }
     var editing by remember { mutableStateOf(-1) }
@@ -560,6 +564,7 @@ private fun PrivacyPage() {
         group("Безопасность") {
             nav("Заблокированные", null, Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             nav("Устройства", "Активные сеансы", Icons.Outlined.Devices) { Nav.push(Route.Page("sessions")) }
+            nav("Облачный пароль", "Двухэтапная проверка", Icons.Outlined.Key) { Nav.push(Route.Page("2fa")) }
         }
     }
     if (editing >= 0) {

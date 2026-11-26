@@ -277,6 +277,7 @@ fun TgHost() {
     Tg.member?.let { (chat, mem) -> MemberActions(chat, mem) { Tg.member = null } }
     StoryViewerHost()
     StoryComposerHost()
+    AdminToolsHost()
     Links.folder?.let { (link, info) -> FolderInviteDialog(link, info) { Links.folder = null } }
 }
 
