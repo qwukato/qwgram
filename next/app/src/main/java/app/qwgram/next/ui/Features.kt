@@ -461,10 +461,10 @@ fun GroupInfo(chat: TdApi.Chat) {
             // admin tools, one segmented container (links & requests for every chat, member rights for groups)
             val pending = chat.pendingJoinRequests?.totalCount ?: 0
             val rows = buildList {
-                add(Triple("Ссылки-приглашения", "Создать, отозвать, лимиты и сроки", Icons.Outlined.Link) { Nav.push(Route.Page("links:${chat.id}")) })
-                if (pending > 0) add(Triple("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
-                if (!TdStore.isChannel(chat)) add(Triple("Разрешения", "Что могут участники, медленный режим", Icons.Outlined.Lock) { Nav.push(Route.Page("perm:${chat.id}")) })
-                add(Triple("Автоудаление сообщений", if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено", Icons.Outlined.Timer) { Tg.autoDelete = chat })
+                add(AdminRow("Ссылки-приглашения", "Создать, отозвать, лимиты и сроки", Icons.Outlined.Link) { Nav.push(Route.Page("links:${chat.id}")) })
+                if (pending > 0) add(AdminRow("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
+                if (!TdStore.isChannel(chat)) add(AdminRow("Разрешения", "Что могут участники, медленный режим", Icons.Outlined.Lock) { Nav.push(Route.Page("perm:${chat.id}")) })
+                add(AdminRow("Автоудаление сообщений", if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено", Icons.Outlined.Timer) { Tg.autoDelete = chat })
             }
             Spacer(Modifier.height(10.dp))
             rows.forEachIndexed { i, (title, sub, icon, act) ->
@@ -588,3 +588,6 @@ fun LinkPreviewCard(p: TdApi.LinkPreview, fg: Color, modifier: Modifier) {
         }
     }
 }
+
+
+private data class AdminRow(val title: String, val sub: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val act: () -> Unit)

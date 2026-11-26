@@ -39,6 +39,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -194,11 +198,11 @@ private fun ChoiceRow(title: String, options: List<Pair<Int, String>>, value: In
     Column {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(4.dp))
-        androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             options.forEachIndexed { i, (v, label) ->
-                androidx.compose.material3.SegmentedButton(
+                SegmentedButton(
                     selected = v == value, onClick = { onPick(v) },
-                    shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, options.size),
+                    shape = SegmentedButtonDefaults.itemShape(i, options.size),
                     icon = {},
                 ) { Text(label, maxLines = 1) }
             }
@@ -430,7 +434,7 @@ private fun StoryComposeSheet(uri: Uri, onDone: () -> Unit) {
         runCatching {
             if (isVideo) android.media.MediaMetadataRetriever().run { setDataSource(ctx, uri); val b = getFrameAtTime(0); release(); b }
             else ctx.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }) }
-        }.getOrNull()?.let { androidx.compose.ui.graphics.asImageBitmap(it) }
+        }.getOrNull()?.asImageBitmap()
     }
     QSheet(onDismiss = onDone, wrap = true) { sheet ->
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -447,9 +451,9 @@ private fun StoryComposeSheet(uri: Uri, onDone: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text("Кто увидит", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
             val opts = listOf("all" to "Все", "contacts" to "Контакты", "close" to "Близкие друзья")
-            androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 opts.forEachIndexed { i, (k, label) ->
-                    androidx.compose.material3.SegmentedButton(selected = privacy == k, onClick = { privacy = k }, shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(label, maxLines = 1) }
+                    SegmentedButton(selected = privacy == k, onClick = { privacy = k }, shape = SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(label, maxLines = 1) }
                 }
             }
             Spacer(Modifier.height(16.dp))
