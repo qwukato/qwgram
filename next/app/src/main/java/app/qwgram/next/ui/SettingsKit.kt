@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.selection.selectable
@@ -318,7 +319,12 @@ fun GroupScope.action(title: String, sub: String? = null, icon: ImageVector? = n
 }
 
 fun GroupScope.value(title: String, value: String, icon: ImageVector? = null, onClick: (() -> Unit)? = null) = row {
-    BaseRow(title, null, icon, onClick = onClick) { Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
+    // long values (a bio) go under the title, so the title never gets squeezed into a column of letters
+    if (value.length > 22 || '\n' in value) BaseRow(title, value, icon, onClick = onClick)
+    else BaseRow(title, null, icon, onClick = onClick) {
+        Spacer(Modifier.width(12.dp))
+        Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp))
+    }
 }
 
 fun GroupScope.switch(title: String, pref: Prefs.B, sub: String? = null, icon: ImageVector? = null, onChange: (Boolean) -> Unit = {}) = row {

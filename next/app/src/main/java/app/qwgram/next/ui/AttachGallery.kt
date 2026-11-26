@@ -207,15 +207,17 @@ fun AttachGallerySheet(
             }
     }) {
             Column(Modifier.fillMaxWidth()) {
-                // quick actions: tonal shape buttons
-                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    AttachShape("Галерея", Icons.Outlined.PhotoLibrary, MaterialShapes.Cookie9Sided, cs.primaryContainer, cs.onPrimaryContainer, onSystemPicker)
-                    AttachShape("Файл", Icons.Outlined.Description, MaterialShapes.Clover4Leaf, cs.secondaryContainer, cs.onSecondaryContainer, onFile)
-                    AttachShape("Музыка", Icons.Outlined.AudioFile, MaterialShapes.Sunny, cs.tertiaryContainer, cs.onTertiaryContainer, onMusic)
-                    if (canPoll) AttachShape("Опрос", Icons.Outlined.Poll, MaterialShapes.Flower, cs.surfaceContainerHighest, cs.onSurface, onPoll)
-                    AttachShape("Место", Icons.Outlined.LocationOn, MaterialShapes.Pentagon, cs.primaryContainer, cs.onPrimaryContainer, onLocation)
-                    AttachShape("Контакт", Icons.Outlined.Person, MaterialShapes.Gem, cs.secondaryContainer, cs.onSecondaryContainer, onContact)
-                    AttachShape("Игры", Icons.Outlined.Casino, MaterialShapes.SoftBurst, cs.tertiaryContainer, cs.onTertiaryContainer, onDice)
+                // quick actions: one connected group (M3) — big outer corners, small touching ones, an icon in a tinted circle
+                val acts = buildList {
+                    add(AttachAct("Галерея", Icons.Outlined.PhotoLibrary, cs.primaryContainer, cs.onPrimaryContainer, onSystemPicker))
+                    add(AttachAct("Файл", Icons.Outlined.Description, cs.secondaryContainer, cs.onSecondaryContainer, onFile))
+                    add(AttachAct("Музыка", Icons.Outlined.AudioFile, cs.tertiaryContainer, cs.onTertiaryContainer, onMusic))
+                    if (canPoll) add(AttachAct("Опрос", Icons.Outlined.Poll, cs.primaryContainer, cs.onPrimaryContainer, onPoll))
+                    add(AttachAct("Место", Icons.Outlined.LocationOn, cs.secondaryContainer, cs.onSecondaryContainer, onLocation))
+                    add(AttachAct("Контакт", Icons.Outlined.Person, cs.tertiaryContainer, cs.onTertiaryContainer, onContact))
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    acts.forEachIndexed { k, a -> AttachTile(a, Seat(0, 1, k, acts.size), Modifier.weight(1f)) }
                 }
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(
@@ -268,6 +270,20 @@ fun AttachGallerySheet(
                     }
                 }
             }
+    }
+}
+
+private class AttachAct(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val bg: Color, val fg: Color, val onClick: () -> Unit)
+
+@Composable
+private fun AttachTile(a: AttachAct, seat: Seat, modifier: Modifier) {
+    val cs = MaterialTheme.colorScheme
+    ConnectedTile(seat, onClick = a.onClick, modifier = modifier.height(84.dp), big = 26.dp, small = 8.dp, color = cs.surfaceContainerHigh) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) { Icon(a.icon, null, Modifier.size(22.dp), tint = a.fg) }
+            Spacer(Modifier.height(6.dp))
+            FitText(a.title, MaterialTheme.typography.labelMedium)
+        }
     }
 }
 

@@ -156,7 +156,9 @@ fun MessageItem(
         return
     }
     val out = m.isOutgoing && !m.isChannelPost
-    val showAvatar = group && !out && Prefs.groupAvatars.value
+    // channels that show their authors' profiles (Telegram): a name and an avatar like in a group
+    val channelAuthor = m.isChannelPost && m.senderId is TdApi.MessageSenderUser
+    val showAvatar = (group || channelAuthor) && !out && Prefs.groupAvatars.value
     val lastInRun = grp == Grp.Single || grp == Grp.Bottom
     val firstInRun = grp == Grp.Single || grp == Grp.Top
     val swipeAnim = remember { Animatable(0f, visibilityThreshold = 0.5f) }
@@ -251,7 +253,7 @@ fun MessageItem(
             Spacer(Modifier.width(6.dp))
         }
         Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }.onGloballyPositioned { bubbleRect = it.boundsInRoot() }) {
-            Bubble(m, grp, chat, group && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick, album)
+            Bubble(m, grp, chat, (group || channelAuthor) && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick, album)
         }
         val swiping by remember { derivedStateOf { swipe.value < -4f } }
         if (swiping) {
@@ -319,7 +321,7 @@ private fun Bubble(
     val textOnly = c is TdApi.MessageText || c is TdApi.MessageAnimatedEmoji
     val bigEmoji = Prefs.bigEmoji.value && ((c is TdApi.MessageText && c.text.entities.isEmpty() && emojiOnly.matches(c.text.text.trim())) || c is TdApi.MessageAnimatedEmoji)
     val bigCustom = if (Prefs.bigEmoji.value) remember(c) { bigCustomEmoji(c) } else null
-    val bare = c is TdApi.MessageSticker || c is TdApi.MessageDice || bigEmoji || bigCustom != null
+    val bare = c is TdApi.MessageSticker || c is TdApi.MessageDice || c is TdApi.MessageVideoNote || bigEmoji || bigCustom != null
     val media = album != null || c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
     val maxW = ((LocalBubbleArea.current ?: androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp) * (Prefs.bubbleWidth.value / 100f))
     var pressed by remember { mutableStateOf(false) }
@@ -335,7 +337,21 @@ private fun Bubble(
 
     if (bare) {
         Column(gestures.widthIn(max = maxW), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
-            if (c is TdApi.MessageSticker) StickerView(c.sticker)
+            if (c is TdApi.MessageVideoNote) {
+                // a round video stands on its own, no bubble (Telegram); a reply sits above it as a small pill
+                if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) Surface(shape = RoundedCornerShape(14.dp), color = cs.surfaceContainerHigh, contentColor = cs.onSurface, modifier = Modifier.padding(bottom = 4.dp).widthIn(max = 240.dp)) {
+                    ReplyQuote(reply, m, cs.onSurface, Modifier.padding(horizontal = 6.dp, vertical = 4.dp).clickable {
+                        (m.replyTo as? TdApi.MessageReplyToMessage)?.let { r -> if (r.chatId == m.chatId || r.chatId == 0L) onReplyClick(r.messageId) }
+                    })
+                }
+                Box(Modifier.size(220.dp)) {
+                    VideoThumb(c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, Texts.duration(c.videoNote.duration), circle = true, loop = c.videoNote.video) {
+                        VideoViewer.open(VideoItem(c.videoNote.video, c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, c.videoNote.duration))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+            else if (c is TdApi.MessageSticker) StickerView(c.sticker)
             else if (c is TdApi.MessageDice) DiceView(c)
             else if (bigCustom != null) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 // 1 → like an animated emoji, 2–3 → a bit smaller each (Telegram)
@@ -491,6 +507,10 @@ private fun ReplyQuote(reply: TdApi.Message?, m: TdApi.Message, fg: Color, modif
 private fun Meta(m: TdApi.Message, chat: TdApi.Chat, color: Color, modifier: Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         val views = m.interactionInfo?.viewCount ?: 0
+        // the post's author signature (channels that sign messages), like Telegram: before the time
+        if (m.authorSignature.isNotBlank() && m.senderId !is TdApi.MessageSenderUser) {
+            Text(m.authorSignature + "  ", style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+        }
         if (views > 0 && m.isChannelPost) {
             Icon(Icons.Outlined.Visibility, null, Modifier.size(13.dp), tint = color)
             Spacer(Modifier.width(2.dp))

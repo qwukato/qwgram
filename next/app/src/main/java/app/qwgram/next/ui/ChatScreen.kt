@@ -621,7 +621,19 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     }
 
     // comments can be written without joining the discussion group (unless it asks to join first)
-    val canSend = TdStore.canSend(chat) || (thread != 0L && canCommentWithoutJoin(chat))
+    // a closed forum topic takes no new messages, except from admins who can manage topics (Telegram)
+    var topicClosed by remember(chatId, topic) { mutableStateOf(false) }
+    if (topic != 0) LaunchedEffect(chatId, topic) {
+        topicClosed = Td.callOrNull(TdApi.GetForumTopic(chatId, topic))?.info?.isClosed == true
+        TdStore.messageEvents.collect { u -> if (u is TdApi.UpdateForumTopicInfo && u.info.chatId == chatId && u.info.forumTopicId == topic) topicClosed = u.info.isClosed }
+    }
+    val topicManager = remember(chat.id) { mutableStateOf(false) }
+    if (topic != 0) LaunchedEffect(chatId) {
+        val me = TdStore.me?.id ?: 0L
+        val st = Td.callOrNull(TdApi.GetChatMember(chatId, TdApi.MessageSenderUser(me)))?.status
+        topicManager.value = st is TdApi.ChatMemberStatusCreator || (st as? TdApi.ChatMemberStatusAdministrator)?.rights?.canManageTopics == true
+    }
+    val canSend = (TdStore.canSend(chat) || (thread != 0L && canCommentWithoutJoin(chat))) && !(topicClosed && !topicManager.value)
     val group = TdStore.isGroup(chat)
     val selecting = selected.isNotEmpty()
     // in-chat search grows out of the header's search button and shrinks back into it (springy container transform)
@@ -920,6 +932,14 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                     onSendSilent = { send(silent = true) },
                     onSchedule = { at -> send(at = at) },
                 )
+            } else if (topicClosed) Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), contentAlignment = Alignment.Center) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Тема закрыта", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             } else if (canJoin(chat)) JoinBar(chat) else ChannelBar(chat)
             }
             }
@@ -1514,6 +1534,15 @@ private fun Composer(
 ) {
     var sendOptions by remember { mutableStateOf(false) }
     var poll by remember { mutableStateOf(false) }
+    // the field keeps its own selection / IME composition; the text itself stays owned by the chat
+    var sel by remember { mutableStateOf(androidx.compose.ui.text.TextRange(text.length)) }
+    var comp by remember { mutableStateOf<androidx.compose.ui.text.TextRange?>(null) }
+    var lastField by remember { mutableStateOf(text) }
+    val own = text == lastField   // changed from outside (sent, draft, edit) → cursor to the end
+    val tfv = androidx.compose.ui.text.input.TextFieldValue(
+        text, if (own && sel.max <= text.length) sel else androidx.compose.ui.text.TextRange(text.length),
+        if (own) comp?.takeIf { it.max <= text.length } else null,
+    )
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val haptic = rememberHaptic()
@@ -1570,6 +1599,29 @@ private fun Composer(
                     modifier = Modifier.fillMaxWidth().padding(end = 72.dp, bottom = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
             }
+            // formatting (Telegram): select text → a row of styles wraps it in markdown, sent as real formatting
+            AnimatedVisibility(Prefs.markdown.value && own && !sel.collapsed && sel.max <= text.length, enter = expandVertically(Springs.spatial()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
+                val fmts = listOf("Ж" to "**", "К" to "__", "З" to "~~", "</>" to "`", "▒" to "||", "🔗" to "link")
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    fmts.forEachIndexed { k, (label, mark) ->
+                        ConnectedTile(Seat(0, 1, k, fmts.size), onClick = {
+                            val a = sel.min.coerceAtMost(text.length); val b = sel.max.coerceAtMost(text.length)
+                            val mid = text.substring(a, b)
+                            val (nt, cur) = if (mark == "link") (text.substring(0, a) + "[" + mid + "](https://)" + text.substring(b)) to (b + 11)
+                                else (text.substring(0, a) + mark + mid + mark + text.substring(b)) to (b + mark.length * 2)
+                            sel = androidx.compose.ui.text.TextRange(cur); comp = null; lastField = nt
+                            onText(nt)
+                        }, modifier = Modifier.weight(1f).height(40.dp), big = 20.dp, color = cs.surfaceContainerHigh) {
+                            Text(label, style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (mark == "**") androidx.compose.ui.text.font.FontWeight.Bold else null,
+                                fontStyle = if (mark == "__") androidx.compose.ui.text.font.FontStyle.Italic else null,
+                                textDecoration = if (mark == "~~") androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                                fontFamily = if (mark == "`") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                            ))
+                        }
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.Bottom) {
                 val glassField = blurOn(Prefs.blurComposer) && LocalHaze.current != null
                 Surface(
@@ -1583,7 +1635,7 @@ private fun Composer(
                                 MorphIconButton(if (open) Icons.Outlined.Keyboard else Icons.Outlined.EmojiEmotions, if (open) "Клавиатура" else "Эмодзи и стикеры", onTogglePanel, tint = cs.onSurfaceVariant)
                             }
                             BasicTextField(
-                                value = text, onValueChange = onText,
+                                value = tfv, onValueChange = { v -> sel = v.selection; comp = v.composition; lastField = v.text; if (v.text != text) onText(v.text) },
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                                 cursorBrush = SolidColor(cs.primary),
                                 maxLines = 8,

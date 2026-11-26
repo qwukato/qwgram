@@ -519,7 +519,8 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             userScrollEnabled = Prefs.folderSwipe.value && Prefs.listSwipe.value != "actions",
             modifier = Modifier.fillMaxSize().blurSource(),
             key = { tabs.getOrNull(it)?.title ?: it },
-            beyondViewportPageCount = 1,
+            // every folder stays composed (up to 6): switching never builds a page mid-animation, which made it stutter
+            beyondViewportPageCount = (tabs.size - 1).coerceIn(1, 6),
             // the page lands on a soft spring with a hint of overshoot: the trailing rows close up with a little bounce
             flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                 state = pager,

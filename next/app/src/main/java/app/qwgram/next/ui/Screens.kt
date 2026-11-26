@@ -126,6 +126,7 @@ fun ProfileScreen(chatId: Long) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var bio by remember { mutableStateOf("") }
+    var personal by remember { mutableStateOf<TdApi.Chat?>(null) }
     var tab by remember { mutableStateOf(0) }
     val mediaCache = remember { androidx.compose.runtime.mutableStateMapOf<Int, List<TdApi.Message>>() }
     var shownTab by remember { mutableStateOf(0) }
@@ -150,7 +151,7 @@ fun ProfileScreen(chatId: Long) {
         }
     }
     LaunchedEffect(chatId) {
-        if (user != null) Td.callOrNull(TdApi.GetUserFullInfo(user.id))?.let { bio = it.bio?.text.orEmpty() }
+        if (user != null) Td.callOrNull(TdApi.GetUserFullInfo(user.id))?.let { bio = it.bio?.text.orEmpty(); if (it.personalChatId != 0L) personal = Td.callOrNull(TdApi.GetChat(it.personalChatId)) }
         chat?.type?.let { t ->
             if (t is TdApi.ChatTypeSupergroup) Td.callOrNull(TdApi.GetSupergroupFullInfo(t.supergroupId))?.let { bio = it.description }
             if (t is TdApi.ChatTypeBasicGroup) Td.callOrNull(TdApi.GetBasicGroupFullInfo(t.basicGroupId))?.let { bio = it.description }
@@ -240,6 +241,8 @@ fun ProfileScreen(chatId: Long) {
                     if (giftOwner != null && Prefs.profileGifts.value) Box(Modifier.appearIn(2)) {
                         Column { ProfileGifts(giftOwner); Spacer(Modifier.height(14.dp)) }
                     }
+                    // the user's personal channel (Telegram): a card with its name and latest post
+                    personal?.let { pc -> Box(Modifier.appearIn(2)) { Column { PersonalChannel(pc); Spacer(Modifier.height(14.dp)) } } }
                     // info as segments: one rounded tile per fact (tap copies it), the notifications switch last
                     run {
                         val un = user?.usernames?.activeUsernames?.firstOrNull()
@@ -248,7 +251,6 @@ fun ProfileScreen(chatId: Long) {
                             if (user != null && user.phoneNumber.isNotBlank()) add(Triple(Icons.Outlined.Phone, if (me && Prefs.hidePhone.value) "Скрыт" else "+" + user.phoneNumber, "Телефон"))
                             if (un != null) add(Triple(Icons.Outlined.AlternateEmail, "@$un", "Имя пользователя"))
                             if (cleanBio.isNotEmpty()) add(Triple(Icons.Outlined.Info, cleanBio, if (user != null) "О себе" else "Описание"))
-                            if (un != null) add(Triple(Icons.Outlined.Link, "t.me/$un", "Ссылка"))
                             if (Prefs.showIds.value) {
                                 if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
                                 else if (chat != null) add(Triple(Icons.Outlined.Tag, chat.id.toString(), "ID чата"))
@@ -341,6 +343,33 @@ private fun rememberIntro(): Boolean {
     var on by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) { kotlinx.coroutines.delay(1400); on = false }
     return on
+}
+
+@Composable
+private fun PersonalChannel(pc: TdApi.Chat) {
+    val cs = MaterialTheme.colorScheme
+    val live = TdStore.chats[pc.id] ?: pc
+    val last = live.lastMessage
+    Column(Modifier.fillMaxWidth()) {
+        Text("Канал", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+        MorphBox(
+            onClick = { Nav.push(Route.Chat(pc.id)) }, rest = 24.dp, pressed = 16.dp, squish = 0.98f,
+            color = cs.surfaceContainerLow, contentAlignment = Alignment.CenterStart, modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                ChatAvatar(live, 52.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(live.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (last != null) { Spacer(Modifier.width(8.dp)); Text(Texts.listDate(last.date), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant) }
+                    }
+                    if (last != null) Text(Texts.preview(last), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    else Text(Texts.chatStatus(live), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 @Composable

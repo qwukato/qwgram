@@ -235,8 +235,24 @@ object TdStore {
     fun position(c: TdApi.Chat, list: TdApi.ChatList): TdApi.ChatPosition? = c.positions.firstOrNull { sameList(it.list, list) }
 
     /** chats of a list sorted by TDLib order (pinned first) */
+    // one sorted list per folder and list version: every folder page (and the archive row) shares it instead of
+    // re-sorting all chats each time a page is composed while switching folders
+    // the sorted order (chat ids) per folder and list version: folder pages share it instead of re-sorting every
+    // chat each time a page is composed while switching folders; the chats themselves are read live
+    private val listCache = HashMap<String, Pair<Int, List<Long>>>()
+
     fun chatsIn(list: TdApi.ChatList): List<TdApi.Chat> {
-        @Suppress("UNUSED_VARIABLE") val v = listVersion
+        val v = listVersion
+        val main = android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+        if (!main) return sortedIn(list)
+        val key = when (list) { is TdApi.ChatListMain -> "m"; is TdApi.ChatListArchive -> "a"; is TdApi.ChatListFolder -> "f" + list.chatFolderId; else -> list.toString() }
+        listCache[key]?.let { (cv, ids) -> if (cv == v) return ids.mapNotNull { chats[it] } }
+        val l = sortedIn(list)
+        listCache[key] = v to l.map { it.id }
+        return l
+    }
+
+    private fun sortedIn(list: TdApi.ChatList): List<TdApi.Chat> {
         return chats.values.mapNotNull { c -> position(c, list)?.let { p -> c to p.order } }
             .sortedWith(compareByDescending<Pair<TdApi.Chat, Long>> { it.second }.thenByDescending { it.first.id })
             .map { it.first }
