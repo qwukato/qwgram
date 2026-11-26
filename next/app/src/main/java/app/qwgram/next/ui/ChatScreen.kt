@@ -1056,6 +1056,17 @@ fun sameReaction(a: TdApi.ReactionType, b: TdApi.ReactionType): Boolean = when {
 }
 
 fun react(m: TdApi.Message, emoji: String) {
+    // a premium emoji picked as the quick reaction ("ce:<id>")
+    emoji.removePrefix("ce:").toLongOrNull()?.takeIf { emoji.startsWith("ce:") }?.let { id ->
+        val chosen = m.interactionInfo?.reactions?.reactions?.firstOrNull { it.isChosen && (it.type as? TdApi.ReactionTypeCustomEmoji)?.customEmojiId == id }
+        if (chosen != null) Td.send(TdApi.RemoveMessageReaction(m.chatId, m.id, chosen.type))
+        else Td.send(TdApi.AddMessageReaction(m.chatId, m.id, TdApi.ReactionTypeCustomEmoji(id), false, true)) { r ->
+            if (r is TdApi.Error) android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Toast.makeText(app.qwgram.next.App.instance, "Эту реакцию здесь поставить нельзя", Toast.LENGTH_SHORT).show()
+            }
+        }
+        return
+    }
     // Telegram's reaction list may spell an emoji with or without the FE0F selector ("❤️" vs "❤"): compare loosely
     val bare = emoji.replace("\uFE0F", "")
     val chosen = m.interactionInfo?.reactions?.reactions?.firstOrNull { it.isChosen && (it.type as? TdApi.ReactionTypeEmoji)?.emoji?.replace("\uFE0F", "") == bare }
@@ -2145,7 +2156,7 @@ fun ReactionGlyph(t: TdApi.ReactionType, size: androidx.compose.ui.unit.Dp) {
  * the chat allows it and you have Premium — your premium emoji sets, set by set.
  */
 @Composable
-private fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom: Boolean, premium: Boolean, onDismiss: () -> Unit, onPick: (TdApi.ReactionType) -> Unit) {
+fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom: Boolean, premium: Boolean, onDismiss: () -> Unit, onPick: (TdApi.ReactionType) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var customSets by remember { mutableStateOf<List<TdApi.StickerSet>>(emptyList()) }

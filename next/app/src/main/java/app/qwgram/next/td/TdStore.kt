@@ -44,6 +44,9 @@ object TdStore {
     val actions = KeyedMap<Long, Map<Long, TdApi.ChatAction>>()
 
     /** message-level events for open chat screens */
+    /** every emoji Telegram accepts as a reaction right now (the server's list) */
+    val activeReactions = androidx.compose.runtime.mutableStateListOf<String>()
+
     /** the bot keyboard (reply markup) message of each chat, when it has one */
     val replyMarkups = androidx.compose.runtime.mutableStateMapOf<Long, TdApi.Message>()
 
@@ -148,6 +151,7 @@ object TdStore {
             is TdApi.UpdateChatMessageAutoDeleteTime -> edit(obj.chatId) { it.messageAutoDeleteTime = obj.messageAutoDeleteTime }
             is TdApi.UpdateChatViewAsTopics -> edit(obj.chatId) { it.viewAsTopics = obj.viewAsTopics }
             is TdApi.UpdateChatBlockList -> edit(obj.chatId) { it.blockList = obj.blockList }
+            is TdApi.UpdateActiveEmojiReactions -> { activeReactions.clear(); activeReactions.addAll(obj.emojis) }
             is TdApi.UpdateChatActiveStories -> app.qwgram.next.ui.Stories.onUpdate(obj)
             is TdApi.UpdateForumTopicInfo, is TdApi.UpdateForumTopic -> messageEvents.tryEmit(obj as TdApi.Update)
             is TdApi.UpdateChatAction -> {

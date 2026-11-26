@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
 object Fonts {
     private const val SANS = "fonts/gsflex.ttf"
     private const val EMOJI = "fonts/twemoji.ttf"
+    private const val BLOB = "fonts/blobmoji.ttf"
     private const val CYR = "fonts/robotoflex.ttf"
     private val WEIGHTS = intArrayOf(300, 400, 500, 600, 700, 800, 900)
     private val cache = HashMap<String, FontFamily?>()
@@ -32,6 +33,17 @@ object Fonts {
     /** twemoji colour glyphs render on Android 13+ (COLR support in the system renderer) */
     fun twemojiAvailable(ctx: Context) = Build.VERSION.SDK_INT >= 33 && has(ctx, EMOJI)
     fun googleAvailable(ctx: Context) = has(ctx, SANS)
+    /** Blobmoji is CBDT (colour bitmaps): any Android with custom font fallbacks (10+) */
+    fun blobAvailable(ctx: Context) = Build.VERSION.SDK_INT >= 29 && has(ctx, BLOB)
+
+    /** the bundled emoji font for a style, as a plain typeface (previews draw with it directly) */
+    fun emojiTypeface(ctx: Context, style: String): android.graphics.Typeface? = runCatching {
+        when (style) {
+            "twemoji" -> if (twemojiAvailable(ctx)) android.graphics.Typeface.createFromAsset(ctx.assets, EMOJI) else null
+            "blob" -> if (has(ctx, BLOB)) android.graphics.Typeface.createFromAsset(ctx.assets, BLOB) else null
+            else -> null
+        }
+    }.getOrNull()
 
     /** family for the chosen font + emoji style; null = keep the platform default */
     @OptIn(ExperimentalTextApi::class)
@@ -46,13 +58,14 @@ object Fonts {
     @OptIn(ExperimentalTextApi::class)
     private fun build(ctx: Context, font: String, emoji: String): FontFamily? {
         val wantTwemoji = emoji == "twemoji" && twemojiAvailable(ctx)
+        val wantBlob = emoji == "blob" && blobAvailable(ctx)
         val google = font == "google" && googleAvailable(ctx)
-        if (Build.VERSION.SDK_INT >= 29 && (google || (wantTwemoji && font == "system"))) {
+        if (Build.VERSION.SDK_INT >= 29 && (google || ((wantTwemoji || wantBlob) && font == "system"))) {
             val mainBuf: java.nio.ByteBuffer? = if (google) read(ctx, SANS) else null
             val sysFile = java.io.File("/system/fonts/Roboto-Regular.ttf")
             if (!google && !sysFile.exists()) return null
             val cyrBuf = if (google) read(ctx, CYR) else null
-            val emojiBuf = if (wantTwemoji) read(ctx, EMOJI) else null
+            val emojiBuf = when { wantTwemoji -> read(ctx, EMOJI); wantBlob -> read(ctx, BLOB); else -> null }
             fun at(w: Int, buf: java.nio.ByteBuffer?, file: java.io.File?): android.graphics.fonts.Font =
                 (if (buf != null) android.graphics.fonts.Font.Builder(buf.duplicate()) else android.graphics.fonts.Font.Builder(file!!))
                     .setWeight(w).setFontVariationSettings("'wght' $w").build()

@@ -1,5 +1,8 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.graphics.asImageBitmap
+import org.drinkless.tdlib.TdApi
+
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.BlurOn
@@ -303,7 +306,7 @@ fun AppearanceHub2() = PageScaffold("Внешний вид") {
     group("Цвет и текст") {
         nav("Тема и цвета", "Светлая или тёмная, акцент, палитра", Icons.Outlined.Palette) { Nav.push(Route.Page("ap-theme")) }
         nav("Шрифт и масштаб", "Начертание, жирность, размер", Icons.Outlined.TextFields) { Nav.push(Route.Page("ap-text")) }
-        nav("Эмодзи", "Twemoji, Noto или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
+        nav("Эмодзи", "Twemoji, Noto, Blob или системные", Icons.Outlined.EmojiEmotions) { Nav.push(Route.Page("ap-emoji")) }
         nav("Формы и аватарки", "Формы, размеры, скругления", Icons.Outlined.Interests) { Nav.push(Route.Page("ap-shapes")) }
     }
     group("Экраны") {
@@ -392,7 +395,7 @@ fun ChatStylePage2() = PageScaffold("Чат и сообщения") {
     }
     group("Жесты") {
         pick("Двойной тап", Prefs.doubleTap, listOf("react" to "Реакция", "reply" to "Ответить", "none" to "Ничего"))
-        pick("Быстрая реакция", Prefs.doubleTapEmoji, listOf("❤️" to "❤️", "👍" to "👍", "🔥" to "🔥", "😂" to "😂", "🎉" to "🎉"))
+        row { m -> Box(m) { QuickReactionRow() } }
         switch("Ответ свайпом влево", Prefs.swipeReply)
         switch("Отправка по Enter", Prefs.sendByEnter)
     }
@@ -562,7 +565,7 @@ fun EmojiPage() = PageScaffold("Эмодзи") {
     }
     item {
         Text(
-            "Twemoji — набор Twitter/X, цветной на Android 13+. Noto — набор Google, одинаковый на всех устройствах. Эмодзи Apple встроить нельзя: они принадлежат Apple.",
+            "Twemoji — набор Twitter/X, цветной на Android 13+. Noto — набор Google, одинаковый на всех устройствах. Blob — круглые «капельки» из старого Android (Android 10+). Эмодзи Apple встроить нельзя: они принадлежат Apple.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(16.dp),
         )
@@ -573,12 +576,18 @@ fun EmojiPage() = PageScaffold("Эмодзи") {
 private fun EmojiCards() {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
-    val opts = listOf("twemoji" to "Twemoji", "noto" to "Noto", "system" to "Системные")
+    // every card shows its OWN set: drawn into a picture with that set's font (text would go through the emoji
+    // set in use and all cards looked the same)
+    val opts = buildList {
+        add("twemoji" to "Twemoji")
+        add("noto" to "Noto")
+        if (Fonts.blobAvailable(ctx)) add("blob" to "Blob")
+        add("system" to "Системные")
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         opts.forEach { (k, title) ->
             val sel = Prefs.emojiStyle.value == k
-            // Twemoji is previewed through its own font; Noto/system show the current system rendering
-            val fam = remember(k) { if (k == "twemoji") Fonts.family(ctx, "system", "twemoji") else null }
+            val preview = remember(k) { emojiPreview(ctx, k) }
             val bg by animateColorAsState(if (sel) cs.primaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "eb")
             MorphBox(
                 onClick = { Prefs.emojiStyle.value = k }, rest = if (sel) 32.dp else 18.dp, pressed = 10.dp,
@@ -586,14 +595,39 @@ private fun EmojiCards() {
                 modifier = Modifier.weight(1f).heightIn(min = 104.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
-                    Text("😀🔥", fontSize = 28.sp, fontFamily = fam)
+                    if (preview != null) androidx.compose.foundation.Image(preview, title, Modifier.height(32.dp))
+                    else Text("😀🔥", fontSize = 26.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text(title, style = MaterialTheme.typography.labelLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    FitText(title, MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             }
         }
     }
 }
+
+/** "😀🔥" in a given emoji set, as a picture: the set's own font (or Noto's pictures, or the system's emoji) */
+private fun emojiPreview(ctx: android.content.Context, style: String): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val h = (ctx.resources.displayMetrics.density * 32).toInt().coerceAtLeast(32)
+    if (style == "noto") {
+        val parts = listOf("1f600", "1f525").mapNotNull { c ->
+            runCatching { ctx.assets.open("emoji_preview/noto_$c.png").use { android.graphics.BitmapFactory.decodeStream(it) } }.getOrNull()
+        }
+        if (parts.size == 2) {
+            val out = android.graphics.Bitmap.createBitmap(h * 2 + h / 8, h, android.graphics.Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(out)
+            parts.forEachIndexed { i, b -> cv.drawBitmap(b, null, android.graphics.Rect(i * (h + h / 8), 0, i * (h + h / 8) + h, h), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)) }
+            return@runCatching out.asImageBitmap()
+        }
+    }
+    val tf = if (style == "system" || style == "noto") android.graphics.Typeface.DEFAULT else Fonts.emojiTypeface(ctx, style) ?: return@runCatching null
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { typeface = tf; textSize = h * 0.86f }
+    val text = "😀🔥"
+    val w = p.measureText(text).toInt().coerceAtLeast(1)
+    val out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val fm = p.fontMetrics
+    android.graphics.Canvas(out).drawText(text, 0f, (h - fm.bottom - fm.top) / 2f, p)
+    out.asImageBitmap()
+}.getOrNull()
 
 fun restartApp(ctx: android.content.Context) {
     val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK) ?: return
@@ -654,5 +688,26 @@ fun ProfileStylePage() = PageScaffold("Профиль") {
     group("Разделы") {
         switch("Подарки", Prefs.profileGifts, sub = "Подарки и коллекционные NFT")
         switch("Музыка", Prefs.profileMusic, sub = "Карточка с треками профиля")
+    }
+}
+
+
+/** the double-tap reaction: any of Telegram's reactions, or (Premium) any premium emoji, picked from the full grid */
+@Composable
+private fun QuickReactionRow() {
+    var open by remember { mutableStateOf(false) }
+    val v = Prefs.doubleTapEmoji.value
+    val type: TdApi.ReactionType = v.removePrefix("ce:").toLongOrNull()?.takeIf { v.startsWith("ce:") }?.let { TdApi.ReactionTypeCustomEmoji(it) } ?: TdApi.ReactionTypeEmoji(v)
+    BaseRow("Быстрая реакция", "Двойной тап по сообщению", onClick = { open = true }) { ReactionGlyph(type, 30.dp) }
+    if (open) {
+        val premium = app.qwgram.next.td.TdStore.me?.isPremium == true
+        val list = remember {
+            val all = app.qwgram.next.td.TdStore.activeReactions.toList().ifEmpty { listOf("❤", "👍", "👎", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇", "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷‍♂", "🤷", "🤷‍♀", "😡") }
+            all.map { TdApi.AvailableReaction(TdApi.ReactionTypeEmoji(it), false) }
+        }
+        ReactionPickerSheet(list, allowCustom = true, premium = premium, onDismiss = { open = false }) { t ->
+            Prefs.doubleTapEmoji.value = when (t) { is TdApi.ReactionTypeCustomEmoji -> "ce:${t.customEmojiId}"; is TdApi.ReactionTypeEmoji -> t.emoji; else -> v }
+            open = false
+        }
     }
 }

@@ -111,7 +111,13 @@ fun ProfileBanner(
                 layout(c.maxWidth, (pl.height - up).coerceAtLeast(0)) { pl.place(-extraW / 2, -up) }
             }
             .then(
+                // no profile colour: a soft tonal glow from the theme behind the avatar (never a bare page)
                 if (bannerColors == null) Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 36.dp.rs(), bottomEnd = 36.dp.rs()))
+                    .drawBehind {
+                        drawRect(Brush.verticalGradient(listOf(cs.primaryContainer.copy(alpha = 0.55f), cs.secondaryContainer.copy(alpha = 0.25f), cs.surface)))
+                        drawRect(Brush.radialGradient(listOf(cs.tertiaryContainer.copy(alpha = 0.45f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.4f), radius = size.maxDimension * 0.5f))
+                    }
                 else Modifier
                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 36.dp.rs(), bottomEnd = 36.dp.rs()))
                     // Telegram draws the profile colour as a soft radial glow: inner colour around the avatar, outer to the edges

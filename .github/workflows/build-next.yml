@@ -114,7 +114,14 @@ jobs:
           # Twemoji Mozilla (COLR, CC-BY 4.0)
           curl -fsSL https://mirrors.ctan.org/fonts/twemoji-colr/TwemojiMozilla.ttf -o $D/twemoji.ttf \
             || curl -fsSL https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf -o $D/twemoji.ttf
-          ls -la $D
+          # Blobmoji (Apache 2.0): Google's old blob emoji, CBDT colour bitmaps (render on every Android version)
+          URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/C1710/blobmoji/releases/latest \
+            | python3 -c "import sys,json; a=json.load(sys.stdin).get('assets',[]); fs=[x for x in a if x['name'].lower().endswith('.ttf') and 'compat' not in x['name'].lower() and 'blob' in x['name'].lower()]; print(fs[0]['browser_download_url'] if fs else '')")
+          [ -n "$URL" ] && curl -fsSL "$URL" -o $D/blobmoji.ttf
+          # Noto preview pictures for the emoji picker in Appearance (the set itself comes with emoji2-bundled)
+          P=next/app/src/main/assets/emoji_preview; mkdir -p $P
+          for c in 1f600 1f525; do curl -fsSL https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/72/emoji_u$c.png -o $P/noto_$c.png; done
+          ls -la $D $P
           exit 0
 
       - name: Build
