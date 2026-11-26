@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.DataUsage
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Dock
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Interests
 import androidx.compose.material.icons.outlined.Lock
@@ -183,6 +184,7 @@ fun SettingsHome(pad: PaddingValues) {
                 nav("Данные и память", "Кэш, автозагрузка", Icons.Outlined.DataUsage) { Nav.push(Route.Page("data")) }
                 nav("Энергосбережение", if (app.qwgram.next.Power.on) "Включено" else "Выключено", Icons.Outlined.BatterySaver) { Nav.push(Route.Page("power")) }
                 nav("Папки с чатами", "Создать и настроить", Icons.Outlined.FolderOpen) { Nav.push(Route.Page("folders")) }
+                nav("Боковое меню", "Какие пункты и в каком порядке", Icons.Outlined.Menu) { Nav.push(Route.Page("drawer")) }
                 nav("Заблокированные", "Пользователи и боты", Icons.Outlined.Block) { Nav.push(Route.Page("blocked")) }
             }
             group("Сеть") {

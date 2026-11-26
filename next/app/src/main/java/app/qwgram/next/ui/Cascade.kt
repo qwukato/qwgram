@@ -59,7 +59,7 @@ fun ProvideRise(clock: RiseClock = remember { RiseClock() }, content: @Composabl
  * screen (≈ 300 ms from top to bottom), like the folder rows. [extra] shifts it later still (a second column…).
  */
 @Composable
-fun Modifier.rise(extra: Long = 0L, fromBottom: Boolean = false, lift: androidx.compose.ui.unit.Dp = 30.dp): Modifier {
+fun Modifier.rise(extra: Long = 0L, fromBottom: Boolean = false, lift: androidx.compose.ui.unit.Dp = 30.dp, quick: Boolean = false): Modifier {
     val clock = LocalRiseClock.current ?: return this
     val born = remember { SystemClock.uptimeMillis() }
     val animate = remember { Cascade.on && born - clock.start in 0..RiseClock.WINDOW }
@@ -72,16 +72,18 @@ fun Modifier.rise(extra: Long = 0L, fromBottom: Boolean = false, lift: androidx.
         val k = Prefs.motionSpeed.value
         // top → bottom over ~300 ms (like 26 ms per chat row), minus the time already gone since the screen opened
         val f = (y / screenH).coerceIn(0f, 1f).let { if (fromBottom) 1f - it else it }
-        val wait = (40L + (f * 300f).toLong() + extra) / k.coerceAtLeast(0.3f)
+        // quick: the whole wave fits in ~120 ms and snaps in on a stiff, bouncy spring (chat bubbles: never slows typing)
+        val span = if (quick) 120f else 300f
+        val wait = ((if (quick) 0L else 40L) + (f * span).toLong() + extra) / k.coerceAtLeast(0.3f)
         val gone = SystemClock.uptimeMillis() - born
         delay((wait.toLong() - gone).coerceAtLeast(0L))
-        a.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 360f * k * k))
+        a.animateTo(1f, if (quick) spring(dampingRatio = 0.6f, stiffness = 700f * k * k) else spring(dampingRatio = 0.72f, stiffness = 360f * k * k))
     }
     return this
         .onPlaced { if (y < 0f) y = it.positionInRoot().y.coerceAtLeast(0f) }
         .graphicsLayer {
             val v = a.value
-            alpha = v.coerceIn(0f, 1f)
+            alpha = (if (quick) v * 1.6f else v).coerceIn(0f, 1f)
             translationY = (1f - v) * lift.toPx()
             val sc = 0.95f + 0.05f * v
             scaleX = sc; scaleY = sc

@@ -138,6 +138,7 @@ object Prefs {
     val forwardNoAuthor = B("forward_no_author", false)   // forward as a copy by default
     val fabAction = S("fab_action", "compose")            // compose (menu: message/group/channel) | search
     val centerTitle = B("center_title", false)            // centred titles in every header
+    val centerChatTitle = B("center_chat_title", false)   // chats: name + status centred, no avatar, search in ⋮
     val emojiStyle = S("emoji_style", "twemoji")          // twemoji | noto (bundled Google emoji) | system
     val pressMorph = S("press_morph", "normal")          // off | soft | normal | strong
     val outBubble = S("out_bubble", "primary")            // primary | secondary | tertiary

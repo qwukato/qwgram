@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Surface
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -85,6 +88,33 @@ fun HeaderIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: Stri
     val cs = MaterialTheme.colorScheme
     if (Prefs.floatingBars.value) MorphIconButton(icon, desc, onClick, modifier.padding(2.dp), size = 46.dp, color = cs.surfaceContainerHigh, tint = cs.onSurface, elevation = 3.dp, glass = true)
     else MorphIconButton(icon, desc, onClick, modifier)
+}
+
+/**
+ * A header button joined to its neighbours (M3 connected button group): the outer corners are big, the touching
+ * ones small, 2 dp apart; pressed, every corner eases to one middle radius (the M3 "squish"). [first]/[last] tell
+ * which ends are outer. Same height and colours as [HeaderIcon].
+ */
+@Composable
+fun HeaderTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String?, onClick: () -> Unit,
+    first: Boolean, last: Boolean, modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val big = 23.dp.rs(); val small = 6.dp.rs(); val mid = 14.dp.rs()
+    val spec = Springs.fastSpatial<androidx.compose.ui.unit.Dp>()
+    val ts by androidx.compose.animation.core.animateDpAsState(if (pressed) mid else if (first) big else small, spec, label = "ts")
+    val te by androidx.compose.animation.core.animateDpAsState(if (pressed) mid else if (last) big else small, spec, label = "te")
+    Surface(
+        onClick = onClick, interactionSource = src,
+        shape = RoundedCornerShape(topStart = ts, bottomStart = ts, topEnd = te, bottomEnd = te),
+        color = cs.surfaceContainerHigh, contentColor = cs.onSurface, shadowElevation = 3.dp,
+        modifier = modifier.padding(vertical = 2.dp).size(width = 50.dp, height = 46.dp).semantics { if (desc != null) contentDescription = desc },
+    ) {
+        Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(22.dp)) }
+    }
 }
 
 /**

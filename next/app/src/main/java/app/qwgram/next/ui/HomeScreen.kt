@@ -254,8 +254,8 @@ fun HomeScreen() {
                                     }
                                 },
                         ) {
-                            // each tab ripples in the first time it's opened (its own cascade clock)
-                            ProvideRise {
+                            // tabs show up as they are (no ripple): their own fade-through is enough
+                            CompositionLocalProvider(LocalRiseClock provides null) {
                                 when (t) {
                                     HomeTab.Chats -> ChatsTab(pad, drawer)
                                     HomeTab.Contacts -> ContactsTab(pad)
@@ -741,6 +741,9 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
             if (last >= state.layoutInfo.totalItemsCount - 10) TdStore.loadMore(list)
         }
     }
+    // app start: the chats load first, then ripple in once (the same wave as everywhere); never again after that
+    val startClock = remember { if (!AppStart.rippled && list is TdApi.ChatListMain && page <= 0) RiseClock() else null }
+    if (startClock != null && !AppStart.rippled) { if (chats.isEmpty()) startClock.restart() else AppStart.rippled = true }
     if (chats.isEmpty() && TdStore.connection !is TdApi.ConnectionStateReady) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
         return
@@ -765,6 +768,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
     }
     val scrolledAway by remember { derivedStateOf { state.firstVisibleItemIndex > 3 } }
     LaunchedEffect(scrolledAway) { if (scrolledAway) revealed = false }
+    CompositionLocalProvider(LocalRiseClock provides startClock) {
     LazyColumn(
         state = state,
         contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 96.dp, top = pad.calculateTopPadding() + 4.dp),
@@ -816,7 +820,11 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
             }
         }
     }
+    }
 }
+
+/** the chat list rippled in once after launch */
+object AppStart { var rippled = false }
 
 @Composable
 private fun ArchiveRow(archived: List<TdApi.Chat>, hidden: Boolean, onToggleHidden: () -> Unit) {
@@ -928,12 +936,6 @@ private fun AppDrawer(progress: () -> Float, close: () -> Unit) {
                 val part = chosen.filter { it.group == g }.map { DrawerEntry(it.title, it.icon, act(it.id)) }
                 if (part.isNotEmpty()) { drawerGroup(part, close, title, seq + 1, progress); seq += part.size + 1 }
             }
-            item {
-                // edit the menu right from it
-                androidx.compose.material3.TextButton(onClick = { close(); Nav.push(Route.Page("drawer")) }, modifier = Modifier.padding(start = 8.dp, top = 8.dp)) {
-                    Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Изменить меню")
-                }
-            }
         }
     }
 }
@@ -972,12 +974,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerGroup(items: Li
  */
 private fun Modifier.drawerIn(i: Int, progress: () -> Float): Modifier = graphicsLayer {
     if (!Cascade.on) return@graphicsLayer
-    val lag = i.coerceAtMost(12) * 0.04f
+    // a clear wave: each row starts later and travels further, with a little tilt and grow as it lands
+    val lag = i.coerceAtMost(12) * 0.06f
     val t = ((progress() - lag) / (1f - lag)).coerceIn(0f, 1f)
-    // ease-out so they land softly
-    val e = 1f - (1f - t) * (1f - t)
-    translationX = -(1f - e) * 56.dp.toPx()
-    alpha = 0.2f + 0.8f * e
+    val e = 1f - (1f - t) * (1f - t) * (1f - t)   // ease-out cubic: lands softly
+    translationX = -(1f - e) * (90.dp.toPx() + i.coerceAtMost(12) * 6.dp.toPx())
+    alpha = (0.05f + 0.95f * e).coerceIn(0f, 1f)
+    val sc = 0.9f + 0.1f * e
+    scaleX = sc; scaleY = sc
+    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+    rotationZ = -(1f - e) * 4f
 }
 
 /** state of the push drawer: 0 = closed, 1 = open; driven by fingers or springs */

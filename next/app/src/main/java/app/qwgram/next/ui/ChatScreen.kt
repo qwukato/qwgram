@@ -776,7 +776,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                     m = e.m, grp = e.grp, chat = chat, group = group, album = e.album,
                                     reply = ctl.replies[id],
                                     // the bubbles on screen when the chat opens ripple in from the bottom up
-                                    modifier = Modifier.rise(fromBottom = true, lift = 22.dp).animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
+                                    modifier = Modifier.rise(fromBottom = true, lift = 18.dp, quick = true).animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
@@ -1179,13 +1179,42 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
                 }
             }
     }
-    val actions: @Composable () -> Unit = {
+    // a centred name/status (no avatar) for the centred chat header
+    val titleCentered: @Composable (Modifier) -> Unit = { mod ->
+        Column(
+            mod.clip(RoundedCornerShape(20.dp.rs())).clickable { Nav.push(Route.Profile(chat.id)) }.padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(topicName ?: if (TdStore.isSaved(chat)) "Избранное" else chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (!TdStore.isSaved(chat)) EmojiStatusMark(TdStore.users[TdStore.privateUserId(chat)], 18.dp)
+            }
+            AnimatedContent(status, transitionSpec = { fadeIn(Springs.effects()).togetherWith(fadeOut(Springs.exit())) }, label = "status") { st ->
+                if (st.isNotBlank()) Text(
+                    st, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (typingNow || st == "в сети") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    /**
+     * search + ⋮. [connected]: one joined pair (M3 connected group); [searchInMenu]: only ⋮, the search is its first
+     * item (it grows out of ⋮). The search bar always grows out of the button it was opened from.
+     */
+    val actions: @Composable (connected: Boolean, searchInMenu: Boolean) -> Unit = { connected, searchInMenu ->
             var sRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+            var mRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
             // while the search is open, the bar IS this button: the original hides so there aren't two
-            Box(Modifier.onGloballyPositioned { sRect = it.boundsInRoot() }.graphicsLayer { alpha = if (hideSearch) 0f else 1f }) { HeaderIcon(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) }) }
-            Box {
-                HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
+            if (!searchInMenu) Box(Modifier.onGloballyPositioned { sRect = it.boundsInRoot() }.graphicsLayer { alpha = if (hideSearch) 0f else 1f }) {
+                if (connected) HeaderTile(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) }, first = true, last = false)
+                else HeaderIcon(Icons.Outlined.Search, "Поиск в чате", { onSearch(sRect) })
+            }
+            Box(Modifier.onGloballyPositioned { mRect = it.boundsInRoot() }) {
+                if (connected) HeaderTile(Icons.Outlined.MoreVert, "Ещё", { menu = true }, first = false, last = true)
+                else HeaderIcon(Icons.Outlined.MoreVert, "Ещё", { menu = true })
                 QMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (searchInMenu) DropdownMenuItem(text = { Text("Поиск") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, onClick = { menu = false; onSearch(mRect) })
                     val muted = TdStore.isMuted(chat)
                     DropdownMenuItem(
                         text = { Text(if (muted) "Включить звук" else "Без звука") },
@@ -1225,23 +1254,28 @@ private fun ChatTopBar(chat: TdApi.Chat, onSearch: (androidx.compose.ui.geometry
                     )
                 }
             }
+            }
     }
+    val centered = Prefs.centerChatTitle.value
     if (floating) {
-        // M3 top app bar without a container, on the fade: title takes all free width
+        // M3 top app bar without a container, on the fade. Default: ← · avatar · name … [search|⋮] (a joined pair);
+        // centred (Appearance → Panels): ← · name and status in the middle · ⋮
         Row(
             Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
-            Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = if (Prefs.centerTitle.value) Alignment.Center else Alignment.CenterStart) { titleArea(Modifier) }
-            actions()
+            if (centered) Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) { titleCentered(Modifier) }
+            else Box(Modifier.weight(1f).padding(start = 2.dp, end = 6.dp), contentAlignment = Alignment.CenterStart) { titleArea(Modifier) }
+            actions(!centered, centered)
         }
     } else {
         Surface(color = cs.surfaceContainer) {
             Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", { Nav.pop() })
-                titleArea(Modifier.weight(1f))
-                actions()
+                if (centered) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { titleCentered(Modifier) }
+                else titleArea(Modifier.weight(1f))
+                actions(false, centered)
             }
         }
     }
