@@ -216,6 +216,9 @@ object Prefs {
     val sendAnim = S("send_anim", "fly")               // fly (from the field, Telegram) | simple
     val tabAnim = S("tab_anim", "fade")                // fade | slide | none — switching bottom tabs
     val folderCascade = F("folder_cascade", 1f)        // strength of the rows' trailing wave on folder swipes
+    val cascadeBounce = F("cascade_bounce", 0.55f)      // 0 = no overshoot … 1 = very springy
+    val cascadeSpeed = F("cascade_speed", 1f)          // how fast the rows catch up
+    val cascadeSpread = F("cascade_spread", 1f)        // how much more the lower rows lag than the top ones
     val drawerItems = S("drawer_items", "profile,group,contacts,saved,archive,settings,appearance,features,folders,invite")       // header / bottom fades appear only once content is under them
     // ---- energy saving (off by default) ----
     val powerSave = B("power_save", false)

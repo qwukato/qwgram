@@ -3,6 +3,7 @@ package app.qwgram.next.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -369,15 +370,19 @@ fun <T> RadioDialog(title: String, options: List<Pair<T, String>>, selected: T, 
         onDismissRequest = onDismiss,
         title = { WindowBlurBehind();  Text(title) },
         text = {
-            Column {
-                options.forEach { (v, label) ->
+            // options as segments (one rounded tile each, 2 dp apart); the chosen one is tinted
+            val cs = MaterialTheme.colorScheme
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                options.forEachIndexed { i, (v, label) ->
+                    val on = v == selected
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).selectable(selected = v == selected, role = Role.RadioButton) { onPick(v) }.padding(vertical = 10.dp),
+                        Modifier.segment(i, options.size, if (on) cs.secondaryContainer else cs.surfaceContainerHighest)
+                            .selectable(selected = on, role = Role.RadioButton) { onPick(v) }.padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = v == selected, onClick = null)
-                        Spacer(Modifier.width(14.dp))
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                        RadioButton(selected = on, onClick = null)
+                        Spacer(Modifier.width(12.dp))
+                        Text(label, style = MaterialTheme.typography.bodyLarge, color = if (on) cs.onSecondaryContainer else cs.onSurface)
                     }
                 }
             }

@@ -1072,8 +1072,11 @@ class FolderCascade {
                     var x = pos[i].floatValue
                     var v = vel[i]
                     if (!enabled || strength <= 0f) { x = t; v = 0f } else {
-                        val stiff = (820f / (1f + i * 0.42f * strength)).coerceAtLeast(120f) * k
-                        val damp = 2f * 0.68f * kotlin.math.sqrt(stiff)
+                        // top rows almost stick to the finger, each lower one lags more; the bounce lets them overshoot
+                        val spread = Prefs.cascadeSpread.value
+                        val stiff = (760f * Prefs.cascadeSpeed.value / (1f + i * 0.6f * strength * spread)).coerceAtLeast(70f) * k
+                        val zeta = (0.95f - Prefs.cascadeBounce.value * 0.72f).coerceIn(0.22f, 1f)
+                        val damp = 2f * zeta * kotlin.math.sqrt(stiff)
                         // semi-implicit Euler in small sub-steps: stable for any frame rate
                         val n = 4
                         val h = dt / n

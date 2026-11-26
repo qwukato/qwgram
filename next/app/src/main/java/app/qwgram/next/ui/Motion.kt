@@ -287,33 +287,72 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
             transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 300f * k) else androidx.compose.animation.core.spring(0.95f, 520f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
-        val radiusEnd = 16.dp.rs()
-        Column(
-            // as wide as the longest item (no empty band on the right), within M3's 112–280dp
-            modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)
+        val radiusEnd = 18.dp.rs()
+        val small = 4.dp
+        val segColor = cs.surfaceContainerHigh
+        // segmented menu (M3 Expressive): every item its own rounded tile with a 2 dp gap, a divider starts a new
+        // group; the whole stack unfolds from the button's corner on one spring
+        val bounds = remember { ArrayList<Pair<Float, Float>>() }
+        val breaks = remember { HashSet<Int>() }
+        androidx.compose.ui.layout.Layout(
+            content = {
+                CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
+            },
+            modifier = modifier
                 .graphicsLayer {
-                    // the whole menu — its fill AND its items together — unfolds from the button's corner on one
-                    // spring and overshoots a little (nothing moves on its own inside it)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
                     val q = p.coerceAtLeast(0f)
                     scaleX = 0.7f + 0.3f * q
                     scaleY = 0.45f + 0.55f * q
                     alpha = (p * 3f).coerceIn(0f, 1f)
-                    shape = RoundedCornerShape(radiusEnd)
-                    clip = true
-                    shadowElevation = 6.dp.toPx() * p.coerceIn(0f, 1f)
                 }
-                .background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHighest, cs.surfaceContainer, p.coerceIn(0f, 1f)))
-                .padding(vertical = 4.dp),
-        ) {
-            // items arrive a beat after the container has grown
-            Column(Modifier.graphicsLayer { alpha = ((p - 0.2f) / 0.5f).coerceIn(0f, 1f) }) {
-                CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
+                .drawBehind {
+                    val big = radiusEnd.toPx(); val sm = small.toPx()
+                    // groups = runs of tiles between dividers
+                    var i = 0
+                    while (i < bounds.size) {
+                        if (i in breaks) { i++; continue }
+                        var j = i
+                        while (j + 1 < bounds.size && (j + 1) !in breaks) j++
+                        for (k in i..j) {
+                            val (t, b) = bounds[k]
+                            val top = if (k == i) big else sm
+                            val bot = if (k == j) big else sm
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                addRoundRect(androidx.compose.ui.geometry.RoundRect(
+                                    0f, t, size.width, b,
+                                    topLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(top), topRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(top),
+                                    bottomLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(bot), bottomRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(bot),
+                                ))
+                            }
+                            drawPath(path, segColor)
+                        }
+                        i = j + 1
+                    }
+                },
+        ) { ms, c ->
+            val gap = 2.dp.roundToPx()
+            val groupGap = 8.dp.roundToPx()
+            // as wide as the longest item (no empty band on the right), within M3's 160–280dp
+            val w = (ms.maxOfOrNull { it.maxIntrinsicWidth(c.maxHeight) } ?: 0).coerceIn(160.dp.roundToPx(), 280.dp.roundToPx()).coerceAtMost(c.maxWidth)
+            val pls = ms.map { it.measure(androidx.compose.ui.unit.Constraints(minWidth = w, maxWidth = w)) }
+            bounds.clear(); breaks.clear()
+            var y = 0
+            val ys = IntArray(pls.size)
+            pls.forEachIndexed { i, pl ->
+                // a divider (a hairline) is not a tile: it only opens a bigger gap
+                val divider = pl.height < 4.dp.roundToPx()
+                if (divider) { breaks.add(i); ys[i] = -1; bounds.add(0f to 0f); if (i > 0) y += groupGap - gap; return@forEachIndexed }
+                ys[i] = y
+                bounds.add(y.toFloat() to (y + pl.height).toFloat())
+                y += pl.height + gap
+            }
+            layout(w, (y - gap).coerceAtLeast(0)) {
+                pls.forEachIndexed { i, pl -> if (ys[i] >= 0) pl.placeRelative(0, ys[i]) }
             }
         }
     }
 }
-
 
 /** bottom sheets open and close calmly (standard motion, no bounce) while the rest of the app stays expressive */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
