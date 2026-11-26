@@ -244,9 +244,12 @@ fun JoinRequestsPage(chatId: Long) {
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { process(q, true) }, modifier = Modifier.weight(1f)) { Text("Принять") }
-                        OutlinedButton(onClick = { process(q, false) }, modifier = Modifier.weight(1f)) { Text("Отклонить") }
+                    // a connected pair (M3)
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        ConnectedTile(Seat(0, 1, 0, 2), onClick = { process(q, true) }, modifier = Modifier.weight(1f).height(44.dp), big = 22.dp,
+                            color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("Принять", style = MaterialTheme.typography.labelLarge) }
+                        ConnectedTile(Seat(0, 1, 1, 2), onClick = { process(q, false) }, modifier = Modifier.weight(1f).height(44.dp), big = 22.dp,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest) { Text("Отклонить", style = MaterialTheme.typography.labelLarge) }
                     }
                 }
             }

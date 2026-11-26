@@ -347,11 +347,16 @@ private fun TranslateDialog(text: TdApi.FormattedText, onDone: () -> Unit) {
             Text("Оригинал", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(text.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 4, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { result?.let { copyText(ctx, it) } }, enabled = result != null, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Копировать")
+            // a connected pair (M3)
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                ConnectedTile(Seat(0, 1, 0, 2), onClick = { result?.let { copyText(ctx, it) } }, modifier = Modifier.weight(1f).height(52.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Копировать", style = MaterialTheme.typography.labelLarge) }
                 }
-                Button(onClick = { sheet.close() }, modifier = Modifier.weight(1f)) { Text("Готово") }
+                ConnectedTile(Seat(0, 1, 1, 2), onClick = { sheet.close() }, modifier = Modifier.weight(1f).height(52.dp),
+                    color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                    Text("Готово", style = MaterialTheme.typography.labelLarge)
+                }
             }
             Spacer(Modifier.height(8.dp))
         }
