@@ -108,6 +108,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.drawBehind
 import org.drinkless.tdlib.TdApi
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 
@@ -434,7 +437,7 @@ fun SearchScreen() {
                         // the bar's final spot is fixed (screen top, under the status bar): known from the first frame,
                         // so the grow starts exactly on the button with no jump
                         hostPos = if (!fromBottom) androidx.compose.ui.geometry.Offset(12.dp.toPx(), statusTopPx + 6.dp.toPx())
-                        else androidx.compose.ui.geometry.Offset(12.dp.toPx(), winH - maxOf(androidx.compose.foundation.layout.WindowInsets.ime.getBottom(dens), androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(dens)) - 8.dp.toPx() - 56.dp.toPx())
+                        else androidx.compose.ui.geometry.Offset(12.dp.toPx(), winH - maxOf(WindowInsets.ime.getBottom(dens), WindowInsets.navigationBars.getBottom(dens)) - 8.dp.toPx() - 56.dp.toPx())
                         val fw = c.maxWidth; val fh = c.maxHeight.coerceAtMost(56.dp.roundToPx())
                         val p = grow.value
                         val o = origin
