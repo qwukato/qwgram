@@ -666,7 +666,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
         var bottomH by remember { mutableStateOf(0.dp) }
         val fade = wallpaperBase()
         // square header: page colour while nothing is under it, elevated colour once history scrolls beneath
-        val chatLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollForward) 1f else 0f, androidx.compose.animation.core.tween(220), label = "cl")
+        val chatLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollForward || (!ctl.reachedEnd && listState.firstVisibleItemIndex > 0)) 1f else 0f, androidx.compose.animation.core.tween(220), label = "cl")
         // something is under the composer = the history is scrolled up from the newest message
         val bottomLift = androidx.compose.animation.core.animateFloatAsState(if (listState.canScrollBackward) 1f else 0f, androidx.compose.animation.core.tween(260), label = "bl")
         Box(Modifier.fillMaxSize().padding(bottom = bottomInset).consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomInset))) {

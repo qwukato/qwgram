@@ -108,6 +108,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.drawBehind
 import org.drinkless.tdlib.TdApi
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 
 // ------------------------------------------------------------------ profile
 
@@ -382,7 +384,14 @@ fun SearchScreen() {
         busy = false
     }
     val cs = MaterialTheme.colorScheme
-    fun open(c: TdApi.Chat) { Td.send(TdApi.AddRecentlyFoundChat(c.id)); openChat(c) }
+    val keyboardCtl = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusMgr = androidx.compose.ui.platform.LocalFocusManager.current
+    // the keyboard goes away as the chat opens
+    fun open(c: TdApi.Chat) { keyboardCtl?.hide(); focusMgr.clearFocus(); Td.send(TdApi.AddRecentlyFoundChat(c.id)); openChat(c) }
+    // opened from the FAB: the bar lives at the bottom (Telegram on iPhone) and grows out of the FAB there
+    val fromBottom = remember { SearchMorph.bottom.also { SearchMorph.bottom = false } }
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    val winH = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toFloat()
     // container transform: the bar grows out of the button that opened search (springy), the rest fades in after
     val origin = remember { SearchMorph.origin.also { SearchMorph.origin = null } }
     val grow = remember { androidx.compose.animation.core.Animatable(if (origin == null || Prefs.motion.value == "off") 1f else 0f) }
@@ -393,7 +402,6 @@ fun SearchScreen() {
     val statusTopPx = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current).toFloat()
     val searchScope = rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
-    val keyboardCtl = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // closing: the bar shrinks back into the button it came from, then the screen goes
     fun closeSearch() {
         if (closing) return
@@ -406,16 +414,27 @@ fun SearchScreen() {
         }
     }
     androidx.activity.compose.BackHandler { closeSearch() }
-    Column(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawRect(cs.surface.copy(alpha = grow.value.coerceIn(0f, 1f))) }) {
-        // floating search pill + filters
-        Column(Modifier.statusBarsPadding().padding(top = 6.dp)) {
+    // floating search pill + filters (above the results, or under them when opened from the FAB)
+    val pillBlock: @Composable (Modifier) -> Unit = { mod -> Column(mod) {
+        if (fromBottom) {
+            androidx.compose.foundation.lazy.LazyRow(Modifier.graphicsLayer { alpha = ((grow.value - 0.5f) / 0.5f).coerceIn(0f, 1f); translationY = (1f - grow.value.coerceIn(0f, 1f)) * (if (fromBottom) 24.dp else (-24).dp).toPx() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(SearchFilter.entries.toList()) { f ->
+                    androidx.compose.material3.FilterChip(
+                        selected = filter == f, onClick = { filter = f }, label = { Text(f.title) },
+                        leadingIcon = if (filter == f) ({ Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }) else null,
+                        shape = RoundedCornerShape(if (filter == f) 16.dp else 8.dp),
+                    )
+                }
+            }
+        }
             Surface(
                 shape = RoundedCornerShape(28.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 2.dp,
                 modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)
                     .layout { m, c ->
                         // the bar's final spot is fixed (screen top, under the status bar): known from the first frame,
                         // so the grow starts exactly on the button with no jump
-                        hostPos = androidx.compose.ui.geometry.Offset(12.dp.toPx(), statusTopPx + 6.dp.toPx())
+                        hostPos = if (!fromBottom) androidx.compose.ui.geometry.Offset(12.dp.toPx(), statusTopPx + 6.dp.toPx())
+                        else androidx.compose.ui.geometry.Offset(12.dp.toPx(), winH - maxOf(androidx.compose.foundation.layout.WindowInsets.ime.getBottom(dens), androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(dens)) - 8.dp.toPx() - 56.dp.toPx())
                         val fw = c.maxWidth; val fh = c.maxHeight.coerceAtMost(56.dp.roundToPx())
                         val p = grow.value
                         val o = origin
@@ -446,7 +465,8 @@ fun SearchScreen() {
                     Icon(Icons.Outlined.Search, null, tint = cs.onSurface)
                 }
             }
-            androidx.compose.foundation.lazy.LazyRow(Modifier.graphicsLayer { alpha = ((grow.value - 0.5f) / 0.5f).coerceIn(0f, 1f); translationY = (1f - grow.value.coerceIn(0f, 1f)) * -24.dp.toPx() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!fromBottom) {
+            androidx.compose.foundation.lazy.LazyRow(Modifier.graphicsLayer { alpha = ((grow.value - 0.5f) / 0.5f).coerceIn(0f, 1f); translationY = (1f - grow.value.coerceIn(0f, 1f)) * (if (fromBottom) 24.dp else (-24).dp).toPx() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(SearchFilter.entries.toList()) { f ->
                     androidx.compose.material3.FilterChip(
                         selected = filter == f, onClick = { filter = f }, label = { Text(f.title) },
@@ -456,7 +476,10 @@ fun SearchScreen() {
                 }
             }
         }
-        LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = ((grow.value - 0.55f) / 0.45f).coerceIn(0f, 1f) }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    } }
+    Column(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawRect(cs.surface.copy(alpha = grow.value.coerceIn(0f, 1f))) }) {
+        if (!fromBottom) pillBlock(Modifier.statusBarsPadding().padding(top = 6.dp)) else Spacer(Modifier.statusBarsPadding())
+        LazyColumn(Modifier.fillMaxWidth().weight(1f).graphicsLayer { alpha = ((grow.value - 0.55f) / 0.45f).coerceIn(0f, 1f) }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (q.isBlank()) {
                 val recentChats = recent.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
                 val topChats = top.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
@@ -508,7 +531,7 @@ fun SearchScreen() {
                         val c = TdStore.chats[m.chatId] ?: return@itemsIndexed
                         Row(
                             Modifier.fillMaxWidth().clip(segShape(i, msgs.size)).background(cs.surfaceContainerLow)
-                                .clickable { Nav.jumpTo = c.id to m.id; Nav.push(Route.Chat(c.id)) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                                .clickable { keyboardCtl?.hide(); focusMgr.clearFocus(); Nav.jumpTo = c.id to m.id; Nav.push(Route.Chat(c.id)) }.padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ChatAvatar(c, 44.dp)
@@ -528,6 +551,8 @@ fun SearchScreen() {
                 }
             }
         }
+        // FAB search: the bar at the bottom, riding on the keyboard
+        if (fromBottom) pillBlock(Modifier.imePadding().navigationBarsPadding().padding(bottom = 8.dp))
     }
 }
 

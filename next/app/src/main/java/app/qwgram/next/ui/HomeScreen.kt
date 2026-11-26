@@ -186,7 +186,7 @@ fun HomeScreen() {
             Box(Modifier.onGloballyPositioned { fabRect = it.boundsInRoot() }) {
                 FabMenu(
                     if (contacts || searchFab) false else fabOpen,
-                    { when { contacts -> addContact = true; searchFab -> SearchMorph.open(fabRect); else -> fabOpen = it } },
+                    { when { contacts -> addContact = true; searchFab -> SearchMorph.open(fabRect, atBottom = true); else -> fabOpen = it } },
                     when { contacts -> Icons.Outlined.PersonAdd; searchFab -> Icons.Outlined.Search; else -> Icons.Outlined.Edit },
                     emptyList(),
                 )
@@ -310,7 +310,8 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
         Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        // the FAB sits on the pill's centre line (it used to hang above it)
+        Row(verticalAlignment = Alignment.CenterVertically) {
             // the pill gives way if the screen is narrow; the FAB keeps its full size
             Box(Modifier.weight(1f, fill = false)) { FloatingNavPill() }
             androidx.compose.ui.layout.Layout(
@@ -486,7 +487,11 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
     val exH = with(exDensity) { 200.dp.toPx() }
     val floating = Prefs.floatingBars.value
     // square header colour follows the list: page colour at the top, elevated container once scrolled
-    val homeLift = androidx.compose.animation.core.animateFloatAsState(if (scrollBehavior.state.overlappedFraction > 0.01f || scrollBehavior.state.contentOffset < -4f) 1f else 0f, androidx.compose.animation.core.tween(220), label = "hl")
+    // whether the folder on screen is scrolled — read from its own list (the shared app-bar state went stale when
+    // folders changed or new chats came in, and the header fade vanished at random)
+    val pageScrolled = remember { androidx.compose.runtime.mutableStateMapOf<Int, Boolean>() }
+    val lifted = pageScrolled[pager.currentPage] ?: (scrollBehavior.state.overlappedFraction > 0.01f || scrollBehavior.state.contentOffset < -4f)
+    val homeLift = androidx.compose.animation.core.animateFloatAsState(if (lifted) 1f else 0f, androidx.compose.animation.core.tween(220), label = "hl")
     val hd = androidx.compose.ui.platform.LocalDensity.current
     var headerH by remember { mutableStateOf(120.dp) }
     Box(
@@ -509,7 +514,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
             Box(Modifier.fillMaxSize()) {
-            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, page = page, at = { pager.currentPage + pager.currentPageOffsetFraction },
+            ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, page = page, at = { pager.currentPage + pager.currentPageOffsetFraction }, onScrolled = { v -> pageScrolled[page] = v },
                 onLong = { actionChat = it })
             }
         }
@@ -710,8 +715,9 @@ private fun FolderLabel(title: String, count: Int, selected: Boolean) {
 }
 
 @Composable
-fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, page: Int = -1, at: () -> Float = { 0f }, onLong: (TdApi.Chat) -> Unit) {
+fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cascade: Int = 0, page: Int = -1, at: () -> Float = { 0f }, onScrolled: (Boolean) -> Unit = {}, onLong: (TdApi.Chat) -> Unit) {
     val state = rememberLazyListState()
+    LaunchedEffect(state) { snapshotFlow { state.canScrollBackward }.collect { onScrolled(it) } }
     val chats by remember(list) { derivedStateOf { TdStore.chatsIn(list) } }
     val archived by remember(showArchive) { derivedStateOf { if (showArchive) TdStore.chatsIn(TdApi.ChatListArchive()) else emptyList() } }
     LaunchedEffect(state, list) {
@@ -1156,11 +1162,12 @@ private fun Modifier.drawerGestures(drawer: DrawerControl): Modifier = pointerIn
             last = ch.position
             if (!dragging) {
                 dx += d.x; dy += d.y
-                if (kotlin.math.abs(dy) > slop * 1.2f && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) { cancelled = true; break }
+                // a scroll of the list wins as soon as it looks vertical: the menu only follows a clearly sideways swipe
+                if (kotlin.math.abs(dy) > slop * 0.6f && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { cancelled = true; break }
                 val wrongWay = if (startOpen) dx > slop else dx < -slop
                 if (wrongWay) { cancelled = true; break }
-                val go = if (startOpen) -dx > slop * 0.35f else dx > slop * 0.35f
-                if (go && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 0.7f) { dragging = true; drawer.drag(dx) } else continue
+                val go = if (startOpen) -dx > slop else dx > slop
+                if (go && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 2f) { dragging = true; drawer.drag(dx) } else continue
             } else drawer.drag(d.x)
             ch.consume()
         }

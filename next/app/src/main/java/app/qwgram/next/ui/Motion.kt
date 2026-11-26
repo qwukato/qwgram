@@ -342,7 +342,9 @@ private object SheetMotion : androidx.compose.material3.MotionScheme {
 /** where the search bar grows from: bounds (in root) of the button that opened search */
 object SearchMorph {
     var origin: androidx.compose.ui.geometry.Rect? = null
-    fun open(from: androidx.compose.ui.geometry.Rect?) { origin = from; Nav.push(Route.Search) }
+    /** the bar lives at the bottom (opened from the FAB, like Telegram on iPhone) */
+    var bottom = false
+    fun open(from: androidx.compose.ui.geometry.Rect?, atBottom: Boolean = false) { origin = from; bottom = atBottom; Nav.push(Route.Search) }
 }
 
 /** search icon button that remembers its bounds, so the search bar grows out of it (springy container transform) */
