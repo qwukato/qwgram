@@ -294,7 +294,7 @@ class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L
     fun onEvent(u: TdApi.Update) {
         when (u) {
             is TdApi.UpdateNewMessage -> if (u.message.chatId == chatId && inView(u.message) && !hasNewer && messages.none { it.id == u.message.id }) {
-                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly" && !(app.qwgram.next.Power.on && Prefs.psSendAnim.value)) flyIn.add(u.message.id); onOwnSend?.invoke() }
+                if (u.message.isOutgoing && u.message.sendingState is TdApi.MessageSendingStatePending) { if (Prefs.sendAnim.value == "fly" && u.message.content is TdApi.MessageText && !(app.qwgram.next.Power.on && Prefs.psSendAnim.value)) flyIn.add(u.message.id); onOwnSend?.invoke() }
                 messages.add(0, u.message)
                 fetchReply(u.message)
             }
@@ -1496,7 +1496,9 @@ private fun Composer(
 
     val floating = Prefs.floatingBars.value
     Surface(color = if (floating) Color.Transparent else cs.surfaceContainer) {
-        Column(Modifier.then(if (panelOpen) Modifier else Modifier.navigationBarsPadding()).padding(horizontal = 8.dp, vertical = 6.dp)) {
+        // always the nav-bar padding: the chat box below already consumes whatever the panel / keyboard covers, so it
+        // fades out continuously as the panel rises (dropping it the moment the panel opened made the input jump)
+        Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
             AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
                 val m = editing ?: replyTo
                 val glassReply = blurOn(Prefs.blurComposer) && LocalHaze.current != null

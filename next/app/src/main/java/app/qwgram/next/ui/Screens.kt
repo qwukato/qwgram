@@ -449,7 +449,7 @@ fun SearchScreen() {
         keyboardCtl?.hide()
         if (origin == null || Prefs.motion.value == "off") { Nav.pop(); return }
         searchScope.launch {
-            grow.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f * Prefs.motionSpeed.value * Prefs.motionSpeed.value, visibilityThreshold = 0.01f))
+            grow.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.96f, stiffness = 400f * Prefs.motionSpeed.value * Prefs.motionSpeed.value, visibilityThreshold = 0.005f))
             Nav.popNow()
         }
     }
@@ -467,9 +467,15 @@ fun SearchScreen() {
                 }
             }
         }
+            // out of / back into the FAB: the bar takes the FAB's colour near the button and melts into it at the end,
+            // so the real FAB underneath takes over without a jump
+            val melt = fromBottom && origin != null
             Surface(
-                shape = RoundedCornerShape(28.dp.rs()), color = cs.surfaceContainerHigh, shadowElevation = 2.dp,
+                shape = RoundedCornerShape(28.dp.rs()),
+                color = if (melt) androidx.compose.ui.graphics.lerp(cs.primaryContainer, cs.surfaceContainerHigh, grow.value.coerceIn(0f, 1f)) else cs.surfaceContainerHigh,
+                shadowElevation = 2.dp,
                 modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp)
+                    .graphicsLayer { if (melt) alpha = (grow.value * 3.5f).coerceIn(0f, 1f) }
                     .layout { m, c ->
                         // the bar's final spot is fixed (screen top, under the status bar): known from the first frame,
                         // so the grow starts exactly on the button with no jump
