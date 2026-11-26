@@ -118,17 +118,7 @@ jobs:
           URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/C1710/blobmoji/releases/latest \
             | python3 -c "import sys,json; a=json.load(sys.stdin).get('assets',[]); fs=[x for x in a if x['name'].lower().endswith('.ttf') and 'compat' not in x['name'].lower() and 'blob' in x['name'].lower()]; print(fs[0]['browser_download_url'] if fs else '')")
           [ -n "$URL" ] && curl -fsSL "$URL" -o $D/blobmoji.ttf
-          # Noto preview pictures for the emoji picker in Appearance (the set itself comes with emoji2-bundled)
-          P=next/app/src/main/assets/emoji_preview; mkdir -p $P
-          for c in 1f600 1f525; do
-            for u in https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/png/72/emoji_u$c.png \
-                     https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/72/emoji_u$c.png \
-                     https://raw.githubusercontent.com/googlefonts/noto-emoji/master/png/72/emoji_u$c.png \
-                     https://fonts.gstatic.com/s/e/notoemoji/latest/$c/emoji.png; do
-              curl -fsSL "$u" -o $P/noto_$c.png && { echo "ok $u"; break; }
-            done
-          done
-          ls -la $D $P
+          ls -la $D
           exit 0
 
       - name: Build
