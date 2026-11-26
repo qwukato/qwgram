@@ -377,14 +377,16 @@ fun gifContent(a: TdApi.Animation): TdApi.InputMessageContent = TdApi.InputMessa
 fun SendOptionsSheet(onDismiss: () -> Unit, onSilent: () -> Unit, onSchedule: (Int) -> Unit) {
     var pickDate by remember { mutableStateOf(false) }
     QSheet(onDismiss = onDismiss, wrap = true) {
-        ListItem(headlineContent = { Text("Отправить без звука") }, supportingContent = { Text("Получатель не услышит уведомление") },
-            leadingContent = { Icon(Icons.Outlined.NotificationsOff, null) }, modifier = Modifier.clickable { onSilent(); onDismiss() })
-        ListItem(headlineContent = { Text("Отправить позже") }, supportingContent = { Text("Выбрать дату и время") },
-            leadingContent = { Icon(Icons.Outlined.Schedule, null) }, modifier = Modifier.clickable { pickDate = true })
+        val tc = androidx.compose.material3.ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+        fun seg(i: Int) = Modifier.padding(horizontal = 16.dp, vertical = 1.dp)
+        ListItem(headlineContent = { Text("Отправить без звука") }, supportingContent = { Text("Получатель не услышит уведомление") }, colors = tc,
+            leadingContent = { Icon(Icons.Outlined.NotificationsOff, null) }, modifier = seg(0).segment(0, 4).clickable { onSilent(); onDismiss() })
+        ListItem(headlineContent = { Text("Отправить позже") }, supportingContent = { Text("Выбрать дату и время") }, colors = tc,
+            leadingContent = { Icon(Icons.Outlined.Schedule, null) }, modifier = seg(1).segment(1, 4).clickable { pickDate = true })
         val quick = listOf("Через час" to 3600, "Через 3 часа" to 3 * 3600)
-        quick.forEach { (t, secs) ->
-            ListItem(headlineContent = { Text(t) }, leadingContent = { Spacer(Modifier.width(24.dp)) },
-                modifier = Modifier.clickable { onSchedule((System.currentTimeMillis() / 1000).toInt() + secs); onDismiss() })
+        quick.forEachIndexed { k, (t, secs) ->
+            ListItem(headlineContent = { Text(t) }, leadingContent = { Spacer(Modifier.width(24.dp)) }, colors = tc,
+                modifier = seg(2 + k).segment(2 + k, 4).clickable { onSchedule((System.currentTimeMillis() / 1000).toInt() + secs); onDismiss() })
         }
         Spacer(Modifier.height(24.dp))
     }

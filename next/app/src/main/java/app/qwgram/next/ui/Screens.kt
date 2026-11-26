@@ -318,9 +318,17 @@ fun ProfileScreen(chatId: Long) {
                     },
                     modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
                         .then(if (intro && i < 8) Modifier.appearIn(6 + i) else Modifier)
+                        .padding(horizontal = 16.dp, vertical = 1.dp).segment(i, media.size)
                         .clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
+            }
+            // a filler keeps the tabs where they were when a shorter tab opens (no jump back up, like Telegram)
+            if (chat != null) item(key = "filler", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
+                val conf = androidx.compose.ui.platform.LocalConfiguration.current
+                val content = if (shownTab == 0) ((conf.screenWidthDp.dp - 4.dp) / 3 + 2.dp) * ((media.size + 2) / 3) else 74.dp * media.size
+                val h = (conf.screenHeightDp.dp - pad.calculateTopPadding() - 150.dp - content).coerceAtLeast(0.dp)
+                Spacer(Modifier.height(h))
             }
         }
     }
@@ -701,12 +709,13 @@ fun ContactsTab(pad: PaddingValues) {
                 if (addContact) AddContactDialog { addContact = false }
             }
             item { SectionHeader("Сортировка по времени захода") }
-            items(users, key = { it.id }) { u ->
+            itemsIndexed(users, key = { _, u -> u.id }) { i, u ->
                 ListItem(
                     headlineContent = { Text(TdStore.fullName(u), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text(Texts.status(u), color = if (Texts.isOnline(u)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     leadingContent = { UserAvatar(u, 48.dp) },
-                    modifier = Modifier.rise().clickable {
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).segment(i, users.size).clickable {
                         scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(u.id, false))?.let { Nav.push(Route.Chat(it.id)) } }
                     },
                 )

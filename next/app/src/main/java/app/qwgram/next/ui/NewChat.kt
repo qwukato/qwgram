@@ -38,6 +38,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -139,26 +141,26 @@ fun NewMessagePage(start: String = "") {
             }
             if (found.isNotEmpty()) {
                 item { SectionHeader("Глобальный поиск") }
-                items(found, key = { "g" + it.id }) { c ->
+                itemsIndexed(found, key = { _, c -> "g" + c.id }) { i, c ->
                     ListItem(
                         headlineContent = { Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         supportingContent = { Text(Texts.chatStatus(c), maxLines = 1) },
                         leadingContent = { ChatAvatar(c, 48.dp) },
-                        modifier = Modifier.clickable { Nav.pop(); Nav.push(Route.Chat(c.id)) },
-                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).segment(i, found.size).clickable { Nav.pop(); Nav.push(Route.Chat(c.id)) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
                 }
             }
             item { SectionHeader("Контакты") }
-            items(users, key = { it.id }) { u ->
+            itemsIndexed(users, key = { _, u -> u.id }) { i, u ->
                 val on = u.id in picked
                 ListItem(
                     headlineContent = { Text(TdStore.fullName(u), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text(Texts.status(u), color = if (Texts.isOnline(u)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     leadingContent = { UserAvatar(u, 48.dp) },
                     trailingContent = if (mode == 1) ({ Checkbox(on, { if (it) picked.add(u.id) else picked.remove(u.id) }) }) else null,
-                    modifier = Modifier.clickable { if (mode == 1) { if (on) picked.remove(u.id) else picked.add(u.id) } else openUser(u) },
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).segment(i, users.size).clickable { if (mode == 1) { if (on) picked.remove(u.id) else picked.add(u.id) } else openUser(u) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
             }
         }

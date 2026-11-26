@@ -507,6 +507,15 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
             val key = "m${saved.first}"
             val i = snapshotFlow { entries.indexOfFirst { it.key == key } }.first { it >= 0 }
             listState.scrollToItem(i, saved.second)
+        } else {
+            // the newest message: keep pinned to the bottom while the first pages and headers settle in
+            // (inserts above the anchor used to leave the list at the oldest loaded message)
+            listState.scrollToItem(0)
+            val until = System.currentTimeMillis() + 1500
+            snapshotFlow { entries.size to entries.firstOrNull()?.key }.collect {
+                if (System.currentTimeMillis() > until || listState.isScrollInProgress) return@collect
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)
+            }
         }
     }
     // remember the position when leaving (the bottom = nothing to remember)

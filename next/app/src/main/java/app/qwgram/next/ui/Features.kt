@@ -39,6 +39,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -198,13 +199,14 @@ fun ChatPickerSheet(initial: Set<Long>, onDismiss: () -> Unit, onDone: (Set<Long
             QTextButton(onClick = { onDone(sel.toSet()); onDismiss() }) { Text("Готово") }
         }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
-            items(chats, key = { it.id }) { c ->
+            itemsIndexed(chats, key = { _, c -> c.id }) { i, c ->
                 val on = c.id in sel
                 ListItem(
                     headlineContent = { Text(if (TdStore.isSaved(c)) "Избранное" else c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingContent = { ChatAvatar(c, 40.dp) },
                     trailingContent = { Checkbox(on, { if (it) sel.add(c.id) else sel.remove(c.id) }) },
-                    modifier = Modifier.clickable { if (on) sel.remove(c.id) else sel.add(c.id) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.padding(vertical = 1.dp).segment(i, chats.size).clickable { if (on) sel.remove(c.id) else sel.add(c.id) },
                 )
             }
         }
