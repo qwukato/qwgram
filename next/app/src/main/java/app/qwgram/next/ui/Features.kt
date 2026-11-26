@@ -469,7 +469,7 @@ fun GroupInfo(chat: TdApi.Chat) {
                 add(AdminRow(if (TdStore.isChannel(chat)) "Добавить подписчиков" else "Добавить участников", "Из ваших контактов", Icons.Outlined.PersonAdd) { AdminTools.addTo = chat.id })
                 if (canStats) add(AdminRow("Статистика", "Подписчики, просмотры, рост", Icons.Outlined.BarChart) { Nav.push(Route.Page("stats:${chat.id}")) })
                 add(AdminRow("Ссылки-приглашения", "Создать, отозвать, лимиты и сроки", Icons.Outlined.Link) { Nav.push(Route.Page("links:${chat.id}")) })
-                if (pending > 0) add(AdminRow("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
+                if (pending > 0) add(AdminRow("Заявки на вступление", Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
                 if (!TdStore.isChannel(chat)) add(AdminRow("Разрешения", "Что могут участники, медленный режим", Icons.Outlined.Lock) { Nav.push(Route.Page("perm:${chat.id}")) })
                 add(AdminRow("Автоудаление сообщений", if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено", Icons.Outlined.Timer) { Tg.autoDelete = chat })
             }

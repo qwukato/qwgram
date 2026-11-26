@@ -266,8 +266,9 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     val off = Prefs.motion.value == "off"
     val density = androidx.compose.ui.platform.LocalDensity.current
     // the button the menu belongs to (the popup's anchor) and where the popup went: the menu starts as that button
-    var anchor by remember { mutableStateOf(androidx.compose.ui.unit.IntRect.Zero) }
-    var at by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
+    // plain fields, not state: they're written while the popup is placed (writing state there could leave the
+    // menu half-open) and only read when it draws, a moment later
+    val geo = remember { arrayOf(androidx.compose.ui.unit.IntRect.Zero, androidx.compose.ui.unit.IntRect.Zero) }
     val margin = with(density) { 8.dp.roundToPx() }
     val provider = remember {
         object : androidx.compose.ui.window.PopupPositionProvider {
@@ -275,11 +276,12 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
                 anchorBounds: androidx.compose.ui.unit.IntRect, windowSize: androidx.compose.ui.unit.IntSize,
                 layoutDirection: androidx.compose.ui.unit.LayoutDirection, popupContentSize: androidx.compose.ui.unit.IntSize,
             ): androidx.compose.ui.unit.IntOffset {
-                anchor = anchorBounds
+                geo[0] = anchorBounds
                 // top-right corner of the menu = top-right corner of the button; kept inside the window
                 val x = (anchorBounds.right - popupContentSize.width).coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin))
                 val y = anchorBounds.top.coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin))
-                return androidx.compose.ui.unit.IntOffset(x, y).also { at = it }
+                geo[1] = androidx.compose.ui.unit.IntRect(x, y, x + popupContentSize.width, y + popupContentSize.height)
+                return androidx.compose.ui.unit.IntOffset(x, y)
             }
         }
     }
@@ -296,10 +298,14 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
                 .graphicsLayer {
                     // the reveal window: from the button's rect (relative to the popup) to the whole menu
                     val q = p.coerceIn(0f, 1f)
-                    val bw = anchor.width.toFloat().coerceAtLeast(1f)
-                    val bh = anchor.height.toFloat().coerceAtLeast(1f)
-                    val ax = (anchor.left - at.x).toFloat()
-                    val ay = (anchor.top - at.y).toFloat()
+                    val anchor = geo[0]
+                    val pos = geo[1]
+                    // the button as the start (never bigger than the menu); unknown yet → a 40 dp circle at the corner
+                    val known = anchor.width > 0 && pos.width > 0
+                    val bw = (if (known) anchor.width.toFloat() else 40.dp.toPx()).coerceAtMost(size.width)
+                    val bh = (if (known) anchor.height.toFloat() else 40.dp.toPx()).coerceAtMost(size.height)
+                    val ax = if (known) (anchor.right - pos.left).toFloat().coerceIn(bw, size.width) - bw else size.width - bw
+                    val ay = if (known) (anchor.top - pos.top).toFloat().coerceIn(0f, (size.height - bh).coerceAtLeast(0f)) else 0f
                     val l = ax + (0f - ax) * q
                     val tp = ay + (0f - ay) * q
                     val r = (ax + bw) + (size.width - (ax + bw)) * q

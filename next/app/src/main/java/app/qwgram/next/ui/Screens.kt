@@ -667,7 +667,7 @@ fun ContactsTab(pad: PaddingValues) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     var headerH by remember { mutableStateOf(96.dp) }
     Box(Modifier.fillMaxSize()) {
-        FadeHeader("Контакты", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = "${users.size} " + Texts.plural(users.size, "контакт", "контакта", "контактов"), onBack = null)
+        FadeHeader("Контакты", Modifier.zIndex(1f).onSizeChanged { headerH = with(density) { it.height.toDp() } }, subtitle = Texts.plural(users.size, "контакт", "контакта", "контактов"), onBack = null)
         LazyColumn(Modifier.fillMaxSize().blurSource(), contentPadding = PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 24.dp)) {
             item {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).height(52.dp)) {

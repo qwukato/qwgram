@@ -314,6 +314,7 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
         // FAB slid away on the way to Settings, and the label jittered
         androidx.compose.foundation.layout.BoxWithConstraints(contentAlignment = Alignment.BottomCenter) {
         val pillRoom = maxWidth - 64.dp
+        val fabH = remember { IntArray(1) }
         // the FAB sits a touch above the pill's centre line
         Row(verticalAlignment = Alignment.CenterVertically) {
             // the pill gives way if the screen is narrow; the FAB keeps its full size
@@ -329,8 +330,11 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
                 val gap = 4.dp.roundToPx()
                 val pl = ms.firstOrNull()?.measure(c.copy(minWidth = 0, minHeight = 0))
                 val w = (((pl?.width ?: 0) + gap) * p.coerceIn(0f, 1.05f)).toInt().coerceAtLeast(0)
-                val h = pl?.height ?: 0
-                layout(w, h) { pl?.place(w - pl.width, 0) }
+                // the slot keeps the FAB's height even while it's gone (Settings): the row's height never changes,
+                // so the pill doesn't drop down and jump back
+                pl?.let { fabH[0] = maxOf(fabH[0], it.height) }
+                val h = maxOf(fabH[0], 56.dp.roundToPx())
+                layout(w, h) { pl?.place(w - pl.width, (h - pl.height) / 2) }
             }
         }
         }

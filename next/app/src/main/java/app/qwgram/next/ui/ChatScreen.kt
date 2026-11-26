@@ -1989,7 +1989,7 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
     AlertDialog(
         onDismissRequest = onDone,
         icon = { Icon(Icons.Outlined.Delete, null) },
-        title = { WindowBlurBehind();  Text(if (n == 1) "Удалить сообщение?" else "Удалить $n " + Texts.plural(n, "сообщение", "сообщения", "сообщений") + "?") },
+        title = { WindowBlurBehind();  Text(if (n == 1) "Удалить сообщение?" else "Удалить " + Texts.plural(n, "сообщение", "сообщения", "сообщений") + "?") },
         text = {
             if (canAll) Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { forAll = !forAll }.padding(vertical = 4.dp),

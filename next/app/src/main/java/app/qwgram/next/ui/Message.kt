@@ -424,7 +424,9 @@ private fun Bubble(
             }
             val metaColor = fg.copy(alpha = 0.7f)
             if (hasCap) {
-                Box(pad.padding(top = if (textOnly && !showName && m.forwardInfo == null && m.replyTo == null) 8.dp else 6.dp, bottom = if (hasReactions) 0.dp else 6.dp)) {
+                // right under the sender's name the text sits close (Telegram), otherwise the usual gap
+                val underName = showName && (grp == Grp.Single || grp == Grp.Top) && m.forwardInfo == null && m.replyTo == null
+                Box(pad.padding(top = when { underName -> 1.dp; textOnly && !showName && m.forwardInfo == null && m.replyTo == null -> 8.dp; else -> 6.dp }, bottom = if (hasReactions) 0.dp else 6.dp)) {
                     if (hasReactions || preview != null) RichText(cap!!, fg)
                     else TextWithMeta(cap!!, fg) { Meta(m, chat, metaColor, Modifier) }
                 }

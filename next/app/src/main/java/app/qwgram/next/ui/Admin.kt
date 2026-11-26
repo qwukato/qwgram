@@ -98,7 +98,7 @@ fun InviteLinksPage(chatId: Long) {
         if (l == null) { item { Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) { LoadingIndicator() } }; return@PageScaffold }
         val pending = chat?.pendingJoinRequests?.totalCount ?: 0
         if (pending > 0) group {
-            nav("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:$chatId")) }
+            nav("Заявки на вступление", Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:$chatId")) }
         }
         group("Активные", footer = "Кто перейдёт по ссылке, вступит в чат (или подаст заявку, если она так настроена)") {
             l.forEach { link -> row { m -> LinkRow(link, m) { picked = link } } }
@@ -139,7 +139,7 @@ fun InviteLinksPage(chatId: Long) {
 @Composable
 private fun LinkRow(link: TdApi.ChatInviteLink, modifier: Modifier, dim: Boolean = false, onClick: () -> Unit) {
     val parts = buildList {
-        add(if (link.memberCount == 0) "никто не вступил" else "${link.memberCount} " + Texts.plural(link.memberCount, "вступил", "вступили", "вступили"))
+        add(if (link.memberCount == 0) "никто не вступил" else Texts.plural(link.memberCount, "вступил", "вступили", "вступили"))
         if (link.memberLimit > 0) add("лимит ${link.memberLimit}")
         if (link.createsJoinRequest) add("по заявке" + if (link.pendingJoinRequestCount > 0) " (${link.pendingJoinRequestCount})" else "")
         if (link.expirationDate > 0) add(if (link.expirationDate * 1000L < System.currentTimeMillis()) "истекла" else "до " + shortDate(link.expirationDate))
@@ -360,8 +360,8 @@ fun FolderInviteDialog(link: String, info: TdApi.ChatFolderInviteLinkInfo, onDon
             Text(
                 when {
                     missing.isEmpty() -> "Все чаты этой папки у вас уже есть"
-                    info.chatFolderInfo.id != 0 -> "Добавить в папку ${missing.size} " + Texts.plural(missing.size, "чат", "чата", "чатов")
-                    else -> "Папка и ${missing.size} " + Texts.plural(missing.size, "чат", "чата", "чатов")
+                    info.chatFolderInfo.id != 0 -> "Добавить в папку " + Texts.plural(missing.size, "чат", "чата", "чатов")
+                    else -> "Папка и " + Texts.plural(missing.size, "чат", "чата", "чатов")
                 },
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp),
             )

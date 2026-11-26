@@ -129,7 +129,8 @@ fun CommentsRow(m: TdApi.Message, ri: TdApi.MessageReplyInfo, fg: Color) {
         }
         val n = ri.replyCount
         Text(
-            if (n == 0) "Прокомментировать" else "$n " + Texts.plural(n, "комментарий", "комментария", "комментариев"),
+            // plural() already puts the number in front
+            if (n == 0) "Прокомментировать" else Texts.plural(n, "комментарий", "комментария", "комментариев"),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f),
         )
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.primary)
@@ -292,7 +293,7 @@ private fun InviteDialog(link: String, info: TdApi.ChatInviteLinkInfo, onDone: (
             Spacer(Modifier.height(14.dp))
             Text(info.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                (if (channel) "Канал" else "Группа") + " · " + info.memberCount + " " + Texts.plural(info.memberCount, if (channel) "подписчик" else "участник", if (channel) "подписчика" else "участника", if (channel) "подписчиков" else "участников"),
+                (if (channel) "Канал" else "Группа") + " · " + Texts.plural(info.memberCount, if (channel) "подписчик" else "участник", if (channel) "подписчика" else "участника", if (channel) "подписчиков" else "участников"),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (info.description.isNotBlank()) {

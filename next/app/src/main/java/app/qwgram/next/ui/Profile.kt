@@ -280,7 +280,7 @@ fun ProfileMusic(userId: Long) {
                 Column(Modifier.weight(1f)) {
                     Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (first.performer.isNotBlank()) Text(first.performer, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSecondaryContainer.copy(alpha = 0.8f))
-                    if (audios.size > 1) Text("${audios.size} " + app.qwgram.next.td.Texts.plural(audios.size, "трек", "трека", "треков").substringAfter(' '), style = MaterialTheme.typography.labelMedium, color = cs.onSecondaryContainer.copy(alpha = 0.7f))
+                    if (audios.size > 1) Text(app.qwgram.next.td.Texts.plural(audios.size, "трек", "трека", "треков").substringAfter(' '), style = MaterialTheme.typography.labelMedium, color = cs.onSecondaryContainer.copy(alpha = 0.7f))
                 }
                 Box(contentAlignment = Alignment.Center) {
                     if (playingHere) WavyRing(Player.progress, Player.playing, cs.primary, cs.primary.copy(alpha = 0.2f), Modifier.size(52.dp))
