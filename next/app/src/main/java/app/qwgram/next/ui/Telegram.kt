@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -140,6 +141,7 @@ object Links {
     var pending by mutableStateOf<String?>(null)
     var invite by mutableStateOf<Pair<String, TdApi.ChatInviteLinkInfo>?>(null)
     var proxy by mutableStateOf<TdApi.Proxy?>(null)
+    var folder by mutableStateOf<Pair<String, TdApi.ChatFolderInviteLinkInfo>?>(null)
 
     private val tme = Regex("^(?:https?://)?(?:www\\.)?(?:t\\.me|telegram\\.me|telegram\\.dog)/", RegexOption.IGNORE_CASE)
 
@@ -198,6 +200,9 @@ object Links {
             }
             is TdApi.InternalLinkTypeStickerSet -> StickerSetPreview.openName(t.stickerSetName)
             is TdApi.InternalLinkTypeProxy -> proxy = t.proxy
+            is TdApi.InternalLinkTypeChatFolderInvite -> Td.send(TdApi.CheckChatFolderInviteLink(t.inviteLink)) { i ->
+                if (i is TdApi.ChatFolderInviteLinkInfo) folder = t.inviteLink to i else toast(ctx, "Ссылка на папку недействительна")
+            }
             is TdApi.InternalLinkTypeUserPhoneNumber -> Td.send(TdApi.SearchUserByPhoneNumber(t.phoneNumber, false)) { u ->
                 if (u is TdApi.User) Td.send(TdApi.CreatePrivateChat(u.id, false)) { c -> if (c is TdApi.Chat) Nav.push(if (t.openProfile) Route.Profile(c.id) else Route.Chat(c.id)) }
                 else toast(ctx, "Пользователь не найден")
@@ -271,6 +276,8 @@ fun TgHost() {
     }
     Tg.member?.let { (chat, mem) -> MemberActions(chat, mem) { Tg.member = null } }
     StoryViewerHost()
+    StoryComposerHost()
+    Links.folder?.let { (link, info) -> FolderInviteDialog(link, info) { Links.folder = null } }
 }
 
 @Composable
@@ -466,6 +473,9 @@ private fun MemberActions(chat: TdApi.Chat, mem: TdApi.ChatMember, onDone: () ->
                     add(Triple("Написать", Icons.AutoMirrored.Outlined.Chat) { sheet.close(); Td.send(TdApi.CreatePrivateChat(uid, false)) { c -> if (c is TdApi.Chat) Nav.push(Route.Chat(c.id)) } })
                 }
                 val canModerate = TdStore.isAdmin(chat) && mem.status !is TdApi.ChatMemberStatusCreator && uid != TdStore.me?.id
+                if (canModerate && uid != null) add(Triple(if (mem.status is TdApi.ChatMemberStatusAdministrator) "Права администратора" else "Назначить администратором", Icons.Outlined.Shield) {
+                    sheet.close(); Nav.push(Route.Page("admin:${chat.id}:$uid"))
+                })
                 if (canModerate) {
                     add(Triple(if (chat.type is TdApi.ChatTypeSupergroup && TdStore.isChannel(chat)) "Удалить из канала" else "Удалить из группы", Icons.Outlined.PersonRemove) { confirm = "kick" })
                     if (chat.type is TdApi.ChatTypeSupergroup) add(Triple("Заблокировать", Icons.Outlined.Block) { confirm = "ban" })

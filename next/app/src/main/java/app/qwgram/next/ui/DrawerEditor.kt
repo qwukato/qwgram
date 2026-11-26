@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.BatterySaver
 import androidx.compose.material.icons.outlined.BlurOn
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Contacts
 import androidx.compose.material.icons.outlined.DataUsage
 import androidx.compose.material.icons.outlined.Devices
@@ -52,6 +53,7 @@ val DRAWER_CATALOG = listOf(
     DrawerItem("compose", "Новое сообщение", Icons.Outlined.Edit, 0),
     DrawerItem("group", "Новая группа", Icons.Outlined.GroupAdd, 0),
     DrawerItem("channel", "Новый канал", Icons.Outlined.Campaign, 0),
+    DrawerItem("story", "Новая история", Icons.Outlined.AddCircleOutline, 0),
     DrawerItem("contacts", "Контакты", Icons.Outlined.Contacts, 0),
     DrawerItem("saved", "Избранное", Icons.Outlined.Bookmark, 0),
     DrawerItem("archive", "Архив", Icons.Outlined.Archive, 0),

@@ -66,6 +66,7 @@ import app.qwgram.next.td.TdStore
 import app.qwgram.next.td.Texts
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Lock
 import java.io.File
@@ -456,15 +457,24 @@ fun GroupInfo(chat: TdApi.Chat) {
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
-        if (admin && t !is TdApi.ChatTypePrivate && !TdStore.isChannel(chat)) {
-            Spacer(Modifier.height(10.dp))
-            Surface(onClick = { Nav.push(Route.Page("perm:${chat.id}")) }, shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 4.dp), color = cs.surfaceContainerLow) {
-                ListItem(headlineContent = { Text("Разрешения") }, supportingContent = { Text("Что могут участники, медленный режим") }, leadingContent = { RowIcon(Icons.Outlined.Lock) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+        if (admin && t !is TdApi.ChatTypePrivate) {
+            // admin tools, one segmented container (links & requests for every chat, member rights for groups)
+            val pending = chat.pendingJoinRequests?.totalCount ?: 0
+            val rows = buildList {
+                add(Triple("Ссылки-приглашения", "Создать, отозвать, лимиты и сроки", Icons.Outlined.Link) { Nav.push(Route.Page("links:${chat.id}")) })
+                if (pending > 0) add(Triple("Заявки на вступление", "$pending " + Texts.plural(pending, "заявка", "заявки", "заявок"), Icons.Outlined.PersonAdd) { Nav.push(Route.Page("requests:${chat.id}")) })
+                if (!TdStore.isChannel(chat)) add(Triple("Разрешения", "Что могут участники, медленный режим", Icons.Outlined.Lock) { Nav.push(Route.Page("perm:${chat.id}")) })
+                add(Triple("Автоудаление сообщений", if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено", Icons.Outlined.Timer) { Tg.autoDelete = chat })
             }
-            Surface(onClick = { Tg.autoDelete = chat }, shape = RoundedCornerShape(4.dp, 4.dp, 20.dp, 20.dp), color = cs.surfaceContainerLow) {
-                ListItem(headlineContent = { Text("Автоудаление сообщений") }, supportingContent = { Text(if (chat.messageAutoDeleteTime > 0) autoDeleteLabel(chat.messageAutoDeleteTime) else "Выключено") }, leadingContent = { RowIcon(Icons.Outlined.Timer) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            Spacer(Modifier.height(10.dp))
+            rows.forEachIndexed { i, (title, sub, icon, act) ->
+                Box(Modifier.segment(i, rows.size)) {
+                    ListItem(
+                        headlineContent = { Text(title) }, supportingContent = { Text(sub) }, leadingContent = { RowIcon(icon) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable(onClick = act),
+                    )
+                }
             }
         }
         if (members.isNotEmpty()) {

@@ -880,6 +880,7 @@ private fun AppDrawer(close: () -> Unit) {
                     "group" -> Nav.push(Route.Page("compose:group"))
                     "channel" -> Nav.push(Route.Page("compose:channel"))
                     "contacts" -> HomeState.tab = HomeTab.Contacts
+                    "story" -> Stories.compose = true
                     "saved" -> { val id2 = me?.id; if (id2 != null) scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id2, false))?.let { Nav.push(Route.Chat(it.id)) } } }
                     "archive" -> Nav.push(Route.Archive)
                     "settings" -> HomeState.tab = HomeTab.Settings

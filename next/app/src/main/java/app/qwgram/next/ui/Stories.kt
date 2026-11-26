@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
@@ -77,6 +78,8 @@ object Stories {
     val active = androidx.compose.runtime.mutableStateMapOf<Long, TdApi.ChatActiveStories>()
     /** the chat whose stories are being watched */
     var open by mutableStateOf<Long?>(null)
+    /** "new story" was asked for (picker → compose sheet) */
+    var compose by mutableStateOf(false)
     private var loaded = false
 
     fun onUpdate(u: TdApi.UpdateChatActiveStories) {
@@ -103,10 +106,27 @@ object Stories {
 @Composable
 fun StoriesStrip(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { Stories.load() }
-    val list = Stories.ordered()
+    val meId = TdStore.me?.id
+    // your own stories lead the row; with none, the first circle posts one
+    val list = Stories.ordered().sortedByDescending { it.chatId == meId }
     if (list.isEmpty()) return
     val cs = MaterialTheme.colorScheme
     LazyRow(modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (list.none { it.chatId == meId }) item(key = "new") {
+            Column(
+                Modifier.width(68.dp).clip(RoundedCornerShape(16.dp)).clickable { Stories.compose = true }.padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(Modifier.size(60.dp).border(1.5.dp, cs.outlineVariant, CircleShape).padding(4.dp), contentAlignment = Alignment.Center) {
+                    TdStore.me?.let { UserAvatar(it, 52.dp) }
+                    Box(Modifier.align(Alignment.BottomEnd).size(20.dp).clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Add, "Новая история", Modifier.size(16.dp), tint = cs.onPrimary)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Ваша история", style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurfaceVariant)
+            }
+        }
         items(list, key = { it.chatId }) { s ->
             val chat = TdStore.chats[s.chatId]
             val unread = Stories.unread(s)

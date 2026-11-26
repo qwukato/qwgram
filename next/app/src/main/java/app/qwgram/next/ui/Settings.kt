@@ -209,6 +209,9 @@ fun SettingsPage(id: String) {
         id.startsWith("folder:") -> { FolderEditPage(id.removePrefix("folder:").toIntOrNull()); return }
         id.startsWith("topics:") -> { TopicsPage(id.removePrefix("topics:").toLong()); return }
         id.startsWith("perm:") -> { PermissionsPage(id.removePrefix("perm:").toLong()); return }
+        id.startsWith("links:") -> { InviteLinksPage(id.removePrefix("links:").toLong()); return }
+        id.startsWith("requests:") -> { JoinRequestsPage(id.removePrefix("requests:").toLong()); return }
+        id.startsWith("admin:") -> { val (c, u) = id.removePrefix("admin:").split(":").map { it.toLong() }; AdminRightsPage(c, u); return }
         id.startsWith("sched:") -> { ScheduledPage(id.removePrefix("sched:").toLong()); return }
         id.startsWith("compose:") -> { NewMessagePage(id.removePrefix("compose:")); return }
     }
