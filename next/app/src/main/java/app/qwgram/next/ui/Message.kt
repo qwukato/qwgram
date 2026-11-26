@@ -251,7 +251,7 @@ fun MessageItem(
             Spacer(Modifier.width(6.dp))
         }
         Box(Modifier.offset { IntOffset(swipe.value.roundToInt(), 0) }.onGloballyPositioned { bubbleRect = it.boundsInRoot() }) {
-            Bubble(m, grp, chat, group && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick)
+            Bubble(m, grp, chat, group && !out, reply, { onTap(bubbleRect) }, onLong, onDouble, onPhoto, onReplyClick, album)
         }
         val swiping by remember { derivedStateOf { swipe.value < -4f } }
         if (swiping) {
@@ -284,6 +284,7 @@ private fun senderChatOrUser(m: TdApi.Message): Long? = when (val s = m.senderId
 private fun Bubble(
     m: TdApi.Message, grp: Grp, chat: TdApi.Chat, showName: Boolean, reply: TdApi.Message?,
     onTap: () -> Unit, onLong: () -> Unit, onDouble: () -> Unit, onPhoto: (TdApi.Photo) -> Unit, onReplyClick: (Long) -> Unit,
+    album: List<TdApi.Message>? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val out = m.isOutgoing && !m.isChannelPost
