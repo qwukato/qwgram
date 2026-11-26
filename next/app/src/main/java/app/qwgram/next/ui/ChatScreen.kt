@@ -353,7 +353,7 @@ class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L
 
 private sealed interface Entry {
     val key: String
-    data class Msg(val m: TdApi.Message, val grp: Grp, val k: Long = m.id) : Entry { override val key get() = "m$k" }
+    data class Msg(val m: TdApi.Message, val grp: Grp, val k: Long = m.id, val album: List<TdApi.Message>? = null) : Entry { override val key get() = "m$k" }
     data class Day(val date: Int) : Entry { override val key get() = "d$date" }
     data object Unread : Entry { override val key get() = "unread" }
 }
@@ -454,9 +454,18 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     }
     val entries by remember(ctl) {
         derivedStateOf {
-            val ms = ctl.messages
+            // photos / videos sent as one album become one mosaic bubble (Telegram)
+            val raw = ctl.messages
+            val albums = ArrayList<List<TdApi.Message>>(raw.size)
+            for (m in raw) {
+                val last = albums.lastOrNull()
+                if (m.mediaAlbumId != 0L && last != null && last[0].mediaAlbumId == m.mediaAlbumId) albums[albums.lastIndex] = last + m
+                else albums.add(listOf(m))
+            }
+            val ms = albums.map { if (it.size > 1) albumLead(it) else it[0] }
             val out = ArrayList<Entry>(ms.size + 8)
             for (i in ms.indices) {
+                val albumGroup = albums[i]
                 val m = ms[i]
                 val newer = ms.getOrNull(i - 1)
                 val older = ms.getOrNull(i + 1)
@@ -471,13 +480,19 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                     down -> Grp.Top
                     else -> Grp.Single
                 }
-                out.add(Entry.Msg(m, g, ctl.keyAlias[m.id] ?: m.id))
+                // an album keeps one key (its first item) while the rest arrive
+                val key = if (albumGroup.size > 1) albumGroup.minOf { it.id }.let { ctl.keyAlias[it] ?: it } else ctl.keyAlias[m.id] ?: m.id
+                out.add(Entry.Msg(m, g, key, albumGroup.takeIf { it.size > 1 }))
                 if (firstUnreadId != 0L && m.id > firstUnreadId && (older == null || older.id <= firstUnreadId) && !m.isOutgoing) out.add(Entry.Unread)
                 if (older == null || !Texts.sameDay(older.date, m.date)) out.add(Entry.Day(m.date))
             }
             out
         }
     }
+
+    /** the whole album a message is in (forward / delete act on all of it, like Telegram) */
+    fun albumOf(m: TdApi.Message): List<TdApi.Message> =
+        if (m.mediaAlbumId == 0L) listOf(m) else ctl.messages.filter { it.mediaAlbumId == m.mediaAlbumId }.sortedBy { it.id }.ifEmpty { listOf(m) }
 
     LaunchedEffect(chatId) {
         launch { TdStore.messageEvents.collect { ctl.onEvent(it) } }
@@ -758,7 +773,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                 val id = e.m.id
                                 androidx.compose.runtime.CompositionLocalProvider(LocalBubbleFly provides (if (e.k in ctl.flyIn) Modifier.flyFromField { ctl.flyIn.remove(e.k) } else Modifier)) {
                                 MessageItem(
-                                    m = e.m, grp = e.grp, chat = chat, group = group,
+                                    m = e.m, grp = e.grp, chat = chat, group = group, album = e.album,
                                     reply = ctl.replies[id],
                                     modifier = Modifier.animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
@@ -770,7 +785,9 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                     },
                                     onLong = {
                                         haptic(HapticFeedbackType.LongPress)
-                                        if (id in selected) selected.remove(id) else selected.add(id)
+                                        // an album is selected as a whole
+                                        val ids = e.album?.map { it.id } ?: listOf(id)
+                                        if (id in selected) selected.removeAll(ids) else selected.addAll(ids.filter { it !in selected })
                                     },
                                     onDouble = {
                                         if (!selecting) when (Prefs.doubleTap.value) {
@@ -941,8 +958,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                 val (t0, e0) = (m.content as? TdApi.MessageText)?.text?.let { toInput(it) } ?: (Texts.caption(m.content)?.text.orEmpty() to emptyList())
                 text = t0; ce.set(e0)
             },
-            onForward = { forward = listOf(m) },
-            onDelete = { deleteFor = listOf(m) },
+            onForward = { forward = albumOf(m) },
+            onDelete = { deleteFor = albumOf(m) },
             onCopy = { copy(ctx, Texts.caption(m.content)?.text.orEmpty()); Toast.makeText(ctx, "Скопировано", Toast.LENGTH_SHORT).show() },
             onSelect = { selected.add(m.id) },
             onCopyLink = {
@@ -992,7 +1009,12 @@ fun sendContent(chatId: Long, content: TdApi.InputMessageContent, replyTo: TdApi
             if (scheduleAt > 0) schedulingState = TdApi.MessageSchedulingStateSendAtDate(scheduleAt, 0)
         }
         inputMessageContent = content
-    })
+    }) { r ->
+        // a refused send used to vanish silently
+        if (r is TdApi.Error) android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Toast.makeText(app.qwgram.next.App.instance, "Не удалось отправить: ${r.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
 
 private var lastTyping = 0L
@@ -1672,15 +1694,66 @@ private fun copyToCache(ctx: Context, uri: Uri): File? = try {
 }
 
 private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, replyTo: TdApi.Message?) {
-    val f = copyToCache(ctx, uri) ?: return
+    val f = copyToCache(ctx, uri) ?: run { postToast(ctx, "Не удалось прочитать файл"); return }
     val mime = mimeOf(ctx, uri)
-    val input = TdApi.InputFileLocal(f.absolutePath)
     val content: TdApi.InputMessageContent = when {
-        !asDocument && mime.startsWith("image/") && !mime.contains("gif") -> TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = input } }
-        !asDocument && mime.startsWith("video/") -> TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = input; supportsStreaming = true } }
-        else -> TdApi.InputMessageDocument().apply { document = TdApi.InputDocument().apply { document = input } }
+        !asDocument && mime.startsWith("image/") && !mime.contains("gif") -> photoContent(f)
+        !asDocument && mime.startsWith("video/") -> videoContent(f)
+        else -> TdApi.InputMessageDocument().apply {
+            document = TdApi.InputDocument().apply { document = TdApi.InputFileLocal(f.absolutePath) }
+            caption = TdApi.FormattedText("", arrayOf())
+        }
     }
     sendContent(chatId, content, replyTo)
+}
+
+private fun postToast(ctx: Context, s: String) =
+    android.os.Handler(android.os.Looper.getMainLooper()).post { Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show() }
+
+/**
+ * A photo with every field filled: its real size (turned by the EXIF orientation) so the bubble has the right
+ * shape from the first frame, an empty caption and no stickers — TDLib refuses a message with missing fields.
+ */
+private fun photoContent(f: File): TdApi.InputMessagePhoto {
+    val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(f.absolutePath, o)
+    var w = o.outWidth.coerceAtLeast(0)
+    var h = o.outHeight.coerceAtLeast(0)
+    val rot = runCatching { android.media.ExifInterface(f.absolutePath).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
+    if (rot == android.media.ExifInterface.ORIENTATION_ROTATE_90 || rot == android.media.ExifInterface.ORIENTATION_ROTATE_270 ||
+        rot == android.media.ExifInterface.ORIENTATION_TRANSPOSE || rot == android.media.ExifInterface.ORIENTATION_TRANSVERSE) { val t = w; w = h; h = t }
+    return TdApi.InputMessagePhoto().apply {
+        photo = TdApi.InputPhoto().apply {
+            photo = TdApi.InputFileLocal(f.absolutePath)
+            addedStickerFileIds = IntArray(0)
+            width = w; height = h
+        }
+        caption = TdApi.FormattedText("", arrayOf())
+    }
+}
+
+private fun videoContent(f: File): TdApi.InputMessageVideo {
+    var w = 0; var h = 0; var d = 0
+    runCatching {
+        android.media.MediaMetadataRetriever().apply {
+            setDataSource(f.absolutePath)
+            w = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            h = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            d = ((extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000L).toInt()
+            val r = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            if (r == 90 || r == 270) { val t = w; w = h; h = t }
+            release()
+        }
+    }
+    return TdApi.InputMessageVideo().apply {
+        video = TdApi.InputVideo().apply {
+            video = TdApi.InputFileLocal(f.absolutePath)
+            addedStickerFileIds = IntArray(0)
+            duration = d; width = w; height = h
+            supportsStreaming = true
+        }
+        caption = TdApi.FormattedText("", arrayOf())
+    }
 }
 
 /** content:// asks the resolver; file:// (edited copies) goes by the extension */
@@ -1695,19 +1768,19 @@ private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi
         if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo) }; return@launch }
         val contents = uris.mapNotNull { uri ->
             val f = copyToCache(ctx, uri) ?: return@mapNotNull null
-            val mime = mimeOf(ctx, uri)
-            val input = TdApi.InputFileLocal(f.absolutePath)
-            if (mime.startsWith("video/")) TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = input; supportsStreaming = true } }
-            else TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = input } }
+            if (mimeOf(ctx, uri).startsWith("video/")) videoContent(f) else photoContent(f)
         }
+        if (contents.size < uris.size) postToast(ctx, "Не все файлы удалось прочитать")
+        // a lone item left over (11 photos → 10 + 1) goes as a normal message: an album needs 2+
         contents.chunked(10).forEach { part ->
+            if (part.size == 1) { sendContent(chatId, part[0], replyTo); return@forEach }
             Td.send(TdApi.SendMessageAlbum().apply {
                 this.chatId = chatId
                 topicId = currentTopic(chatId)
                 this.replyTo = replyTo?.let { r -> TdApi.InputMessageReplyToMessage().apply { messageId = r.id } }
                 options = TdApi.MessageSendOptions().apply { disableNotification = Prefs.silentByDefault.value }
                 inputMessageContents = part.toTypedArray()
-            })
+            }) { r -> if (r is TdApi.Error) postToast(ctx, "Не удалось отправить: ${r.message}") }
         }
     }
 }

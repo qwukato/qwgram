@@ -141,6 +141,7 @@ fun MessageItem(
     onSwipeReply: () -> Unit,
     onPhoto: (TdApi.Photo) -> Unit,
     onReplyClick: (Long) -> Unit = {},
+    album: List<TdApi.Message>? = null,
 ) {
     val service = Texts.service(m)
     if (service != null) {
@@ -307,7 +308,7 @@ private fun Bubble(
     val bigEmoji = Prefs.bigEmoji.value && ((c is TdApi.MessageText && c.text.entities.isEmpty() && emojiOnly.matches(c.text.text.trim())) || c is TdApi.MessageAnimatedEmoji)
     val bigCustom = if (Prefs.bigEmoji.value) remember(c) { bigCustomEmoji(c) } else null
     val bare = c is TdApi.MessageSticker || c is TdApi.MessageDice || bigEmoji || bigCustom != null
-    val media = c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
+    val media = album != null || c is TdApi.MessagePhoto || c is TdApi.MessageVideo || c is TdApi.MessageAnimation
     val maxW = ((LocalBubbleArea.current ?: androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp) * (Prefs.bubbleWidth.value / 100f))
     var pressed by remember { mutableStateOf(false) }
     val squish by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.965f else 1f, if (pressed) Springs.pressIn() else Springs.fastSpatial(), label = "bp")
@@ -377,7 +378,8 @@ private fun Bubble(
             val preview = (c as? TdApi.MessageText)?.linkPreview
             val hasReactions = m.interactionInfo?.reactions?.reactions?.isNotEmpty() == true && !Prefs.hideReactions.value
             Box {
-            when (c) {
+            if (album != null) AlbumView(album, shapeTop = r - 3.dp, onPhoto = onPhoto)
+            else when (c) {
                 is TdApi.MessagePhoto -> PhotoView(c.photo, shapeTop = r - 3.dp, onClick = { onPhoto(c.photo) })
                 is TdApi.MessageVideo -> VideoThumb(c.video.thumbnail?.file, c.video.minithumbnail, c.video.width, c.video.height, Texts.duration(c.video.duration)) {
                     VideoViewer.open(VideoItem(c.video.video, c.video.thumbnail?.file, c.video.minithumbnail, c.video.width, c.video.height, c.video.duration))
