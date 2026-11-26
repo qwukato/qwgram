@@ -108,6 +108,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.drawBehind
 import org.drinkless.tdlib.TdApi
+import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.WindowInsets
@@ -200,29 +201,31 @@ fun ProfileScreen(chatId: Long) {
                         onAvatar = { openAvatars() },
                         onCamera = if (me) ({ pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) else null,
                         actions = { onColor ->
-                            val tc = if (onColor) Color.White.copy(alpha = 0.18f) else null
-                            val fc = if (onColor) Color.White else null
-                            if (chat != null && !TdStore.isSaved(chat)) {
-                                // Telegram-like action tiles in an M3 Expressive connected group: equal widths, everything fits
-                                ActionTiles(container = tc, content = fc, items = buildList {
-                                    add(GroupButton(Icons.AutoMirrored.Outlined.Chat, "Написать") {
-                                        if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
-                                    })
-                                    // live chat: the tile flips right away after the tap
+                            // one row of equal tiles (icon over label, never wrapping); on a coloured banner they turn translucent
+                            val acts: List<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, Pair<Boolean, () -> Unit>>> = when {
+                                chat != null && !TdStore.isSaved(chat) -> {
                                     val liveMuted = TdStore.isMuted(TdStore.chats[chat.id] ?: chat)
-                                    add(GroupButton(if (liveMuted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (liveMuted) "Вкл. звук" else "Без звука", selected = liveMuted) { setMuted(TdStore.chats[chat.id] ?: chat, !liveMuted) })
-                                    // search: back to the chat with its search bar already open
-                                    add(GroupButton(Icons.Outlined.Search, "Поиск") {
-                                        ChatSearchRequest.chatId = chat.id
-                                        if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
-                                    })
-                                })
-                            } else if (me) {
-                                ActionTiles(container = tc, content = fc, items = listOf(
-                                    GroupButton(Icons.Outlined.PhotoCamera, "Фото") { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    GroupButton(Icons.Outlined.Palette, "Оформление") { Nav.push(Route.Page("appearance")) },
-                                    GroupButton(Icons.Outlined.Settings, "Настройки") { Nav.pop() ; HomeState.tab = HomeTab.Settings },
-                                ))
+                                    listOf(
+                                        Triple(Icons.AutoMirrored.Outlined.Chat, "Написать", false to {
+                                            if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                                        }),
+                                        Triple(if (liveMuted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications, if (liveMuted) "Включить" else "Без звука", liveMuted to { setMuted(TdStore.chats[chat.id] ?: chat, !liveMuted) }),
+                                        Triple(Icons.Outlined.Search, "Поиск", false to {
+                                            ChatSearchRequest.chatId = chat.id
+                                            if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(chat.id)) Nav.pop() else Nav.push(Route.Chat(chat.id))
+                                        }),
+                                    )
+                                }
+                                me -> listOf(
+                                    Triple(Icons.Outlined.PhotoCamera, "Фото", false to { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }),
+                                    Triple(Icons.Outlined.Palette, "Стиль", false to { Nav.push(Route.Page("appearance")) }),
+                                    Triple(Icons.Outlined.AddCircleOutline, "История", false to { Stories.compose = true }),
+                                    Triple(Icons.Outlined.Settings, "Настройки", false to { Nav.pop(); HomeState.tab = HomeTab.Settings }),
+                                )
+                                else -> emptyList()
+                            }
+                            if (acts.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                acts.forEach { (icon, label, st) -> ProfileAction(icon, label, st.first, Modifier.weight(1f), onColor, st.second) }
                             }
                         },
                     )
@@ -234,37 +237,52 @@ fun ProfileScreen(chatId: Long) {
                     if (giftOwner != null && Prefs.profileGifts.value) Box(Modifier.appearIn(2)) {
                         Column { ProfileGifts(giftOwner); Spacer(Modifier.height(14.dp)) }
                     }
-                    Surface(shape = RoundedCornerShape(24.dp.rs()), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().appearIn(2)) {
-                        Column(Modifier.padding(vertical = 4.dp)) {
-                            val rows = buildList {
-                                if (user != null && user.phoneNumber.isNotBlank()) add(Triple(Icons.Outlined.Phone, if (me && Prefs.hidePhone.value) "Скрыт" else "+" + user.phoneNumber, "Телефон"))
-                                val un = user?.usernames?.activeUsernames?.firstOrNull()
-                                    ?: (chat?.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() }
-                                if (un != null) add(Triple(Icons.Outlined.AlternateEmail, "@$un", "Имя пользователя"))
-                                if (cleanBio.isNotEmpty()) add(Triple(Icons.Outlined.Info, cleanBio, if (user != null) "О себе" else "Описание"))
-                                if (un != null) add(Triple(Icons.Outlined.Link, "t.me/$un", "Ссылка"))
-                                if (Prefs.showIds.value) {
-                                    if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
-                                    else if (chat != null) add(Triple(Icons.Outlined.Tag, chat.id.toString(), "ID чата"))
+                    // info as segments: one rounded tile per fact (tap copies it), the notifications switch last
+                    run {
+                        val un = user?.usernames?.activeUsernames?.firstOrNull()
+                            ?: (chat?.type as? TdApi.ChatTypeSupergroup)?.let { TdStore.supergroups[it.supergroupId]?.usernames?.activeUsernames?.firstOrNull() }
+                        val rows = buildList {
+                            if (user != null && user.phoneNumber.isNotBlank()) add(Triple(Icons.Outlined.Phone, if (me && Prefs.hidePhone.value) "Скрыт" else "+" + user.phoneNumber, "Телефон"))
+                            if (un != null) add(Triple(Icons.Outlined.AlternateEmail, "@$un", "Имя пользователя"))
+                            if (cleanBio.isNotEmpty()) add(Triple(Icons.Outlined.Info, cleanBio, if (user != null) "О себе" else "Описание"))
+                            if (un != null) add(Triple(Icons.Outlined.Link, "t.me/$un", "Ссылка"))
+                            if (Prefs.showIds.value) {
+                                if (user != null) add(Triple(Icons.Outlined.Tag, user.id.toString(), "ID"))
+                                else if (chat != null) add(Triple(Icons.Outlined.Tag, chat.id.toString(), "ID чата"))
+                            }
+                        }
+                        val withSwitch = chat != null && !TdStore.isSaved(chat)
+                        val n = rows.size + if (withSwitch) 1 else 0
+                        Column(Modifier.fillMaxWidth().appearIn(2), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            rows.forEachIndexed { i, (icon, v, label) ->
+                                Row(
+                                    Modifier.segment(i, n).clickable(enabled = !(me && Prefs.hidePhone.value && label == "Телефон")) { copyText(ctx, v) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RowIcon(icon)
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(v, style = MaterialTheme.typography.bodyLarge)
+                                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
-                            rows.forEach { (icon, v, label) ->
-                                ListItem(
-                                    headlineContent = { Text(v) },
-                                    supportingContent = { Text(label) },
-                                    leadingContent = { Icon(icon, null) },
-                                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                                )
-                            }
-                            if (chat != null && !TdStore.isSaved(chat)) {
-                                val muted = TdStore.isMuted(chat)
-                                ListItem(
-                                    headlineContent = { Text("Уведомления") },
-                                    supportingContent = { Text(if (muted) "Выключены" else "Включены") },
-                                    leadingContent = { Icon(Icons.Outlined.Notifications, null) },
-                                    trailingContent = { QSwitch(!muted) { setMuted(chat, !it) } },
-                                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                                )
+                            if (withSwitch) {
+                                val live = TdStore.chats[chat!!.id] ?: chat
+                                val muted = TdStore.isMuted(live)
+                                Row(
+                                    Modifier.segment(n - 1, n).clickable { setMuted(live, !muted) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RowIcon(if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications)
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Уведомления", style = MaterialTheme.typography.bodyLarge)
+                                        Text(if (muted) "Выключены" else "Включены", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    QSwitch(!muted) { setMuted(live, !it) }
+                                }
                             }
                         }
                     }
@@ -303,17 +321,20 @@ fun ProfileScreen(chatId: Long) {
 }
 
 @Composable
-private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ProfileAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier, onColor: Boolean = false, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val rest by androidx.compose.animation.core.animateDpAsState(if (active) 32.dp else 20.dp, Springs.fastSpatial(), label = "pa")
-    val bg by androidx.compose.animation.animateColorAsState(if (active) cs.secondaryContainer else cs.surfaceContainerHigh, Springs.effects(), label = "pb")
-    MorphBox(onClick = onClick, modifier = modifier.height(72.dp), rest = rest, pressed = 12.dp, color = bg, contentColor = if (active) cs.onSecondaryContainer else cs.onSurface) {
+    // active (e.g. muted) tiles get rounder and tonal; on a coloured banner everything is white-on-glass
+    val rest by androidx.compose.animation.core.animateDpAsState(if (active) 30.dp else 22.dp, Springs.fastSpatial(), label = "pa")
+    val bgT = when { onColor -> Color.White.copy(alpha = if (active) 0.32f else 0.18f); active -> cs.secondaryContainer; else -> cs.surfaceContainerHigh }
+    val fgT = when { onColor -> Color.White; active -> cs.onSecondaryContainer; else -> cs.onSurface }
+    val bg by androidx.compose.animation.animateColorAsState(bgT, Springs.effects(), label = "pb")
+    MorphBox(onClick = onClick, modifier = modifier.height(76.dp), rest = rest, pressed = 14.dp, color = bg, contentColor = fgT) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, null, tint = if (active) cs.onSecondaryContainer else cs.primary)
+            Icon(icon, null, tint = if (onColor) Color.White else if (active) cs.onSecondaryContainer else cs.primary)
             Spacer(Modifier.height(6.dp))
             androidx.compose.foundation.text.BasicText(
-                label, maxLines = 1, style = MaterialTheme.typography.labelMedium.copy(color = if (active) cs.onSecondaryContainer else cs.onSurface),
-                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 12.sp, stepSize = 0.5.sp),
+                label, maxLines = 1, style = MaterialTheme.typography.labelLarge.copy(color = fgT),
+                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 13.sp, stepSize = 0.5.sp),
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
         }

@@ -143,8 +143,8 @@ fun ProfileBanner(
                     }
                 }
                 Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    Box(Modifier.size(92.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                        if (chat == null) UserAvatar(user, 92.dp) else ChatAvatar(chat, 92.dp)
+                    Box(Modifier.size(108.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                        if (chat == null) UserAvatar(user, 108.dp) else ChatAvatar(chat, 108.dp)
                     }
                     if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
                 }
@@ -154,7 +154,7 @@ fun ProfileBanner(
                 modifier = Modifier.graphicsLayer { alpha = ((appear.value - 0.2f) / 0.8f).coerceIn(0f, 1f); translationY = (1f - appear.value) * 16.dp.toPx() },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Text(title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = onBanner, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (verified) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Verified, "Подтверждён", tint = if (bannerColors != null) Color.White else cs.primary, modifier = Modifier.size(22.dp)) }
                     EmojiStatusMark(user, 26.dp, tint = if (bannerColors != null) Color.White else cs.primary, gap = 6.dp)
                 }
