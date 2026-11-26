@@ -474,7 +474,7 @@ fun ChatSearchBar(s: ChatSearch, origin: androidx.compose.ui.geometry.Rect? = nu
     var placed by remember { mutableStateOf(origin == null) }
     Surface(color = Color.Transparent) {
         Row(Modifier.statusBarsPadding().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.graphicsLayer { alpha = ((grow() - 0.4f) / 0.6f).coerceIn(0f, 1f) }) { MorphIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose) }
+            Box(Modifier.graphicsLayer { alpha = ((grow() - 0.4f) / 0.6f).coerceIn(0f, 1f) }) { HeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClose) }
             // the field grows out of the search button's bounds (and shrinks back on close)
             Box(
                 Modifier.weight(1f).padding(horizontal = 4.dp).height(48.dp)

@@ -310,14 +310,19 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
         Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(top = 28.dp, bottom = 12.dp, start = 10.dp, end = 10.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        // the FAB sits on the pill's centre line (it used to hang above it)
+        // the pill's room is fixed (all the width minus a full FAB): it used to be re-measured every frame while the
+        // FAB slid away on the way to Settings, and the label jittered
+        androidx.compose.foundation.layout.BoxWithConstraints(contentAlignment = Alignment.BottomCenter) {
+        val pillRoom = maxWidth - 64.dp
+        // the FAB sits a touch above the pill's centre line
         Row(verticalAlignment = Alignment.CenterVertically) {
             // the pill gives way if the screen is narrow; the FAB keeps its full size
-            Box(Modifier.weight(1f, fill = false)) { FloatingNavPill() }
+            Box(Modifier.weight(1f, fill = false)) { FloatingNavPill(pillRoom) }
             androidx.compose.ui.layout.Layout(
                 content = {
                     if (p > 0.002f || showFab) Box(Modifier.graphicsLayer {
                         scaleX = 0.4f + 0.6f * p; scaleY = scaleX; alpha = p.coerceIn(0f, 1f)
+                        translationY = -5.dp.toPx()
                     }) { fab() }
                 },
             ) { ms, c ->
@@ -328,12 +333,13 @@ private fun FloatingNavRow(modifier: Modifier, showFab: Boolean, fab: @Composabl
                 layout(w, h) { pl?.place(w - pl.width, 0) }
             }
         }
+        }
     }
     }
 }
 
 @Composable
-private fun FloatingNavPill() {
+private fun FloatingNavPill(room: androidx.compose.ui.unit.Dp) {
     val unread = TdStore.unreadChats
     val tabs = buildList {
         add(Triple(HomeTab.Chats, "Чаты", Icons.Filled.Chat to Icons.AutoMirrored.Outlined.Chat))
@@ -345,7 +351,7 @@ private fun FloatingNavPill() {
     // The label's room is measured first, so the pill never grows past the space beside the FAB
     androidx.compose.foundation.layout.BoxWithConstraints {
         // room left for the label beside the icons (never below a short word's width)
-        val labelMax = (maxWidth - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 24.dp).coerceAtLeast(72.dp)
+        val labelMax = (minOf(maxWidth, room) - 12.dp - 56.dp * tabs.size - 2.dp * (tabs.size - 1) - 24.dp).coerceAtLeast(72.dp)
         val labels = Prefs.navLabels.value
         val glassy = blurOn(Prefs.blurBars) && LocalHaze.current != null
         Surface(
@@ -514,7 +520,9 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
             ),
         ) { page ->
             val tab = tabs.getOrNull(page) ?: return@HorizontalPager
-            Box(Modifier.fillMaxSize()) {
+            // the folder in front takes the touches: while the wave settles, the neighbours' lists are held over the
+            // screen too, and a scroll used to land in one of them (the list seemed frozen until the wave ended)
+            Box(Modifier.fillMaxSize().zIndex(if (page == pager.currentPage) 1f else 0f)) {
             ChatList(tab.list, PaddingValues(top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding()), showArchive = tab.list is TdApi.ChatListMain && Prefs.showArchiveRow.value, page = page, at = { pager.currentPage + pager.currentPageOffsetFraction }, onScrolled = { v -> pageScrolled[page] = v },
                 onLong = { actionChat = it })
             }

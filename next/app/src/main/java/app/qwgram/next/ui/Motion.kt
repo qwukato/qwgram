@@ -251,8 +251,9 @@ fun MorphIconButton(
 }
 
 /**
- * M3 Expressive popup menu that grows out of its button: springs from a small rounded blob at the anchor's corner
- * into the full menu (scale + corner morph), items fade in a beat later; shrinks back into the button on close.
+ * Popup menu that grows out of its button, like Telegram: the menu is revealed by a rounded window that starts as
+ * exactly the button (its place, size and round shape) and opens into the whole menu on one spring; the items fade
+ * and settle in as it opens, and everything folds back into the button on close. One solid container.
  * Drop-in for DropdownMenu (same children: DropdownMenuItem …).
  */
 @Composable
@@ -264,8 +265,9 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
     val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
     val off = Prefs.motion.value == "off"
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // the button the menu belongs to (the popup's anchor): the menu starts as exactly that shape
+    // the button the menu belongs to (the popup's anchor) and where the popup went: the menu starts as that button
     var anchor by remember { mutableStateOf(androidx.compose.ui.unit.IntRect.Zero) }
+    var at by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
     val margin = with(density) { 8.dp.roundToPx() }
     val provider = remember {
         object : androidx.compose.ui.window.PopupPositionProvider {
@@ -277,78 +279,55 @@ fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = 
                 // top-right corner of the menu = top-right corner of the button; kept inside the window
                 val x = (anchorBounds.right - popupContentSize.width).coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin))
                 val y = anchorBounds.top.coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin))
-                return androidx.compose.ui.unit.IntOffset(x, y)
+                return androidx.compose.ui.unit.IntOffset(x, y).also { at = it }
             }
         }
     }
     androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
         val t = androidx.compose.animation.core.rememberTransition(state, label = "menu")
+        // opening: a lively spring with a hint of overshoot; closing: quick and calm
         val p by t.animateFloat(
-            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.74f, 300f * k) else androidx.compose.animation.core.spring(0.95f, 520f * k) },
+            transitionSpec = { if (off) androidx.compose.animation.core.snap() else if (targetState) androidx.compose.animation.core.spring(0.8f, 380f * k) else androidx.compose.animation.core.spring(1f, 620f * k) },
             label = "p",
         ) { if (it) 1f else 0f }
-        val radiusEnd = 18.dp.rs()
-        val small = 4.dp
-        val segColor = cs.surfaceContainerHigh
-        // segmented menu (M3 Expressive): every item its own rounded tile with a 2 dp gap, a divider starts a new
-        // group; the whole stack unfolds from the button's corner on one spring
-        val bounds = remember { ArrayList<Pair<Float, Float>>() }
-        val breaks = remember { HashSet<Int>() }
-        androidx.compose.ui.layout.Layout(
-            content = {
-                CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
-            },
-            modifier = modifier
+        val radiusEnd = with(density) { 18.dp.rs().toPx() }
+        Column(
+            modifier
                 .graphicsLayer {
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
-                    val q = p.coerceAtLeast(0f)
-                    scaleX = 0.7f + 0.3f * q
-                    scaleY = 0.45f + 0.55f * q
-                    alpha = (p * 3f).coerceIn(0f, 1f)
-                }
-                .drawBehind {
-                    val big = radiusEnd.toPx(); val sm = small.toPx()
-                    // groups = runs of tiles between dividers
-                    var i = 0
-                    while (i < bounds.size) {
-                        if (i in breaks) { i++; continue }
-                        var j = i
-                        while (j + 1 < bounds.size && (j + 1) !in breaks) j++
-                        for (k in i..j) {
-                            val (t, b) = bounds[k]
-                            val top = if (k == i) big else sm
-                            val bot = if (k == j) big else sm
-                            val path = androidx.compose.ui.graphics.Path().apply {
-                                addRoundRect(androidx.compose.ui.geometry.RoundRect(
-                                    0f, t, size.width, b,
-                                    topLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(top), topRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(top),
-                                    bottomLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(bot), bottomRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(bot),
-                                ))
-                            }
-                            drawPath(path, segColor)
-                        }
-                        i = j + 1
+                    // the reveal window: from the button's rect (relative to the popup) to the whole menu
+                    val q = p.coerceIn(0f, 1f)
+                    val bw = anchor.width.toFloat().coerceAtLeast(1f)
+                    val bh = anchor.height.toFloat().coerceAtLeast(1f)
+                    val ax = (anchor.left - at.x).toFloat()
+                    val ay = (anchor.top - at.y).toFloat()
+                    val l = ax + (0f - ax) * q
+                    val tp = ay + (0f - ay) * q
+                    val r = (ax + bw) + (size.width - (ax + bw)) * q
+                    val b = (ay + bh) + (size.height - (ay + bh)) * q
+                    val rad = (minOf(bw, bh) / 2f) + (radiusEnd - minOf(bw, bh) / 2f) * q
+                    shape = object : androidx.compose.ui.graphics.Shape {
+                        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+                            androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(l, tp, r, b, androidx.compose.ui.geometry.CornerRadius(rad)))
                     }
-                },
-        ) { ms, c ->
-            val gap = 2.dp.roundToPx()
-            val groupGap = 8.dp.roundToPx()
-            // as wide as the longest item (no empty band on the right), within M3's 160–280dp
-            val w = (ms.maxOfOrNull { it.maxIntrinsicWidth(c.maxHeight) } ?: 0).coerceIn(160.dp.roundToPx(), 280.dp.roundToPx()).coerceAtMost(c.maxWidth)
-            val pls = ms.map { it.measure(androidx.compose.ui.unit.Constraints(minWidth = w, maxWidth = w)) }
-            bounds.clear(); breaks.clear()
-            var y = 0
-            val ys = IntArray(pls.size)
-            pls.forEachIndexed { i, pl ->
-                // a divider (a hairline) is not a tile: it only opens a bigger gap
-                val divider = pl.height < 4.dp.roundToPx()
-                if (divider) { breaks.add(i); ys[i] = -1; bounds.add(0f to 0f); if (i > 0) y += groupGap - gap; return@forEachIndexed }
-                ys[i] = y
-                bounds.add(y.toFloat() to (y + pl.height).toFloat())
-                y += pl.height + gap
-            }
-            layout(w, (y - gap).coerceAtLeast(0)) {
-                pls.forEachIndexed { i, pl -> if (ys[i] >= 0) pl.placeRelative(0, ys[i]) }
+                    clip = true
+                    shadowElevation = 6.dp.toPx() * q
+                    // a whisper of overshoot past the end reads as a bounce
+                    val over = (p - 1f).coerceAtLeast(0f)
+                    scaleX = 1f + over * 0.25f; scaleY = scaleX
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                    alpha = (p * 4f).coerceIn(0f, 1f)
+                }
+                .background(cs.surfaceContainerHigh)
+                .width(androidx.compose.foundation.layout.IntrinsicSize.Max)
+                .widthIn(min = 160.dp, max = 280.dp)
+                .padding(vertical = 6.dp),
+        ) {
+            // the items arrive a beat after the window starts opening, drifting into place
+            Column(Modifier.graphicsLayer {
+                alpha = ((p - 0.3f) / 0.55f).coerceIn(0f, 1f)
+                translationY = (1f - p.coerceIn(0f, 1f)) * -10.dp.toPx()
+            }) {
+                CompositionLocalProvider(LocalContentColor provides cs.onSurface) { content() }
             }
         }
     }

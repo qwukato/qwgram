@@ -246,7 +246,7 @@ fun MessageItem(
         }
         if (out) Spacer(Modifier.weight(1f))
         if (showAvatar) {
-            if (lastInRun) SenderAvatar(m.senderId, 34.dp, Modifier.clickable { senderChatOrUser(m)?.let { Nav.push(Route.Profile(it)) } })
+            if (lastInRun) SenderAvatar(m.senderId, 34.dp, Modifier.clip(CircleShape).clickable { openSenderProfile(m.senderId) })
             else Spacer(Modifier.width(34.dp))
             Spacer(Modifier.width(6.dp))
         }
@@ -274,10 +274,21 @@ fun MessageItem(
 /** width available to message bubbles (the preview in settings is narrower than the screen) */
 val LocalBubbleArea = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.unit.Dp?> { null }
 
-private fun senderChatOrUser(m: TdApi.Message): Long? = when (val s = m.senderId) {
-    is TdApi.MessageSenderChat -> s.chatId
-    is TdApi.MessageSenderUser -> TdStore.chats.values.firstOrNull { TdStore.privateUserId(it) == s.userId }?.id
-    else -> null
+/**
+ * The profile of whoever wrote a message (Telegram: tap the avatar or the name). A user without a chat with you
+ * gets one made locally (nothing is sent), so their profile opens like any other.
+ */
+fun openSenderProfile(s: TdApi.MessageSender) {
+    when (s) {
+        is TdApi.MessageSenderChat -> Nav.push(Route.Profile(s.chatId))
+        is TdApi.MessageSenderUser -> {
+            val known = TdStore.chats.values.firstOrNull { TdStore.privateUserId(it) == s.userId }?.id
+            if (known != null) Nav.push(Route.Profile(known))
+            else Td.send(TdApi.CreatePrivateChat(s.userId, true)) { r ->
+                if (r is TdApi.Chat) { TdStore.onUpdate(TdApi.UpdateNewChat(r)); Nav.push(Route.Profile(r.id)) }
+            }
+        }
+    }
 }
 
 @Composable
@@ -365,7 +376,7 @@ private fun Bubble(
             if (showName && (grp == Grp.Single || grp == Grp.Top)) {
                 val id = TdStore.senderId(m.senderId)
                 Text(TdStore.senderName(m.senderId), style = MaterialTheme.typography.labelLarge, color = nameColor(id), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = pad.padding(top = if (media) 4.dp else 8.dp))
+                    modifier = pad.padding(top = if (media) 4.dp else 8.dp).clip(RoundedCornerShape(6.dp)).clickable { openSenderProfile(m.senderId) })
             }
             m.forwardInfo?.let { fi ->
                 Text("Переслано от " + originName(fi.origin), style = MaterialTheme.typography.labelMedium, color = fg.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis,

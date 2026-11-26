@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -130,6 +131,7 @@ fun ProfileScreen(chatId: Long) {
     var shownTab by remember { mutableStateOf(0) }
     val media = mediaCache[shownTab].orEmpty()
     var gallery by remember { mutableStateOf<List<TdApi.Photo>?>(null) }
+    val intro = rememberIntro()
     fun openAvatars() {
         scope.launch {
             val list = if (user != null) Td.callOrNull(TdApi.GetUserProfilePhotos(user.id, 0, 100))?.photos?.map { TdApi.Photo(false, it.minithumbnail, it.sizes) }.orEmpty()
@@ -253,7 +255,7 @@ fun ProfileScreen(chatId: Long) {
                         }
                         val withSwitch = chat != null && !TdStore.isSaved(chat)
                         val n = rows.size + if (withSwitch) 1 else 0
-                        Column(Modifier.fillMaxWidth().appearIn(2), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(Modifier.fillMaxWidth().appearIn(3), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             rows.forEachIndexed { i, (icon, v, label) ->
                                 Row(
                                     Modifier.segment(i, n).clickable(enabled = !(me && Prefs.hidePhone.value && label == "Телефон")) { copyText(ctx, v) }
@@ -286,13 +288,14 @@ fun ProfileScreen(chatId: Long) {
                             }
                         }
                     }
+                    // every block rises in, one after another (groups and channels too)
                     if (chat != null && (TdStore.isGroup(chat) || TdStore.isChannel(chat))) {
                         Spacer(Modifier.height(12.dp))
-                        GroupInfo(chat)
+                        Box(Modifier.appearIn(4)) { GroupInfo(chat) }
                     }
                     if (chat != null) {
                         Spacer(Modifier.height(16.dp))
-                        ConnectedGroup(listOf(0 to "Медиа", 1 to "Файлы", 2 to "Ссылки", 3 to "Голос"), tab) { tab = it }
+                        Box(Modifier.appearIn(5)) { ConnectedGroup(listOf(0 to "Медиа", 1 to "Файлы", 2 to "Ссылки", 3 to "Голос"), tab) { tab = it } }
                         androidx.compose.animation.AnimatedVisibility(mediaCache[shownTab]?.isEmpty() == true, enter = fadeIn(Springs.effects()), exit = fadeOut(Springs.exit())) {
                             Text("Пока ничего нет", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
                         }
@@ -300,8 +303,10 @@ fun ProfileScreen(chatId: Long) {
                     }
                 }
             }
-            if (shownTab == 0) items(media, key = { "t0_" + it.id }) { m -> Box(Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())) { MediaTile(m) } }
-            else items(media, key = { "t${shownTab}_" + it.id }, span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) { m ->
+            if (shownTab == 0) itemsIndexed(media, key = { _, it -> "t0_" + it.id }) { i, m ->
+                Box(Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit()).then(if (intro && i < 12) Modifier.appearIn(6 + i / 3) else Modifier)) { MediaTile(m) }
+            }
+            else itemsIndexed(media, key = { _, it -> "t${shownTab}_" + it.id }, span = { _, _ -> androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) { i, m ->
                 ListItem(
                     headlineContent = { Text(Texts.preview(m), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text(Texts.listDate(m.date)) },
@@ -311,6 +316,7 @@ fun ProfileScreen(chatId: Long) {
                         }
                     },
                     modifier = Modifier.animateItem(fadeInSpec = Springs.effects(), placementSpec = Springs.smooth(), fadeOutSpec = Springs.exit())
+                        .then(if (intro && i < 8) Modifier.appearIn(6 + i) else Modifier)
                         .clickable { Nav.jumpTo = m.chatId to m.id; if (Nav.routes.getOrNull(Nav.routes.size - 2) == Route.Chat(m.chatId)) Nav.pop() else Nav.push(Route.Chat(m.chatId)) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
                 )
@@ -318,6 +324,14 @@ fun ProfileScreen(chatId: Long) {
         }
     }
     gallery?.let { PhotoGallery(it, 0) { gallery = null } }
+}
+
+/** the first second of a profile: its first media tiles rise in with the rest (not when scrolled to later) */
+@Composable
+private fun rememberIntro(): Boolean {
+    var on by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(1400); on = false }
+    return on
 }
 
 @Composable
