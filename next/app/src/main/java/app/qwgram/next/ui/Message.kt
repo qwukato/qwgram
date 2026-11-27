@@ -508,7 +508,7 @@ private fun Meta(m: TdApi.Message, chat: TdApi.Chat, color: Color, modifier: Mod
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         val views = m.interactionInfo?.viewCount ?: 0
         // the post's author signature (channels that sign messages), like Telegram: before the time
-        if (m.authorSignature.isNotBlank() && m.senderId !is TdApi.MessageSenderUser) {
+        if (!m.authorSignature.isNullOrBlank() && m.senderId !is TdApi.MessageSenderUser) {
             Text(m.authorSignature + "  ", style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
         }
         if (views > 0 && m.isChannelPost) {

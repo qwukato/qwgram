@@ -108,6 +108,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -309,7 +311,7 @@ fun PlayerHost() {
         val stageTop = top + 72.dp
         val controlsTop = h - (318.dp + bottomInset)
         val stageH = (controlsTop - stageTop - 8.dp).coerceAtLeast(120.dp)
-        val big = minOf(w - 104.dp, stageH)   // room for the carousel's side pills (16 + 28 + 8 each side)
+        val big = minOf(w - 40.dp, stageH)
         val bigX = (w - big) / 2
         val bigY = stageTop + (stageH - big) / 2
         val thumb = 56.dp
@@ -458,11 +460,12 @@ private fun CoverStack(
             Player.peek(k)?.let { Player.queue.getOrNull(it) }?.takeIf { t -> t !== track && none { it.second === t } }?.let { add(k to it) }
         }
     }
-    fun go(dir: Int) = scope.launch {
-        if (Player.peek(dir) == null) { dx.animateTo(0f, spring(0.7f, 420f)); return@launch }
-        dx.animateTo(-dir * step, spring(1f, 520f))
+    // the track switches at once and the carousel glides the rest of the way: the next flick can follow right away
+    fun go(dir: Int, velocity: Float = 0f) = scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+        if (Player.peek(dir) == null) { dx.animateTo(0f, spring(0.7f, 420f), initialVelocity = velocity); return@launch }
         if (dir > 0) Player.next() else Player.previous(force = true)
-        dx.snapTo(0f)
+        dx.snapTo(dx.value + dir * step)
+        dx.animateTo(0f, spring(0.9f, 300f), initialVelocity = velocity)
     }
     BoxWithConstraints(
         modifier.pointerInput(swipeable, step) {
@@ -500,7 +503,7 @@ private fun CoverStack(
                 }
                 val v = vt.calculateVelocity().x
                 val cur = dx.value
-                if (abs(cur) > step * 0.3f || abs(v) > 900f) go(if (cur < 0) 1 else -1)
+                if (abs(cur) > step * 0.3f || abs(v) > 900f) go(if (cur < 0) 1 else -1, v)
                 else scope.launch { dx.animateTo(0f, spring(0.7f, 420f), initialVelocity = v) }
             }
         },
@@ -529,6 +532,9 @@ private fun CoverStack(
                         shape = RoundedCornerShape(r.coerceAtLeast(0f)); clip = true
                         val sc = if (side == 0) scale() else 1f
                         scaleX = sc; scaleY = sc
+                        // only what moves towards the centre shows: at rest there is just the one cover
+                        val pos = abs(side + dx.value / step)
+                        alpha = if (pos >= 1f) 0f else ((1f - pos) * 6f).coerceIn(0f, 1f)
                     },
                     contentSize = size,
                 )
@@ -552,26 +558,38 @@ private fun CoverImage(t: Track, col: PColors, modifier: Modifier, contentSize: 
     }
 }
 
-// ---------------------------------------------------------------- mini pill
+// ---------------------------------------------------------------- mini player bar
 
-/** the pill: a turning disc cover, the title, ⏮ ⏯ ⏭ (✕ while paused). Tap or pull up = the full player; sideways = next / previous */
+/** soft fades at the top and bottom of a scrolling list (content dissolves instead of being cut) */
+fun Modifier.fadeEdges(top: Dp, bottom: Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val t = top.toPx() / size.height
+        val b = bottom.toPx() / size.height
+        drawRect(
+            Brush.verticalGradient(0f to Color.Transparent, t to Color.Black, (1f - b) to Color.Black, 1f to Color.Transparent),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    }
+
+/**
+ * The mini player, exteraGram-like: a calm card — cover, title and artist, ⏮ ⏯ ⏭ (✕ while paused) and a thin
+ * progress line along its bottom edge. Tap or pull up = the full player. Swipe the TEXT sideways = next / previous
+ * (only the titles move, the card stays still). Buttons never open the player.
+ */
 @Composable
 private fun MiniPill(track: Track) {
     val cs = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
-    val off = Prefs.motion.value == "off"
     val swipe = remember { Animatable(0f) }
     val density = LocalDensity.current
     val screenH = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val art = rememberTrackArt(track, 300)
+    var dir by remember { mutableIntStateOf(1) }
     Box(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(64.dp)
-            .graphicsLayer {
-                translationX = swipe.value
-                alpha = 1f - (abs(swipe.value) / (size.width * 0.9f)).coerceIn(0f, 0.6f)
-                shape = CircleShape; clip = true
-            }
-            .background(cs.surfaceContainerHigh)
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(60.dp)
+            .clip(RoundedCornerShape(20.dp)).background(cs.surfaceContainerHigh)
             .pointerInput(Unit) {
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
@@ -579,16 +597,14 @@ private fun MiniPill(track: Track) {
                     val vt = VelocityTracker()
                     var mode = 0   // 1 = up (open the player), 2 = sideways (next / previous)
                     var acc = Offset.Zero
-                    var last = down.position
                     while (true) {
                         val ev = awaitPointerEvent()
                         val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                        // a button inside took it (its tap ends consumed): never opens the player
+                        // a button inside took it: never opens the player
                         if (mode == 0 && c.isConsumed) { mode = -1; break }
                         if (!c.pressed) break
                         vt.addPosition(c.uptimeMillis, c.position)
-                        val d = c.position - last
-                        last = c.position
+                        val d = c.position - c.previousPosition
                         if (mode == 0) {
                             acc += d
                             if (abs(acc.x) > slop && abs(acc.x) > abs(acc.y)) mode = 2
@@ -597,7 +613,7 @@ private fun MiniPill(track: Track) {
                         }
                         when (mode) {
                             1 -> { c.consume(); PlayerUi.dragBy(-d.y / screenH) }
-                            2 -> { c.consume(); scope.launch { swipe.snapTo(swipe.value + d.x) } }
+                            2 -> { c.consume(); scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { swipe.snapTo(swipe.value + d.x) } }
                         }
                     }
                     val v = vt.calculateVelocity()
@@ -606,63 +622,66 @@ private fun MiniPill(track: Track) {
                         1 -> PlayerUi.settle(v.y < -500f || PlayerUi.expand.value > 0.2f, -v.y / screenH)
                         2 -> scope.launch {
                             val dx = swipe.value
-                            val w = size.width.toFloat()
-                            if (abs(dx) > w * 0.28f || abs(v.x) > 1200f) {
+                            if (abs(dx) > 70.dp.toPx() || abs(v.x) > 1000f) {
+                                dir = if (dx < 0) 1 else -1
                                 if (dx < 0) Player.next() else Player.previous(force = true)
-                                swipe.animateTo(if (dx < 0) -w else w, tween(140))
-                                swipe.snapTo(if (dx < 0) w * 0.5f else -w * 0.5f)
-                            }
-                            swipe.animateTo(0f, spring(0.75f, 420f))
+                                swipe.snapTo(0f)   // the new title slides in by itself (AnimatedContent)
+                            } else swipe.animateTo(0f, spring(0.8f, 500f), initialVelocity = v.x)
                         }
                     }
                 }
             },
     ) {
-        Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(cs.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
+        Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
                 if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 else Icon(Icons.Outlined.MusicNote, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                AnimatedContent(track, transitionSpec = { (slideInHorizontally { it / 3 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 3 } + fadeOut()) }, label = "mt") { t ->
+            Box(Modifier.weight(1f).graphicsLayer {
+                translationX = swipe.value * 0.6f
+                alpha = 1f - (abs(swipe.value) / 220.dp.toPx()).coerceIn(0f, 0.7f)
+            }) {
+                AnimatedContent(
+                    track,
+                    transitionSpec = {
+                        val d = dir
+                        (slideInHorizontally(spring(0.85f, 420f)) { it * d / 2 } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally(spring(0.85f, 420f)) { -it * d / 2 } + fadeOut(tween(120)))
+                    },
+                    label = "mt",
+                ) { t ->
                     Column {
-                        Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurface)
-                        if (t.performer.isNotBlank()) Text(t.performer, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurfaceVariant)
+                        Text(t.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurface)
+                        Text(t.performer.ifBlank { "Неизвестный исполнитель" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurfaceVariant)
                     }
                 }
             }
-            MorphIconButton(Icons.Filled.SkipPrevious, "Предыдущий", { Player.previous() }, size = 40.dp, tint = cs.primary)
-            // M3 wavy progress ring around a round play button: the wave flattens when paused, spins while loading
-            Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                val amp by animateFloatAsState(if (Player.playing) 1f else 0f, tween(400), label = "ra")
-                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(52.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
-                else androidx.compose.material3.CircularWavyProgressIndicator(
-                    progress = { Player.progress }, modifier = Modifier.size(52.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f),
-                    amplitude = { amp },
-                )
-                val pi = remember { MutableInteractionSource() }
-                val pp by pi.collectIsPressedAsState()
-                val sc by animateFloatAsState(if (pp) 0.88f else 1f, if (pp) Springs.pressIn() else Springs.morphRelease(), label = "ps")
-                Box(
-                    Modifier.size(34.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(cs.primaryContainer)
-                        .clickable(pi, indication = null) { Player.playPause() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AnimatedContent(Player.playing, transitionSpec = { (scaleIn(spring(0.5f, 600f), initialScale = 0.4f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.4f) + fadeOut()) }, label = "mp") { pl ->
-                        Icon(if (pl) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (pl) "Пауза" else "Играть", tint = cs.onPrimaryContainer, modifier = Modifier.size(20.dp))
-                    }
+            MorphIconButton(Icons.Filled.SkipPrevious, "Предыдущий", { dir = -1; Player.previous() }, size = 40.dp, tint = cs.onSurface)
+            // play / pause: a tonal circle; a small spinner while the track loads
+            val pi = remember { MutableInteractionSource() }
+            val pp by pi.collectIsPressedAsState()
+            val sc by animateFloatAsState(if (pp) 0.88f else 1f, if (pp) Springs.pressIn() else Springs.morphRelease(), label = "ps")
+            Box(
+                Modifier.size(42.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(cs.primaryContainer)
+                    .clickable(pi, indication = null) { Player.playPause() },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(34.dp), color = cs.onPrimaryContainer, trackColor = Color.Transparent)
+                else AnimatedContent(Player.playing, transitionSpec = { (scaleIn(spring(0.5f, 600f), initialScale = 0.4f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.4f) + fadeOut()) }, label = "mp") { pl ->
+                    Icon(if (pl) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (pl) "Пауза" else "Играть", tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
                 }
             }
-            MorphIconButton(Icons.Filled.SkipNext, "Следующий", { Player.next() }, size = 40.dp, tint = cs.primary)
+            MorphIconButton(Icons.Filled.SkipNext, "Следующий", { dir = 1; Player.next() }, size = 40.dp, tint = cs.onSurface)
             // close: only while paused (playing music isn't closed by a stray tap)
             AnimatedVisibility(!Player.playing && !Player.loading, enter = expandHorizontally(Springs.spatial()) + fadeIn(), exit = shrinkHorizontally(Springs.exit()) + fadeOut()) {
                 MorphIconButton(Icons.Outlined.Close, "Закрыть", { Player.close() }, size = 40.dp, tint = cs.onSurfaceVariant)
             }
         }
+        // progress: a thin line along the bottom edge
+        val pr = Player.progress.coerceIn(0f, 1f)
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(cs.primary.copy(alpha = 0.12f)))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(pr.coerceAtLeast(0.001f)).height(3.dp).background(cs.primary))
     }
 }
 
@@ -907,53 +926,90 @@ private fun SleepButton(col: PColors) {
 private fun LyricsPanel(track: Track, col: PColors) {
     val res by produceState<Lyrics.Result?>(null, track.file.id) { value = null; value = Lyrics.load(track) }
     val r = res
-    Box(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
-        when {
-            r == null -> androidx.compose.material3.LoadingIndicator(Modifier.size(56.dp), color = col.accent)
-            r.synced.isNotEmpty() -> SyncedLyrics(r.synced, col)
-            !r.plain.isNullOrBlank() -> Text(
-                r.plain, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold, lineHeight = MaterialTheme.typography.titleLarge.lineHeight * 1.15f),
-                color = col.text, modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
-            )
-            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(96.dp).clip(remember { MorphShape(androidx.graphics.shapes.Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided), 0f) }).background(col.container), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Lyrics, null, Modifier.size(40.dp), tint = col.onContainer)
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        AnimatedContent(
+            r?.let { if (it.synced.isNotEmpty()) 1 else if (!it.plain.isNullOrBlank()) 2 else 3 } ?: 0,
+            transitionSpec = { (fadeIn(tween(300)) + scaleIn(spring(0.8f, 300f), initialScale = 0.94f)).togetherWith(fadeOut(tween(150))) },
+            label = "ly",
+        ) { kind ->
+            when (kind) {
+                0 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { androidx.compose.material3.LoadingIndicator(Modifier.size(56.dp), color = col.accent) }
+                1 -> SyncedLyrics(r!!.synced, col)
+                2 -> PlainLyrics(r!!.plain!!, col)
+                else -> Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Box(Modifier.size(96.dp).clip(remember { MorphShape(androidx.graphics.shapes.Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided), 0f) }).background(col.container), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Lyrics, null, Modifier.size(40.dp), tint = col.onContainer)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Текст не найден", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = col.text)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Для этого трека нет текста в LRCLIB", style = MaterialTheme.typography.bodyMedium, color = col.sub, textAlign = TextAlign.Center)
                 }
-                Spacer(Modifier.height(16.dp))
-                Text("Текст не найден", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = col.text)
-                Spacer(Modifier.height(4.dp))
-                Text("Для этого трека нет текста в LRCLIB", style = MaterialTheme.typography.bodyMedium, color = col.sub, textAlign = TextAlign.Center)
             }
         }
     }
 }
 
+/** plain lyrics: lines rise in one after another (a soft spring), faded at the edges */
+@Composable
+private fun PlainLyrics(text: String, col: PColors) {
+    val lines = remember(text) { text.lines() }
+    LazyColumn(Modifier.fillMaxSize().fadeEdges(40.dp, 64.dp), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 80.dp)) {
+        itemsIndexed(lines) { i, line ->
+            val a = remember { Animatable(0f) }
+            LaunchedEffect(Unit) { delay((i.coerceAtMost(14) * 45L)); a.animateTo(1f, spring(0.72f, 220f)) }
+            Text(
+                line.ifBlank { " " },
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = col.text.copy(alpha = 0.85f),
+                modifier = Modifier.padding(vertical = 5.dp).graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 24.dp.toPx() },
+            )
+        }
+    }
+}
+
+/**
+ * Synced lyrics: the line being sung is big, bright and slightly scaled up; sung lines dim, coming ones wait at
+ * half light. The list glides to the current line on a soft spring (unless you scrolled in the last 3 s), lines
+ * spring in one by one when the lyrics appear, and the edges dissolve. Tap a line to jump there.
+ */
 @Composable
 private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
     val state = rememberLazyListState()
     val dragged by state.interactionSource.collectIsDraggedAsState()
     var lastTouch by remember { mutableLongStateOf(0L) }
-    if (dragged) lastTouch = System.currentTimeMillis()
+    LaunchedEffect(dragged) { if (dragged) lastTouch = System.currentTimeMillis() }
     val pos = Player.positionMs + 250
     val cur = lines.indexOfLast { it.first <= pos }.coerceAtLeast(0)
-    LaunchedEffect(cur) {
-        // follows the song unless you scrolled in the last 3 s
-        if (System.currentTimeMillis() - lastTouch > 3000) state.animateScrollToItem(cur)
-    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val pad = maxHeight * 0.32f
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pad, bottom = (maxHeight - pad - 40.dp).coerceAtLeast(0.dp))) {
+        val anchor = with(LocalDensity.current) { (maxHeight * 0.3f).toPx() }
+        LaunchedEffect(cur) {
+            if (System.currentTimeMillis() - lastTouch < 3000) return@LaunchedEffect
+            val info = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == cur }
+            // a spring glide when the line is on screen, a jump otherwise
+            if (info != null) state.animateScrollBy(info.offset - anchor, spring(1f, 90f))
+            else state.scrollToItem(cur)
+        }
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize().fadeEdges(56.dp, 96.dp), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = maxHeight * 0.3f, bottom = maxHeight * 0.6f)) {
             itemsIndexed(lines) { i, (t, line) ->
                 val active = i == cur
-                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.32f else 0.5f, tween(300), label = "la")
-                val s by animateFloatAsState(if (active) 1f else 0.94f, spring(0.6f, 400f), label = "ls")
+                val enter = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { delay(((i - cur).coerceIn(0, 12) * 40L)); enter.animateTo(1f, spring(0.7f, 240f)) }
+                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.28f else 0.48f, spring(1f, 120f), label = "la")
+                val s by animateFloatAsState(if (active) 1.06f else 1f, spring(0.55f, 260f), label = "ls")
                 Text(
                     line.ifBlank { "♪" },
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, lineHeight = MaterialTheme.typography.headlineSmall.lineHeight * 1.05f),
                     color = col.text,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { Player.seekMs(t); lastTouch = 0L }
-                        .graphicsLayer { alpha = a; scaleX = s; scaleY = s; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp))
+                        .clickable { Player.seekMs(t); lastTouch = 0L }
+                        .graphicsLayer {
+                            alpha = a * enter.value
+                            scaleX = s; scaleY = s
+                            translationY = (1f - enter.value) * 28.dp.toPx()
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                        }
+                        .padding(vertical = 6.dp, horizontal = 6.dp),
                 )
             }
         }
@@ -999,7 +1055,7 @@ private fun QueuePanel(col: PColors) {
         Spacer(Modifier.height(10.dp))
         val q = Player.queue
         val shown = if (query.isBlank()) q.indices.toList() else q.indices.filter { (q[it].title + " " + q[it].performer).contains(query.trim(), ignoreCase = true) }
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize().fadeEdges(16.dp, 28.dp), contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             itemsIndexed(shown, key = { _, i -> System.identityHashCode(q[i]) }) { n, i ->
                 val t = q[i]
                 val kk = System.identityHashCode(t)
@@ -1020,7 +1076,7 @@ private fun QueuePanel(col: PColors) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(t.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = if (cur) FontWeight.Bold else null), color = if (cur) col.accent else col.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(t.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (cur) FontWeight.Bold else FontWeight.SemiBold), color = if (cur) col.accent else col.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(t.performer.ifBlank { "—" }, style = MaterialTheme.typography.bodySmall, color = col.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Text(Texts.duration(t.durationSec), style = MaterialTheme.typography.labelMedium, color = col.sub)

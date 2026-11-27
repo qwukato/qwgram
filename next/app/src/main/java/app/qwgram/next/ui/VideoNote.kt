@@ -55,6 +55,7 @@ import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.foundation.clickable
@@ -119,6 +120,8 @@ object VideoNote {
     /** bumped on every new recording: the host binds the camera for it */
     var session by mutableIntStateOf(0)
         private set
+    /** where the composer's record button is (root px): the overlay draws its big button and the lock there */
+    var button: androidx.compose.ui.geometry.Rect = androidx.compose.ui.geometry.Rect.Zero
 
     internal var chatId = 0L
     internal var replyTo: TdApi.Message? = null
@@ -230,105 +233,118 @@ fun VideoNoteHost() {
         }
     }
     val scrim by animateFloatAsState(if (VideoNote.active) 1f else 0f, tween(260), label = "vs")
-    Box(Modifier.fillMaxSize()) {
-        // dim (also keeps taps off the chat while a locked recording runs)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val lockPx = with(density) { 64.dp.toPx() }
+    val cancelPx = with(density) { 90.dp.toPx() }
+    // the record button's centre (root px) — the big button, the lock and the hints are drawn around it
+    val btn = VideoNote.button.takeIf { it != androidx.compose.ui.geometry.Rect.Zero }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wPx = with(density) { maxWidth.toPx() }
+        val hPx = with(density) { maxHeight.toPx() }
+        val bc = btn?.center ?: Offset(wPx - with(density) { 34.dp.toPx() }, hPx - with(density) { 60.dp.toPx() })
+        // dim everything (and keep taps off the chat while a locked recording runs)
         Box(
             Modifier.fillMaxSize().graphicsLayer { alpha = scrim }
-                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.85f))))
+                .background(Color.Black.copy(alpha = 0.7f))
                 .then(if (VideoNote.locked) Modifier.pointerInput(Unit) { awaitEachGesture { awaitFirstDown().consume() } } else Modifier),
         )
-        // top: what is happening and how long
-        Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp).graphicsLayer { alpha = scrim }) {
-            androidx.compose.material3.Surface(shape = CircleShape, color = cs.surfaceContainerHigh) {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val blink by animateFloatAsState(if (VideoNote.seconds % 2 == 0) 1f else 0.25f, tween(400), label = "bl")
-                    Box(Modifier.size(10.dp).graphicsLayer { alpha = blink }.clip(CircleShape).background(cs.error))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Видеосообщение", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
-                    Spacer(Modifier.width(10.dp))
-                    Text(Texts.duration(VideoNote.seconds) + " / 1:00", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold), color = cs.primary)
+        // the camera circle, a bit above the middle
+        val d = minOf(maxWidth * 0.82f, maxHeight * 0.48f)
+        Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.Center) {
+            AnimatedVisibility(
+                vis,
+                // rises as a cookie that opens into a circle; leaves shrinking down towards the button
+                enter = scaleIn(spring(0.62f, 320f * k), initialScale = 0.4f) + fadeIn(tween(160)),
+                exit = scaleOut(tween(220), targetScale = 0.3f) + slideOutVertically(tween(260)) { it } + fadeOut(tween(200)),
+            ) {
+                val open by animateFloatAsState(if (VideoNote.active) 1f else 0f, spring(0.7f, 260f * k), label = "vo")
+                val morph = remember { androidx.graphics.shapes.Morph(MaterialShapes.Cookie12Sided, MaterialShapes.Circle) }
+                Box(Modifier.size(d + 28.dp), contentAlignment = Alignment.Center) {
+                    val ring = cs.primary
+                    val track = Color.White.copy(alpha = 0.16f)
+                    Canvas(Modifier.fillMaxSize()) {
+                        val st = 6.dp.toPx()
+                        val inset = st / 2
+                        val sz = Size(size.width - st, size.height - st)
+                        drawArc(track, 0f, 360f, false, Offset(inset, inset), sz, style = Stroke(st))
+                        drawArc(ring, -90f, 360f * now, false, Offset(inset, inset), sz, style = Stroke(st, cap = StrokeCap.Round))
+                    }
+                    Box(Modifier.size(d).clip(MorphShape(morph, open.coerceIn(0f, 1f))).background(Color.Black)) {
+                        AndroidView({ previewView }, Modifier.fillMaxSize())
+                    }
+                    Box(Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 6.dp)) {
+                        MorphIconButton(Icons.Outlined.Cameraswitch, "Сменить камеру", { VideoNote.front = !VideoNote.front }, size = 52.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer)
+                    }
                 }
             }
         }
-        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            val d = minOf(maxWidth * 0.8f, maxHeight * 0.5f)
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.offset(y = (-30).dp)) {
-                AnimatedVisibility(
-                    vis,
-                    // rises as a cookie that opens into a circle; leaves shrinking down towards the input
-                    enter = scaleIn(spring(0.62f, 320f * k), initialScale = 0.4f) + fadeIn(tween(160)),
-                    exit = scaleOut(tween(220), targetScale = 0.3f) + slideOutVertically(tween(260)) { it } + fadeOut(tween(200)),
-                ) {
-                    val open by animateFloatAsState(if (VideoNote.active) 1f else 0f, spring(0.7f, 260f * k), label = "vo")
-                    val morph = remember { androidx.graphics.shapes.Morph(MaterialShapes.Cookie12Sided, MaterialShapes.Circle) }
-                    Box(Modifier.size(d + 28.dp), contentAlignment = Alignment.Center) {
-                        // the 60 s ring around the camera
-                        val ring = cs.primary
-                        val track = Color.White.copy(alpha = 0.16f)
-                        Canvas(Modifier.fillMaxSize()) {
-                            val st = 6.dp.toPx()
-                            val inset = st / 2
-                            val sz = Size(size.width - st, size.height - st)
-                            drawArc(track, 0f, 360f, false, Offset(inset, inset), sz, style = Stroke(st))
-                            drawArc(ring, -90f, 360f * now, false, Offset(inset, inset), sz, style = Stroke(st, cap = StrokeCap.Round))
-                        }
-                        Box(Modifier.size(d).clip(MorphShape(morph, open.coerceIn(0f, 1f))).background(Color.Black)) {
-                            AndroidView({ previewView }, Modifier.fillMaxSize())
-                        }
-                        // switch camera: a small button sitting on the circle's edge
-                        Box(Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 6.dp)) {
-                            MorphIconButton(Icons.Outlined.Cameraswitch, "Сменить камеру", { VideoNote.front = !VideoNote.front }, size = 52.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer)
-                        }
-                    }
+        // ---- the bottom bar, Telegram-like: ● time  ‹ cancel …… [lock above] (big button)
+        val btnSize = 84.dp
+        val btnPx = with(density) { btnSize.toPx() }
+        val pull = if (VideoNote.locked) 1f else (-VideoNote.dragY / lockPx).coerceIn(0f, 1f)
+        val left = (-VideoNote.dragX / cancelPx).coerceIn(0f, 1f)
+        // time with a blinking dot
+        Row(
+            Modifier.offset { IntOffset(with(density) { 20.dp.roundToPx() }, (bc.y - with(density) { 14.dp.toPx() }).roundToInt()) }.graphicsLayer { alpha = scrim },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val blink by animateFloatAsState(if (VideoNote.seconds % 2 == 0) 1f else 0.25f, tween(400), label = "bl")
+            Box(Modifier.size(12.dp).graphicsLayer { alpha = blink }.clip(CircleShape).background(Color(0xFFFF5252)))
+            Spacer(Modifier.width(8.dp))
+            Text(Texts.duration(VideoNote.seconds), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
+        }
+        // cancel (held) or delete (locked)
+        AnimatedContent(
+            VideoNote.locked,
+            Modifier.offset { IntOffset((bc.x - btnPx / 2 - with(density) { 220.dp.toPx() } + VideoNote.dragX * 0.5f).roundToInt().coerceAtLeast(with(density) { 96.dp.roundToPx() }), (bc.y - with(density) { 22.dp.toPx() }).roundToInt()) }
+                .graphicsLayer { alpha = scrim * (1f - left * 0.6f) },
+            transitionSpec = { fadeIn(tween(200)).togetherWith(fadeOut(tween(120))) }, label = "cl",
+        ) { locked ->
+            if (locked) MorphBox(onClick = { VideoNote.finish(false) }, rest = 22.dp, pressed = 14.dp, modifier = Modifier.height(44.dp), color = cs.errorContainer, contentColor = cs.onErrorContainer) {
+                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("Удалить", style = MaterialTheme.typography.labelLarge)
                 }
-                Spacer(Modifier.height(20.dp))
-                AnimatedContent(VideoNote.locked, transitionSpec = { fadeIn(tween(200)).togetherWith(fadeOut(tween(120))) }, label = "hint", modifier = Modifier.graphicsLayer { alpha = scrim }) { l ->
-                    Text(
-                        if (l) "Запись закреплена — можно убрать палец" else "Отпустите — отправить",
-                        style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = 0.8f),
-                    )
+            } else {
+                val nudge = loopPhase(true, 1200, (2 * Math.PI).toFloat())
+                Row(Modifier.height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, null, Modifier.size(22.dp).graphicsLayer { translationX = kotlin.math.sin(nudge.value) * 5.dp.toPx() }, tint = Color.White)
+                    Text("Влево — отмена", style = MaterialTheme.typography.labelLarge, color = Color.White)
                 }
             }
         }
-        // bottom
-        Box(Modifier.fillMaxSize().navigationBarsPadding().graphicsLayer { alpha = scrim }) {
-            AnimatedContent(VideoNote.locked, Modifier.align(Alignment.BottomCenter), transitionSpec = { (fadeIn(tween(220)) + slideInVertically(spring(0.7f, 400f)) { it / 2 }).togetherWith(fadeOut(tween(120))) }, label = "vl") { locked ->
-                if (locked) Row(Modifier.padding(bottom = 26.dp), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
-                    MorphIconButton(Icons.Outlined.DeleteOutline, "Удалить", { VideoNote.finish(false) }, size = 60.dp, color = cs.errorContainer, tint = cs.onErrorContainer)
-                    // send: a cookie that turns while pressed
-                    MorphBox(onClick = { VideoNote.finish(true) }, rest = 36.dp, pressed = 22.dp, modifier = Modifier.size(76.dp), color = cs.primary, contentColor = cs.onPrimary) {
-                        Icon(Icons.AutoMirrored.Filled.Send, "Отправить", Modifier.size(30.dp))
-                    }
-                    Spacer(Modifier.size(60.dp))
-                }
-                else Box(Modifier.fillMaxWidth().height(200.dp)) {
-                    // slide left to cancel: the chip follows the finger
-                    Box(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 20.dp).offset { IntOffset((VideoNote.dragX / 2).roundToInt(), 0) }) {
-                        val nudge = loopPhase(true, 1200, (2 * Math.PI).toFloat())
-                        androidx.compose.material3.Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.14f), contentColor = Color.White) {
-                            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, null, Modifier.size(20.dp).graphicsLayer { translationX = kotlin.math.sin(nudge.value) * 4.dp.toPx() })
-                                Spacer(Modifier.width(4.dp))
-                                Text("Влево — отмена", style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
-                    }
-                    // slide up to lock: a rail right above the record button; it rises with the finger (tap works too)
-                    val bob = loopPhase(true, 1400, (2 * Math.PI).toFloat())
-                    val lockPx = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
-                    val pull = (-VideoNote.dragY / lockPx).coerceIn(0f, 1f)
-                    Column(
-                        Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 74.dp)
-                            .graphicsLayer { translationY = -pull * 56.dp.toPx(); val sc = 1f + 0.15f * pull; scaleX = sc; scaleY = sc }
-                            .clip(CircleShape).background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, cs.primaryContainer, pull))
-                            .clickable { VideoNote.locked = true }
-                            .padding(horizontal = 12.dp, vertical = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(if (pull > 0.95f) Icons.Outlined.Lock else Icons.Outlined.LockOpen, "Закрепить", tint = androidx.compose.ui.graphics.lerp(cs.onSurface, cs.onPrimaryContainer, pull), modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.height(6.dp))
-                        Icon(Icons.Outlined.KeyboardArrowUp, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp).graphicsLayer { translationY = kotlin.math.sin(bob.value) * 4.dp.toPx() })
-                    }
+        // the lock: a rail above the button that rises and fills as the finger goes up; then it becomes a stop chip
+        if (!VideoNote.locked) {
+            val bob = loopPhase(true, 1400, (2 * Math.PI).toFloat())
+            Column(
+                Modifier
+                    .offset { IntOffset((bc.x - with(density) { 24.dp.toPx() }).roundToInt(), (bc.y - btnPx / 2 - with(density) { 118.dp.toPx() } - pull * with(density) { 36.dp.toPx() }).roundToInt()) }
+                    .graphicsLayer { alpha = scrim; val sc = 1f + 0.12f * pull; scaleX = sc; scaleY = sc }
+                    .size(48.dp, 96.dp)
+                    .clip(CircleShape).background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, cs.primaryContainer, pull))
+                    .clickable { VideoNote.locked = true },
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(if (pull > 0.95f) Icons.Outlined.Lock else Icons.Outlined.LockOpen, "Закрепить", tint = androidx.compose.ui.graphics.lerp(cs.onSurface, cs.onPrimaryContainer, pull), modifier = Modifier.size(22.dp))
+                Spacer(Modifier.height(8.dp))
+                Icon(Icons.Outlined.KeyboardArrowUp, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp).graphicsLayer { translationY = kotlin.math.sin(bob.value) * 4.dp.toPx() })
+            }
+        }
+        // the big button where the record button is: follows the finger a little; locked → send
+        val pulse = loopPhase(VideoNote.active, 1600, (2 * Math.PI).toFloat())
+        Box(
+            Modifier
+                .offset { IntOffset((bc.x - btnPx / 2 + VideoNote.dragX * 0.35f).roundToInt(), (bc.y - btnPx / 2 + VideoNote.dragY * 0.35f).roundToInt()) }
+                .graphicsLayer { alpha = scrim; val sc = scrim * (1f + 0.04f * kotlin.math.sin(pulse.value)); scaleX = sc; scaleY = sc }
+                .size(btnSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.matchParentSize().clip(CircleShape).background(cs.primary.copy(alpha = 0.25f)).graphicsLayer { val sc = 1.15f + 0.1f * kotlin.math.sin(pulse.value); scaleX = sc; scaleY = sc })
+            MorphBox(
+                onClick = { if (VideoNote.locked) VideoNote.finish(true) }, rest = 42.dp, pressed = 26.dp, modifier = Modifier.size(btnSize),
+                color = cs.primary, contentColor = cs.onPrimary,
+            ) {
+                AnimatedContent(VideoNote.locked, transitionSpec = { (scaleIn(spring(0.5f, 500f), initialScale = 0.3f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.3f) + fadeOut()) }, label = "bi") { l ->
+                    Icon(if (l) Icons.AutoMirrored.Filled.Send else Icons.Outlined.Videocam, if (l) "Отправить" else null, Modifier.size(34.dp))
                 }
             }
         }

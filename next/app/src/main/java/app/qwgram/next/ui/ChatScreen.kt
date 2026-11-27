@@ -783,7 +783,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                 val now = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == k }
                                 if (now != null) {
                                     val d = (now.offset - sendFlight.pinOffset).toFloat()
-                                    if (d > 0.5f && Prefs.motion.value != "off") { sendFlight.shift = d; sendFlight.shiftFrom = d to (sendFlight.shiftFrom.second + 1) }
+                                    @Suppress("UNUSED_VARIABLE") val unused = d   // the items' placement animation already slides the history
                                 }
                                 sendFlight.pinKey = null
                             }
@@ -805,7 +805,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                     m = e.m, grp = e.grp, chat = chat, group = group, album = e.album,
                                     reply = ctl.replies[id],
                                     // the bubbles on screen when the chat opens ripple in from the bottom up
-                                    modifier = Modifier.rise(fromBottom = true, lift = 18.dp, quick = true).animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
+                                    modifier = Modifier.animateItem(fadeInSpec = if (e.k in ctl.flyIn) null else Springs.effects(), placementSpec = androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)), fadeOutSpec = Springs.exit())
                                         .onGloballyPositioned { c -> val b = c.boundsInRoot(); rows[id] = b.top to b.bottom },
                                     selection = if (selecting) (id in selected) else null,
                                     highlighted = highlight == id,
@@ -1699,6 +1699,7 @@ private fun Composer(
                     color = sendBg,
                     contentColor = sendFg,
                     modifier = Modifier.size(52.dp)
+                        .onGloballyPositioned { VideoNote.button = it.boundsInRoot() }
                         .graphicsLayer { val sc = if (videoRec || recording) 1.35f else scale; scaleX = sc; scaleY = sc; rotationZ = spin }
                         .pointerInput(ready, editing) {
                             if (ready) {
@@ -1747,8 +1748,12 @@ private fun Composer(
                                         break
                                     }
                                     ch.consume()
-                                    // in screen terms (the button itself is scaled): how far the finger went
-                                    val d = (ch.position - down.position) * 1.35f
+                                    // in screen terms: the button itself is scaled AND turned (90° in video mode) — undo both,
+                                    // or "up" reads as "sideways"
+                                    val loc = (ch.position - down.position) * 1.35f
+                                    val th = Math.toRadians(spin.toDouble())
+                                    val cosT = kotlin.math.cos(th).toFloat(); val sinT = kotlin.math.sin(th).toFloat()
+                                    val d = Offset(loc.x * cosT - loc.y * sinT, loc.x * sinT + loc.y * cosT)
                                     val dx = d.x.coerceAtMost(0f)
                                     val dy = d.y.coerceAtMost(0f)
                                     if (video) { VideoNote.dragX = dx; VideoNote.dragY = dy }

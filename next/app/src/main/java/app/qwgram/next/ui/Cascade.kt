@@ -75,8 +75,9 @@ fun Modifier.rise(extra: Long = 0L, fromBottom: Boolean = false, lift: androidx.
         // quick: the whole wave fits in ~120 ms and snaps in on a stiff, bouncy spring (chat bubbles: never slows typing)
         val span = if (quick) 120f else 300f
         val wait = ((if (quick) 0L else 40L) + (f * span).toLong() + extra) / k.coerceAtLeast(0.3f)
-        val gone = SystemClock.uptimeMillis() - born
-        delay((wait.toLong() - gone).coerceAtLeast(0L))
+        // counted from the screen's start (not from when this row happened to be composed): every row keeps its
+        // place in the wave, so none jumps in early or late
+        delay((clock.start + wait.toLong() - SystemClock.uptimeMillis()).coerceAtLeast(0L))
         a.animateTo(1f, if (quick) spring(dampingRatio = 0.6f, stiffness = 700f * k * k) else spring(dampingRatio = 0.72f, stiffness = 360f * k * k))
     }
     return this

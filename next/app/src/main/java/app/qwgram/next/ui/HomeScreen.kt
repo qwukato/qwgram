@@ -217,6 +217,7 @@ fun HomeScreen() {
                 // the tabs stay alive once opened (no rebuild on every switch: no stall, scroll kept); switching is a
                 // fade-through on the shared X axis — the old tab dissolves fast, the new one drifts in from 97%
                 val visited = remember { androidx.compose.runtime.mutableStateListOf(HomeState.tab) }
+                val firstTab = remember { HomeState.tab }
                 if (HomeState.tab !in visited) visited.add(HomeState.tab)
                 var lastTab by remember { mutableStateOf(HomeState.tab) }
                 val dir = if (HomeState.tab.ordinal >= lastTab.ordinal) 1 else -1
@@ -229,13 +230,18 @@ fun HomeScreen() {
                         val sel = HomeState.tab == t
                         val k = Prefs.motionSpeed.value
                         val off = Prefs.motion.value == "off" || Prefs.tabAnim.value == "none"
-                        val a by androidx.compose.animation.core.animateFloatAsState(
-                            if (sel) 1f else 0f,
-                            if (off) androidx.compose.animation.core.snap()
-                            else if (sel) androidx.compose.animation.core.tween((300 / k).toInt(), delayMillis = (60 / k).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
-                            else androidx.compose.animation.core.tween((130 / k).toInt(), easing = androidx.compose.animation.core.LinearEasing),
-                            label = "tab",
-                        )
+                        // a tab opened for the first time starts hidden and fades in like the others (it used to pop in
+                        // at full opacity over the old one — the one-time overlap after settings rebuilt the screen)
+                        val anim = remember { androidx.compose.animation.core.Animatable(if (sel && t == firstTab) 1f else 0f) }
+                        LaunchedEffect(sel) {
+                            anim.animateTo(
+                                if (sel) 1f else 0f,
+                                if (off) androidx.compose.animation.core.snap()
+                                else if (sel) androidx.compose.animation.core.tween((300 / k).toInt(), delayMillis = (60 / k).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))
+                                else androidx.compose.animation.core.tween((130 / k).toInt(), easing = androidx.compose.animation.core.LinearEasing),
+                            )
+                        }
+                        val a = anim.value
                         val enterDir = remember { mutableStateOf(1) }
                         if (sel) SideEffect { enterDir.value = dir }
                         Box(
