@@ -237,7 +237,7 @@ object Prefs {
     val cascadeBounce = F("cascade_bounce", 0.55f)      // 0 = no overshoot … 1 = very springy
     val cascadeSpeed = F("cascade_speed", 1f)          // how fast the rows catch up
     val cascadeSpread = F("cascade_spread", 1f)        // how much more the lower rows lag than the top ones
-    val drawerItems = S("drawer_items", "profile,group,contacts,saved,archive,settings,appearance,features,folders,invite")       // header / bottom fades appear only once content is under them
+    val drawerItems = S("drawer_items", "profile,group,contacts,calls,saved,archive,settings,appearance,features,folders,invite")       // header / bottom fades appear only once content is under them
     // ---- energy saving (off by default) ----
     val powerSave = B("power_save", false)
     val psIdleAnims = B("ps_idle_anims", true)         // stop decorative loops (record spin, waves, shapes) when idle

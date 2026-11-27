@@ -1742,13 +1742,13 @@ private fun Composer(
                                         val dy = (ch.position.y - size.height / 2f).coerceAtMost(0f)
                                         VideoNote.dragX = dx; VideoNote.dragY = dy
                                         scope.launch { dragX.snapTo(dx) }
-                                        if (dx < -180f) {
+                                        if (dx < -180f && -dx > -dy) {
                                             VideoNote.finish(false); videoRec = false
                                             haptic(HapticFeedbackType.Reject)
                                             scope.launch { dragX.animateTo(0f) }
                                             break
                                         }
-                                        if (dy < -170f) {
+                                        if (dy < -110f && -dy > -dx) {
                                             VideoNote.locked = true; videoRec = false
                                             haptic(HapticFeedbackType.Confirm)
                                             scope.launch { dragX.animateTo(0f) }

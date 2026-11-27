@@ -918,6 +918,7 @@ private fun AppDrawer(progress: () -> Float, close: () -> Unit) {
                     "story" -> Stories.compose = true
                     "saved" -> { val id2 = me?.id; if (id2 != null) scope.launch { Td.callOrNull(TdApi.CreatePrivateChat(id2, false))?.let { Nav.push(Route.Chat(it.id)) } } }
                     "archive" -> Nav.push(Route.Archive)
+                    "calls" -> Nav.push(Route.Page("calls"))
                     "settings" -> HomeState.tab = HomeTab.Settings
                     "appearance" -> Nav.push(Route.Page("appearance"))
                     "blur" -> Nav.push(Route.Page("ap-blur"))

@@ -220,6 +220,7 @@ fun SettingsPage(id: String) {
         id.startsWith("compose:") -> { NewMessagePage(id.removePrefix("compose:")); return }
     }
     when (id) {
+        "calls" -> CallsPage()
         "appearance" -> AppearanceHub2()
         "ap-theme" -> ThemePage()
         "ap-shapes" -> ShapesPage()

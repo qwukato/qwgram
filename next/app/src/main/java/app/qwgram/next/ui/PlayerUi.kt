@@ -164,7 +164,8 @@ object PlayerUi {
     val expand = Animatable(0f, visibilityThreshold = 0.0005f)
     /** what fills the stage of the full player: 0 the cover, 1 lyrics, 2 the queue */
     var panel by mutableIntStateOf(0)
-    private val scope = kotlinx.coroutines.MainScope()
+    // the UI dispatcher carries a frame clock: animateTo needs one (a plain MainScope has none — that crashed)
+    private val scope = kotlinx.coroutines.CoroutineScope(androidx.compose.ui.platform.AndroidUiDispatcher.Main + kotlinx.coroutines.SupervisorJob())
     private val spec get() = if (Prefs.motion.value == "off") tween<Float>(0) else spring(0.86f, 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)
 
     fun open() { scope.launch { expand.animateTo(1f, spec) } }
@@ -199,10 +200,11 @@ fun MiniPlayerBar(modifier: Modifier = Modifier) {
 @Composable
 fun rememberTrackArt(t: Track, maxSide: Int = 1200): ImageBitmap? {
     val thumb = rememberFileBitmap(t.cover, maxSide)
+    val alt = rememberFileBitmap(t.altCover, maxSide)
     val mini = remember(t.file.id) { Images.mini(t.mini) }
     val live = TdStore.files[t.file.id]
     LaunchedEffect(t.file.id, live?.local?.isDownloadingCompleted) { (live ?: t.file).let { if (it.local.isDownloadingCompleted) TrackArt.ensure(it) } }
-    return TrackArt.art[t.file.id] ?: thumb ?: mini
+    return TrackArt.art[t.file.id] ?: thumb ?: alt ?: mini
 }
 
 // ---------------------------------------------------------------- colours from the cover
@@ -388,7 +390,7 @@ fun PlayerHost() {
             CompositionLocalProvider(LocalContentColor provides col.text) {
                 FullHeader(track, col, top) { PlayerUi.close() }
                 if (panelT > 0.01f || PlayerUi.panel != 0) Box(
-                    Modifier.offset(y = stageTop).fillMaxWidth().height(controlsTop - stageTop)
+                    Modifier.offset(y = stageTop).fillMaxWidth().height((controlsTop - stageTop).coerceAtLeast(0.dp))
                         .graphicsLayer { alpha = panelT; translationY = (1f - panelT) * 40.dp.toPx() },
                 ) {
                     AnimatedContent(PlayerUi.panel.takeIf { it != 0 } ?: 1, transitionSpec = { (fadeIn(tween(220)) + scaleIn(initialScale = 0.96f)).togetherWith(fadeOut(tween(150))) }, label = "pn") { pn ->
@@ -669,7 +671,7 @@ private fun FullControls(track: Track, col: PColors, controlsTop: Dp, thumb: Dp,
     Column(Modifier.offset(y = controlsTop).fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = bottomInset + 16.dp)) {
         // title row: the cover lands at its start when lyrics / the queue are open
         Row(Modifier.fillMaxWidth().height(72.dp), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.width((thumb + 14.dp) * panelT))
+            Spacer(Modifier.width((thumb + 14.dp) * panelT.coerceIn(0f, 1f)))
             Column(Modifier.weight(1f)) {
                 AnimatedContent(track, transitionSpec = { (slideInHorizontally(spring(0.8f, 380f)) { it / 4 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 4 } + fadeOut()) }, label = "ft") { t ->
                     Column {
@@ -890,7 +892,7 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val pad = maxHeight * 0.32f
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pad, bottom = maxHeight - pad - 40.dp)) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pad, bottom = (maxHeight - pad - 40.dp).coerceAtLeast(0.dp))) {
             itemsIndexed(lines) { i, (t, line) ->
                 val active = i == cur
                 val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.32f else 0.5f, tween(300), label = "la")

@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -154,9 +155,21 @@ fun ProfileBanner(
                     }
                 }
                 Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    Box(Modifier.size(108.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
-                        if (chat == null) UserAvatar(user, 108.dp) else ChatAvatar(chat, 108.dp)
+                    // the avatar: a soft ring of the theme colour; pressed, the circle morphs into a scalloped cookie (M3 Expressive)
+                    val avInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    val avPressed by avInteraction.collectIsPressedAsState()
+                    val avMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie9Sided) }
+                    val avP by androidx.compose.animation.core.animateFloatAsState(if (avPressed) 1f else 0f, androidx.compose.animation.core.spring(0.5f, 500f), label = "avp")
+                    val ringC = if (bannerColors != null) Color.White.copy(alpha = 0.55f) else cs.primary.copy(alpha = 0.45f)
+                    Box(Modifier.size(120.dp).graphicsLayer { rotationZ = avP * 20f }.clip(MorphShape(avMorph, avP)).background(ringC), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(110.dp).clip(MorphShape(avMorph, avP)).clickable(avInteraction, indication = null, onClick = onAvatar)) {
+                            if (chat == null) UserAvatar(user, 110.dp) else ChatAvatar(chat, 110.dp)
+                        }
                     }
+                    // online: a green dot on the ring
+                    if (onCamera == null && user?.status is TdApi.UserStatusOnline) Box(
+                        Modifier.padding(end = 8.dp, bottom = 8.dp).size(22.dp).clip(CircleShape).background(if (bannerColors != null) Color.White else cs.surface).padding(4.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
+                    )
                     if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
                 }
             }
@@ -309,7 +322,7 @@ fun ProfileMusic(userId: Long) {
             Icon(Icons.Outlined.MusicNote, null, Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(84.dp).graphicsLayer { alpha = 0.08f; rotationZ = -12f })
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 val t = tracks.first()
-                val bmp = rememberFileBitmap(t.cover, 320) ?: remember(t) { Images.mini(t.mini) }
+                val bmp = rememberTrackArt(t, 480)
                 Box(Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
                     if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else Icon(Icons.Outlined.MusicNote, null, tint = cs.onPrimaryContainer)
@@ -318,7 +331,7 @@ fun ProfileMusic(userId: Long) {
                 Column(Modifier.weight(1f)) {
                     Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (first.performer.isNotBlank()) Text(first.performer, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSecondaryContainer.copy(alpha = 0.8f))
-                    if (audios.size > 1) Text(app.qwgram.next.td.Texts.plural(audios.size, "трек", "трека", "треков").substringAfter(' '), style = MaterialTheme.typography.labelMedium, color = cs.onSecondaryContainer.copy(alpha = 0.7f))
+                    if (audios.size > 1) Text(app.qwgram.next.td.Texts.plural(audios.size, "трек", "трека", "треков"), style = MaterialTheme.typography.labelMedium, color = cs.onSecondaryContainer.copy(alpha = 0.7f))
                 }
                 Box(contentAlignment = Alignment.Center) {
                     if (playingHere) androidx.compose.material3.CircularWavyProgressIndicator(progress = { Player.progress }, modifier = Modifier.size(56.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.2f))

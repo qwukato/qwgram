@@ -77,6 +77,8 @@ object TdStore {
     }
 
     val messageEvents = MutableSharedFlow<TdApi.Update>(extraBufferCapacity = 256)
+    /** the latest call update (incoming / outgoing state) */
+    var call by androidx.compose.runtime.mutableStateOf<TdApi.Call?>(null)
 
     fun onUpdate(obj: TdApi.Object) {
         when (obj) {
@@ -154,6 +156,7 @@ object TdStore {
             is TdApi.UpdateActiveEmojiReactions -> { activeReactions.clear(); activeReactions.addAll(obj.emojis) }
             is TdApi.UpdateChatActiveStories -> app.qwgram.next.ui.Stories.onUpdate(obj)
             is TdApi.UpdateForumTopicInfo, is TdApi.UpdateForumTopic -> messageEvents.tryEmit(obj as TdApi.Update)
+            is TdApi.UpdateCall -> call = obj.call
             is TdApi.UpdateChatAction -> {
                 val sender = obj.senderId
                 val uid = when (sender) {

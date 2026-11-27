@@ -66,6 +66,11 @@ import androidx.compose.material.icons.outlined.Animation
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
@@ -151,6 +156,7 @@ private fun AuthScreen() {
     }
     androidx.activity.compose.BackHandler(enabled = step == 1) { started = false }
 
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         AuthBackdrop()
         Column(
@@ -162,8 +168,22 @@ private fun AuthScreen() {
             AuthHero(compact = imeOpen || step >= 2)
             Spacer(Modifier.height(24.dp))
             androidx.compose.animation.AnimatedVisibility(step > 0, enter = fadeIn(Springs.effects()) + androidx.compose.animation.expandVertically(Springs.smooth()), exit = fadeOut(Springs.exit()) + androidx.compose.animation.shrinkVertically(Springs.exit())) {
-                StepPills(step - 1, 3, Modifier.padding(bottom = 20.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    StepBadge(step, state)
+                    Spacer(Modifier.height(14.dp))
+                    StepPills(step - 1, 3)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Шаг $step из 3", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+                }
             }
+            val cardR by androidx.compose.animation.core.animateDpAsState(if (step > 0) 32.dp else 0.dp, Springs.spatial(), label = "cr")
+            val cardA by androidx.compose.animation.core.animateFloatAsState(if (step > 0) 1f else 0f, Springs.effects(), label = "ca")
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(cardR))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f * cardA))
+                    .animateContentSize(Springs.spatial())
+                    .padding(horizontal = 20.dp * cardA, vertical = 22.dp * cardA),
+            ) {
             AnimatedContent(
                 targetState = step to state,
                 contentKey = { it.first to it.second?.javaClass },
@@ -195,6 +215,7 @@ private fun AuthScreen() {
                     }
                 }
             }
+            }
             androidx.compose.animation.AnimatedVisibility(error != null, enter = fadeIn(Springs.effects()) + androidx.compose.animation.expandVertically(Springs.spatial()), exit = fadeOut(Springs.exit()) + androidx.compose.animation.shrinkVertically(Springs.exit())) {
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.padding(top = 16.dp).fillMaxWidth()) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -205,6 +226,36 @@ private fun AuthScreen() {
                 }
             }
             Spacer(Modifier.height(32.dp))
+        }
+    }
+    }
+}
+
+/** the step's badge: an icon in a shape that morphs into the next step's shape (phone → message → key) */
+@Composable
+private fun StepBadge(step: Int, st: TdApi.AuthorizationState?) {
+    val cs = MaterialTheme.colorScheme
+    val shapes = remember { listOf(MaterialShapes.Circle, MaterialShapes.Cookie6Sided, MaterialShapes.Cookie9Sided, MaterialShapes.Clover4Leaf, MaterialShapes.Sunny) }
+    var from by remember { mutableStateOf(step) }
+    var to by remember { mutableStateOf(step) }
+    val p = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(step) {
+        if (step != to) { from = to; to = step; p.snapTo(0f); p.animateTo(1f, androidx.compose.animation.core.spring(0.45f, 260f)) }
+    }
+    val morph = remember(from, to) { androidx.graphics.shapes.Morph(shapes[from.coerceIn(0, shapes.lastIndex)], shapes[to.coerceIn(0, shapes.lastIndex)]) }
+    val rot by androidx.compose.animation.core.animateFloatAsState(step * 120f, androidx.compose.animation.core.spring(0.6f, 140f), label = "br")
+    val icon = when {
+        st is TdApi.AuthorizationStateWaitPassword -> Icons.Outlined.Key
+        st is TdApi.AuthorizationStateWaitRegistration -> Icons.Outlined.Person
+        st is TdApi.AuthorizationStateWaitEmailAddress || st is TdApi.AuthorizationStateWaitEmailCode -> Icons.Outlined.Email
+        st is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> Icons.Outlined.Devices
+        step == 2 -> Icons.Outlined.Sms
+        else -> Icons.Outlined.Phone
+    }
+    Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rot }.clip(MorphShape(morph, p.value)).background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(cs.primary, cs.tertiary))))
+        AnimatedContent(icon, transitionSpec = { (androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.5f, 500f), initialScale = 0.3f) + fadeIn()).togetherWith(androidx.compose.animation.scaleOut(targetScale = 0.3f) + fadeOut()) }, label = "bi") { ic ->
+            Icon(ic, null, tint = cs.onPrimary, modifier = Modifier.size(32.dp))
         }
     }
 }
@@ -251,6 +302,11 @@ private fun AuthBackdrop() {
             .clip(MaterialShapes.Cookie9Sided.asShape()).background(cs.secondaryContainer.copy(alpha = 0.35f)))
         Box(Modifier.size(w * 0.6f).align(Alignment.BottomEnd).offset(x = w * 0.22f, y = w * 0.18f).graphicsLayer { rotationZ = -a * 0.8f }
             .clip(MaterialShapes.Clover4Leaf.asShape()).background(cs.tertiaryContainer.copy(alpha = 0.3f)))
+        // a third one drifting slowly across the middle, and a soft glow of the primary colour at the top
+        val drift by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(18000, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "d")
+        Box(Modifier.size(w * 0.34f).align(Alignment.CenterEnd).offset(x = w * 0.12f - w * 0.1f * drift, y = -w * 0.15f + w * 0.3f * drift).graphicsLayer { rotationZ = a * 1.4f }
+            .clip(MaterialShapes.Sunny.asShape()).background(cs.primaryContainer.copy(alpha = 0.22f)))
+        Box(Modifier.fillMaxWidth().height(maxHeight * 0.5f).background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(cs.primary.copy(alpha = 0.10f), androidx.compose.ui.graphics.Color.Transparent))))
     }
 }
 

@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 class Track(
     val file: TdApi.File, val title: String, val performer: String, val durationSec: Int, val cover: TdApi.File?, val mini: TdApi.Minithumbnail?,
     val audio: TdApi.Audio? = null, val chatId: Long = 0, val messageId: Long = 0,
+    /** a second cover source when the first can't be loaded (the album thumbnail vs. an external cover) */
+    val altCover: TdApi.File? = null,
 ) {
     companion object {
         fun of(a: TdApi.Audio, chatId: Long = 0, messageId: Long = 0) = Track(
@@ -37,6 +39,7 @@ class Track(
             // the biggest cover there is: the album thumbnail, or the largest external album cover
             (a.externalAlbumCovers?.toList().orEmpty() + listOfNotNull(a.albumCoverThumbnail)).maxByOrNull { it.width * it.height }?.file,
             a.albumCoverMinithumbnail, a, chatId, messageId,
+            (listOfNotNull(a.albumCoverThumbnail) + a.externalAlbumCovers?.toList().orEmpty()).map { it.file }.firstOrNull { it.id != (a.externalAlbumCovers?.toList().orEmpty() + listOfNotNull(a.albumCoverThumbnail)).maxByOrNull { t -> t.width * t.height }?.file?.id },
         )
         fun of(m: TdApi.Message): Track? = (m.content as? TdApi.MessageAudio)?.audio?.let { of(it, m.chatId, m.id) }
     }
