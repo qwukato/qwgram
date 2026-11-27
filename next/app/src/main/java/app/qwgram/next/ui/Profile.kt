@@ -321,7 +321,7 @@ fun ProfileMusic(userId: Long) {
                     if (audios.size > 1) Text(app.qwgram.next.td.Texts.plural(audios.size, "трек", "трека", "треков").substringAfter(' '), style = MaterialTheme.typography.labelMedium, color = cs.onSecondaryContainer.copy(alpha = 0.7f))
                 }
                 Box(contentAlignment = Alignment.Center) {
-                    if (playingHere) WavyRing(Player.progress, Player.playing, cs.primary, cs.primary.copy(alpha = 0.2f), Modifier.size(52.dp))
+                    if (playingHere) androidx.compose.material3.CircularWavyProgressIndicator(progress = { Player.progress }, modifier = Modifier.size(56.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.2f))
                     PlayMorphButton(playingHere && Player.playing, 42.dp, cs.primary, cs.onPrimary) { if (playingHere) Player.playPause() else Player.playQueue(tracks, 0, "Музыка профиля") }
                 }
             }
