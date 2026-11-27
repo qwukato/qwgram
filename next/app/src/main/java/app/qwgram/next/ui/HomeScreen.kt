@@ -567,6 +567,8 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
                     else pager.animateScrollToPage(i, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 260f * Prefs.motionSpeed.value * Prefs.motionSpeed.value))
                 }
             }
+            // the mini player lives here, under the folders (Telegram): the chats move down to make room
+            MiniPlayerSlot()
             if (floating) Spacer(Modifier.height(14.dp))
         }
         }

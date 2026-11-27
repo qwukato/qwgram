@@ -299,7 +299,7 @@ fun ProfileMusic(userId: Long) {
     val playingHere = Player.queue.isNotEmpty() && Player.track?.file?.id in tracks.map { it.file.id }
     Spacer(Modifier.height(12.dp))
     MorphBox(
-        onClick = { if (playingHere) Player.playPause() else Player.playQueue(tracks, 0) },
+        onClick = { if (playingHere) Player.playPause() else Player.playQueue(tracks, 0, "Музыка профиля") },
         rest = 28.dp, pressed = 18.dp, squish = 0.98f,
         color = cs.secondaryContainer, contentColor = cs.onSecondaryContainer, contentAlignment = Alignment.CenterStart,
         modifier = Modifier.fillMaxWidth(),
@@ -322,7 +322,7 @@ fun ProfileMusic(userId: Long) {
                 }
                 Box(contentAlignment = Alignment.Center) {
                     if (playingHere) WavyRing(Player.progress, Player.playing, cs.primary, cs.primary.copy(alpha = 0.2f), Modifier.size(52.dp))
-                    PlayMorphButton(playingHere && Player.playing, 42.dp, cs.primary, cs.onPrimary) { if (playingHere) Player.playPause() else Player.playQueue(tracks, 0) }
+                    PlayMorphButton(playingHere && Player.playing, 42.dp, cs.primary, cs.onPrimary) { if (playingHere) Player.playPause() else Player.playQueue(tracks, 0, "Музыка профиля") }
                 }
             }
         }

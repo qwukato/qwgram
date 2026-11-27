@@ -580,7 +580,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     }
     // audio files of this chat form the player's queue (oldest → newest)
     LaunchedEffect(newest, ctl.messages.size) {
-        Player.contextQueue = ctl.messages.asReversed().mapNotNull { (it.content as? TdApi.MessageAudio)?.audio }
+        Player.contextQueue = ctl.messages.asReversed().filter { it.content is TdApi.MessageAudio }
     }
     // reading reached the bottom → the whole chat is read
     val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
@@ -2112,7 +2112,7 @@ private fun DeleteDialog(list: List<TdApi.Message>, chat: TdApi.Chat, onDone: ()
 }
 
 @Composable
-private fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
+internal fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val chats = TdStore.chatsIn(TdApi.ChatListMain()).filter { TdStore.canSend(it) }.take(60)
     var noAuthor by remember { mutableStateOf(Prefs.forwardNoAuthor.value) }
