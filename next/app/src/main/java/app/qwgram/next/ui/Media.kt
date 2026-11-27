@@ -345,19 +345,23 @@ object Player {
                     }
                 } else { playing = false; progress = 0f; noisy(false) }
             }
-            p.prepare()
             mp = p
             fileId = f.id
-            durationMs = p.duration
-            applySpeed()
             if (queue.isNotEmpty()) TrackArt.ensure(f)
-            if (!focus()) return
-            p.start()
-            playing = true
-            noisy(true)
-            h.post(tick)
+            // prepared off the main thread: switching tracks (the cover carousel) never stalls a frame
+            loading = true
+            p.setOnPreparedListener {
+                if (mp !== p) return@setOnPreparedListener
+                loading = false
+                durationMs = p.duration
+                applySpeed()
+                if (!focus()) return@setOnPreparedListener
+                try { p.start(); playing = true; noisy(true); h.post(tick) } catch (_: Exception) {}
+            }
+            p.setOnErrorListener { _, _, _ -> if (mp === p) { loading = false; playing = false }; true }
+            p.prepareAsync()
         } catch (e: Exception) {
-            playing = false
+            playing = false; loading = false
         }
     }
 

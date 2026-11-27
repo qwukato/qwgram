@@ -1,5 +1,11 @@
 package app.qwgram.next.ui
 
+import androidx.compose.animation.togetherWith
+
+import androidx.compose.foundation.layout.offset
+
+import androidx.compose.foundation.layout.imePadding
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.outlined.Casino
 import androidx.compose.material.icons.outlined.Person
@@ -149,7 +155,7 @@ private fun rememberThumb(uri: Uri): ImageBitmap? {
 fun AttachGallerySheet(
     canPoll: Boolean,
     onDismiss: () -> Unit,
-    onSend: (List<Uri>) -> Unit,
+    onSend: (List<Uri>, String) -> Unit,
     onSystemPicker: () -> Unit,
     onFile: () -> Unit,
     onMusic: () -> Unit,
@@ -163,13 +169,14 @@ fun AttachGallerySheet(
     var access by remember { mutableStateOf(hasMediaAccess(ctx)) }
     var media by remember { mutableStateOf<List<DeviceMedia>>(emptyList()) }
     val picked = remember { mutableStateListOf<Uri>() }
+    var caption by remember { mutableStateOf("") }
     val edited = remember { androidx.compose.runtime.mutableStateMapOf<Uri, Uri>() }   // original → edited copy
     val isVideoUri = remember { androidx.compose.runtime.mutableStateMapOf<Uri, Boolean>() }
     fun isVideo(u: Uri) = isVideoUri[u] ?: media.firstOrNull { it.uri == u || edited[it.uri] == u }?.isVideo ?: false
     val askAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { access = hasMediaAccess(ctx) }
     LaunchedEffect(access) { if (access) media = loadRecent(ctx) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it)) } }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) onSend(listOf(it), "") } }
     // Telegram-like sheet: opens half-way; scrolling the photos up first lifts it to full height, then scrolls them
     QSheet(onDismiss = onDismiss, overlay = { sh ->
         // picking something lifts the sheet fully
@@ -177,30 +184,49 @@ fun AttachGallerySheet(
             // "Send N": springs in from the bottom when something is picked
             androidx.compose.animation.AnimatedVisibility(
                 picked.isNotEmpty(),
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp).graphicsLayer { alpha = sh.progress() },
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp).graphicsLayer { alpha = sh.progress() },
                 enter = scaleIn(Springs.spatial(), initialScale = 0.6f) + fadeIn(Springs.effects()),
                 exit = scaleOut(Springs.exit(), targetScale = 0.6f) + fadeOut(Springs.exit()),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // edit the last picked photo / video (Telegram's pencil next to Send)
-                    MorphIconButton(
-                        Icons.Outlined.Edit, "Редактировать", {
-                            picked.lastOrNull()?.let { u ->
-                                val orig = edited.entries.firstOrNull { it.value == u }?.key ?: u
-                                openMediaEditor(u, isVideo(u)) { out -> val i = picked.indexOf(u); edited[orig] = out; isVideoUri[out] = isVideo(u); if (i >= 0) picked[i] = out }
-                            }
-                        },
-                        size = 56.dp, color = cs.secondaryContainer, tint = cs.onSecondaryContainer, elevation = 6.dp,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    MorphBox(
-                        onClick = { onSend(picked.toList()) }, rest = 28.dp, pressed = 14.dp, elevation = 6.dp,
-                        color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.height(56.dp),
+                // Telegram: a caption field and the send button with the count, the pencil edits the last pick
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).imePadding(), verticalAlignment = Alignment.Bottom) {
+                    androidx.compose.material3.Surface(
+                        shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp,
+                        modifier = Modifier.weight(1f).heightIn(min = 56.dp),
                     ) {
-                        Row(Modifier.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
-                            Spacer(Modifier.width(10.dp))
-                            Text(if (picked.size == 1) "Отправить" else "Отправить ${picked.size}", style = MaterialTheme.typography.titleMedium)
+                        Row(Modifier.padding(start = 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            MorphIconButton(
+                                Icons.Outlined.Edit, "Редактировать", {
+                                    picked.lastOrNull()?.let { u ->
+                                        val orig = edited.entries.firstOrNull { it.value == u }?.key ?: u
+                                        openMediaEditor(u, isVideo(u)) { out -> val i = picked.indexOf(u); edited[orig] = out; isVideoUri[out] = isVideo(u); if (i >= 0) picked[i] = out }
+                                    }
+                                },
+                                size = 44.dp, tint = cs.onSurfaceVariant,
+                            )
+                            Box(Modifier.weight(1f).padding(vertical = 16.dp, horizontal = 4.dp)) {
+                                if (caption.isEmpty()) Text(if (picked.size > 1) "Подпись к альбому…" else "Добавить подпись…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                                androidx.compose.foundation.text.BasicTextField(
+                                    caption, { caption = it }, maxLines = 5,
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(cs.primary),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        MorphBox(
+                            onClick = { onSend(picked.toList(), caption) }, rest = 28.dp, pressed = 16.dp, elevation = 6.dp,
+                            color = cs.primary, contentColor = cs.onPrimary, modifier = Modifier.size(56.dp),
+                        ) { Icon(Icons.AutoMirrored.Filled.Send, "Отправить") }
+                        // the count badge on the button's corner
+                        androidx.compose.animation.AnimatedContent(picked.size, Modifier.align(Alignment.TopStart).offset(x = (-4).dp, y = (-4).dp), label = "cnt",
+                            transitionSpec = { (scaleIn(Springs.fastSpatial(), initialScale = 0.4f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.4f) + fadeOut()) }) { n ->
+                            Box(Modifier.size(24.dp).clip(CircleShape).background(cs.surface).padding(2.dp).clip(CircleShape).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+                                Text("$n", style = MaterialTheme.typography.labelMedium, color = cs.onPrimaryContainer)
+                            }
                         }
                     }
                 }

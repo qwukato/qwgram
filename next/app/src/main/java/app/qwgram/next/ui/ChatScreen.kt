@@ -1808,7 +1808,7 @@ private fun Composer(
     if (attach) AttachGallerySheet(
         canPoll = chat.type !is TdApi.ChatTypeSecret && chat.type !is TdApi.ChatTypePrivate,
         onDismiss = { attach = false },
-        onSend = { uris -> attach = false; sendUris(ctx, chat.id, uris, replyTo); onCancel() },
+        onSend = { uris, caption -> attach = false; sendUris(ctx, chat.id, uris, replyTo, caption); onCancel() },
         onSystemPicker = { attach = false; pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
         onFile = { attach = false; pickFile.launch(arrayOf("*/*")) },
         onMusic = { attach = false; pickFile.launch(arrayOf("audio/*")) },
@@ -1841,7 +1841,7 @@ private fun copyToCache(ctx: Context, uri: Uri): File? = try {
     null
 }
 
-private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, replyTo: TdApi.Message?) {
+private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, replyTo: TdApi.Message?, cap: TdApi.FormattedText? = null) {
     val f = copyToCache(ctx, uri) ?: run { postToast(ctx, "Не удалось прочитать файл"); return }
     val mime = mimeOf(ctx, uri)
     val content: TdApi.InputMessageContent = when {
@@ -1849,9 +1849,10 @@ private fun sendUri(ctx: Context, chatId: Long, uri: Uri, asDocument: Boolean, r
         !asDocument && mime.startsWith("video/") -> videoContent(f)
         else -> TdApi.InputMessageDocument().apply {
             document = TdApi.InputDocument().apply { document = TdApi.InputFileLocal(f.absolutePath) }
-            caption = TdApi.FormattedText("", arrayOf())
+            caption = cap ?: TdApi.FormattedText("", arrayOf())
         }
     }
+    if (cap != null) when (content) { is TdApi.InputMessagePhoto -> content.caption = cap; is TdApi.InputMessageVideo -> content.caption = cap; else -> {} }
     sendContent(chatId, content, replyTo)
 }
 
@@ -1911,15 +1912,18 @@ private fun mimeOf(ctx: Context, uri: Uri): String =
         ?: ""
 
 /** several photos/videos go as one album (2–10), anything else one by one */
-private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi.Message?) {
+private fun sendUris(ctx: Context, chatId: Long, uris: List<Uri>, replyTo: TdApi.Message?, caption: String = "") {
+    // the caption (Telegram): under the photo, or under the first item of an album (that is where Telegram shows it)
+    val cap = if (caption.isBlank()) null else parseFormatting(caption.trim())
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
         // Features → photos and videos as files, without compression
-        if (Prefs.photosAsFiles.value) { uris.forEach { sendUri(ctx, chatId, it, asDocument = true, replyTo) }; return@launch }
-        if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo) }; return@launch }
+        if (Prefs.photosAsFiles.value) { uris.forEachIndexed { i, u -> sendUri(ctx, chatId, u, asDocument = true, replyTo, if (i == 0) cap else null) }; return@launch }
+        if (uris.size < 2) { uris.forEach { sendUri(ctx, chatId, it, asDocument = false, replyTo, cap) }; return@launch }
         val contents = uris.mapNotNull { uri ->
             val f = copyToCache(ctx, uri) ?: return@mapNotNull null
             if (mimeOf(ctx, uri).startsWith("video/")) videoContent(f) else photoContent(f)
         }
+        if (cap != null) when (val c0 = contents.firstOrNull()) { is TdApi.InputMessagePhoto -> c0.caption = cap; is TdApi.InputMessageVideo -> c0.caption = cap; else -> {} }
         if (contents.size < uris.size) postToast(ctx, "Не все файлы удалось прочитать")
         // a lone item left over (11 photos → 10 + 1) goes as a normal message: an album needs 2+
         contents.chunked(10).forEach { part ->
