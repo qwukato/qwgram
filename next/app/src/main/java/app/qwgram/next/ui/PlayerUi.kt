@@ -490,7 +490,7 @@ private fun CoverStack(
                 }
                 if (!horizontal) {
                     // a tap on a side pill plays it
-                    val cx = size.width / 2f
+                    val cx = this@pointerInput.size.width / 2f
                     when {
                         down.position.x < cx - bigPx / 2 -> go(-1)
                         down.position.x > cx + bigPx / 2 -> go(1)

@@ -339,7 +339,9 @@ fun ProfileMusic(userId: Long) {
 
 /** the banner's outline: square top, rounded bottom corners (drawn, not clipped, so nothing on it gets cut) */
 private fun bannerPath(size: androidx.compose.ui.geometry.Size, r: Float) = androidx.compose.ui.graphics.Path().apply {
-    addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, size.height,
-        topLeft = androidx.compose.ui.geometry.CornerRadius.Zero, topRight = androidx.compose.ui.geometry.CornerRadius.Zero,
-        bottomRight = androidx.compose.ui.geometry.CornerRadius(r, r), bottomLeft = androidx.compose.ui.geometry.CornerRadius(r, r)))
+    addRoundRect(androidx.compose.ui.geometry.RoundRect(
+        left = 0f, top = 0f, right = size.width, bottom = size.height,
+        topLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius.Zero, topRightCornerRadius = androidx.compose.ui.geometry.CornerRadius.Zero,
+        bottomRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r), bottomLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+    ))
 }
