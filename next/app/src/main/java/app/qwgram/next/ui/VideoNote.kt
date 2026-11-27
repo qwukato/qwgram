@@ -315,10 +315,11 @@ fun VideoNoteHost() {
                     }
                     // slide up to lock: a rail right above the record button; it rises with the finger (tap works too)
                     val bob = loopPhase(true, 1400, (2 * Math.PI).toFloat())
-                    val pull = (-VideoNote.dragY / 110f).coerceIn(0f, 1f)
+                    val lockPx = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
+                    val pull = (-VideoNote.dragY / lockPx).coerceIn(0f, 1f)
                     Column(
                         Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 74.dp)
-                            .graphicsLayer { translationY = -pull * 40.dp.toPx() }
+                            .graphicsLayer { translationY = -pull * 56.dp.toPx(); val sc = 1f + 0.15f * pull; scaleX = sc; scaleY = sc }
                             .clip(CircleShape).background(androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, cs.primaryContainer, pull))
                             .clickable { VideoNote.locked = true }
                             .padding(horizontal = 12.dp, vertical = 14.dp),

@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -166,12 +167,14 @@ object PlayerUi {
     var panel by mutableIntStateOf(0)
     // the UI dispatcher carries a frame clock: animateTo needs one (a plain MainScope has none — that crashed)
     private val scope = kotlinx.coroutines.CoroutineScope(androidx.compose.ui.platform.AndroidUiDispatcher.Main + kotlinx.coroutines.SupervisorJob())
-    private val spec get() = if (Prefs.motion.value == "off") tween<Float>(0) else spring(0.86f, 340f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)
+    // no bounce, a calm glide (the sheet is big: overshoot reads as a jolt)
+    private val spec get() = if (Prefs.motion.value == "off") tween<Float>(0) else spring(1f, 240f * Prefs.motionSpeed.value * Prefs.motionSpeed.value, visibilityThreshold = 0.0005f)
 
     fun open() { scope.launch { expand.animateTo(1f, spec) } }
     fun close() { scope.launch { expand.animateTo(0f, spec); panel = 0 } }
     fun settle(open: Boolean, velocity: Float = 0f) { scope.launch { expand.animateTo(if (open) 1f else 0f, spec, initialVelocity = velocity); if (!open) panel = 0 } }
-    fun dragBy(fraction: Float) { scope.launch { expand.snapTo((expand.value + fraction).coerceIn(0f, 1f)) } }
+    // applied right away (no dispatch hop): the sheet sticks to the finger
+    fun dragBy(fraction: Float) { scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { expand.snapTo((expand.value + fraction).coerceIn(0f, 1f)) } }
 }
 
 private fun lerpF(a: Float, b: Float, t: Float) = a + (b - a) * t
@@ -306,7 +309,7 @@ fun PlayerHost() {
         val stageTop = top + 72.dp
         val controlsTop = h - (318.dp + bottomInset)
         val stageH = (controlsTop - stageTop - 8.dp).coerceAtLeast(120.dp)
-        val big = minOf(w - 40.dp, stageH)
+        val big = minOf(w - 104.dp, stageH)   // room for the carousel's side pills (16 + 28 + 8 each side)
         val bigX = (w - big) / 2
         val bigY = stageTop + (stageH - big) / 2
         val thumb = 56.dp
@@ -345,36 +348,37 @@ fun PlayerHost() {
                 .background(col.bgTop)
                 .nestedScroll(conn)
                 .pointerInput(range) {
+                    // pull down ANYWHERE to close: watched before the children (Initial pass) and taken from them once
+                    // it is clearly a downward drag (buttons then don't fire); the queue / lyrics lists close it
+                    // through nested scroll instead, once they are at their top
                     val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        val inLists = PlayerUi.panel != 0 && down.position.y > stageTop.toPx() && down.position.y < controlsTop.toPx()
                         val vt = VelocityTracker()
-                        vt.addPosition(down.uptimeMillis, down.position)
-                        var mode = 0
+                        var y = 0f        // the finger's travel in screen terms (the sheet itself moves under it)
                         var acc = Offset.Zero
-                        var last = down.position
-                        val inControls = down.position.y > controlsTop.toPx()
-                        val inHeader = down.position.y < stageTop.toPx()
+                        var mode = 0
+                        vt.addPosition(down.uptimeMillis, Offset(0f, 0f))
                         while (true) {
-                            val ev = awaitPointerEvent()
+                            val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             val c = ev.changes.firstOrNull { it.id == down.id } ?: break
                             if (!c.pressed) break
-                            if (mode == 0 && c.isConsumed) { mode = -1; break }   // a child took it (seek bar, cover, list)
-                            vt.addPosition(c.uptimeMillis, c.position)
-                            val d = c.position - last
-                            last = c.position
+                            val d = c.position - c.previousPosition
+                            y += d.y
+                            vt.addPosition(c.uptimeMillis, Offset(0f, y))
                             if (mode == 0) {
                                 acc += d
-                                if (abs(acc.y) > slop && abs(acc.y) > abs(acc.x)) {
-                                    mode = if (acc.y > 0f && !inControls && (PlayerUi.panel == 0 || inHeader)) 1 else -1
-                                    if (mode == -1) break
-                                }
+                                if (abs(acc.y) > slop && abs(acc.y) > abs(acc.x) * 1.3f) {
+                                    mode = if (acc.y > 0f && !inLists) 1 else -1
+                                } else if (abs(acc.x) > slop) mode = -1
+                                if (mode == -1) break
                             }
                             if (mode == 1) { c.consume(); PlayerUi.dragBy(-d.y / range) }
                         }
                         if (mode == 1) {
-                            val v = vt.calculateVelocity()
-                            PlayerUi.settle(!(v.y > 900f || PlayerUi.expand.value < 0.75f), -v.y / range)
+                            val v = vt.calculateVelocity().y
+                            PlayerUi.settle(!(v > 700f || PlayerUi.expand.value < 0.7f), -v / range)
                         }
                     }
                 },
@@ -408,15 +412,18 @@ fun PlayerHost() {
             val bigR by animateDpAsState(if (Player.playing) 28.dp else 52.dp, spring(0.6f, 300f * k), label = "cr")
             val pausedScale by animateFloatAsState(if (Player.playing || !full) 1f else 0.9f, spring(0.55f, 260f * k), label = "cs")
             val coverR = lerpDp(bigR, 16.dp, panelT)
+            // full width while it is the carousel; shrinks to the thumbnail's own box for lyrics / the queue
+            val lw = lerpDp(w, cs2, panelT)
+            val lx = lerpDp(0.dp, cx, panelT)
             CoverStack(
                 track, full, cs2, col,
                 Modifier.layout { m, _ ->
-                    val sz = cs2.roundToPx().coerceAtLeast(1)
-                    val pl = m.measure(Constraints.fixed(sz, sz))
-                    layout(sz, sz) { pl.place(cx.roundToPx(), cy.roundToPx()) }
+                    val ww = lw.roundToPx().coerceAtLeast(1)
+                    val hh = cs2.roundToPx().coerceAtLeast(1)
+                    val pl = m.measure(Constraints.fixed(ww, hh))
+                    layout(ww, hh) { pl.place(lx.roundToPx(), cy.roundToPx()) }
                 },
-                shapeOf = { RoundedCornerShape(coverR) },
-                rotation = { 0f },
+                shapeOf = { coverR },
                 scale = { pausedScale },
                 onTap = { if (PlayerUi.panel != 0) PlayerUi.panel = 0 },
             )
@@ -427,30 +434,37 @@ fun PlayerHost() {
 // ---------------------------------------------------------------- the cover
 
 /**
- * The current cover with its neighbours beside it: drag it sideways and the next / previous one slides in;
- * let go past a third (or flick) and that track starts — its cover is already in place, so nothing jumps.
+ * Covers as an M3 carousel: the current cover big in the middle, the previous / next as narrow tall pills at the
+ * edges. Drag sideways and the masks morph — the big one narrows into a pill while the neighbour widens into the
+ * big cover (the picture stays put inside its mask, like Material 3's carousel). Let go past a third, flick, or tap
+ * a side pill and that track plays.
  */
 @Composable
 private fun CoverStack(
     track: Track, swipeable: Boolean, size: Dp, col: PColors, modifier: Modifier,
-    shapeOf: () -> androidx.compose.ui.graphics.Shape, rotation: () -> Float, scale: () -> Float, onTap: () -> Unit,
+    shapeOf: () -> Dp, scale: () -> Float, onTap: () -> Unit, small: Dp = 28.dp, gap: Dp = 8.dp,
 ) {
     val scope = rememberCoroutineScope()
     val dx = remember { Animatable(0f) }
     val density = LocalDensity.current
-    val step = with(density) { (size + 24.dp).toPx() }
-    val q = Player.queue
-    val i = Player.index
-    // previous · current · next, drawn from ONE loop keyed by the track: when the next one becomes current it is the
-    // same composable (its picture already loaded), it just changes place
+    val bigPx = with(density) { size.toPx() }
+    val smallPx = with(density) { small.toPx() }
+    val gapPx = with(density) { gap.toPx() }
+    val step = bigPx / 2 + gapPx + smallPx / 2
+    // the tracks around the current one (in play order), drawn from ONE loop keyed by the track
     val items = buildList {
         add(0 to track)
-        if (swipeable && q.size > 1) {
-            q.getOrNull(Player.nextIndex())?.takeIf { it !== track }?.let { add(1 to it) }
-            q.getOrNull(Player.prevIndex())?.takeIf { it !== track && none { pr -> pr.second === it } }?.let { add(-1 to it) }
+        if (swipeable) for (k in listOf(-2, -1, 1, 2)) {
+            Player.peek(k)?.let { Player.queue.getOrNull(it) }?.takeIf { t -> t !== track && none { it.second === t } }?.let { add(k to it) }
         }
     }
-    Box(
+    fun go(dir: Int) = scope.launch {
+        if (Player.peek(dir) == null) { dx.animateTo(0f, spring(0.7f, 420f)); return@launch }
+        dx.animateTo(-dir * step, spring(1f, 520f))
+        if (dir > 0) Player.next() else Player.previous(force = true)
+        dx.snapTo(0f)
+    }
+    BoxWithConstraints(
         modifier.pointerInput(swipeable, step) {
             if (!swipeable) { detectTapGestures { onTap() }; return@pointerInput }
             val slop = viewConfiguration.touchSlop
@@ -472,47 +486,64 @@ private fun CoverStack(
                         if (abs(acc.x) > slop && abs(acc.x) > abs(acc.y) * 1.2f) horizontal = true
                         else if (abs(acc.y) > slop) return@awaitEachGesture   // a vertical pull: the player's
                     }
-                    if (horizontal) { c.consume(); scope.launch { dx.snapTo(dx.value + d.x) } }
+                    if (horizontal) { c.consume(); scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { dx.snapTo((dx.value + d.x).coerceIn(-step * 1.2f, step * 1.2f)) } }
                 }
-                if (!horizontal) { onTap(); return@awaitEachGesture }
+                if (!horizontal) {
+                    // a tap on a side pill plays it
+                    val cx = size.width / 2f
+                    when {
+                        down.position.x < cx - bigPx / 2 -> go(-1)
+                        down.position.x > cx + bigPx / 2 -> go(1)
+                        else -> onTap()
+                    }
+                    return@awaitEachGesture
+                }
                 val v = vt.calculateVelocity().x
                 val cur = dx.value
-                scope.launch {
-                    val go = (abs(cur) > step * 0.3f || abs(v) > 900f) && q.size > 1
-                    if (go) {
-                        val dir = if (cur < 0) 1 else -1
-                        dx.animateTo(-dir * step, spring(0.9f, 500f, visibilityThreshold = 1f), initialVelocity = v)
-                        if (dir > 0) Player.next() else Player.previous(force = true)
-                        dx.snapTo(0f)
-                    } else dx.animateTo(0f, spring(0.62f, 420f), initialVelocity = v)
-                }
+                if (abs(cur) > step * 0.3f || abs(v) > 900f) go(if (cur < 0) 1 else -1)
+                else scope.launch { dx.animateTo(0f, spring(0.7f, 420f), initialVelocity = v) }
             }
         },
     ) {
+        val wPx = constraints.maxWidth.toFloat()
+        val hPx = constraints.maxHeight.toFloat()
         items.forEach { (side, t) ->
             key(t.file.id) {
-                CoverImage(t, col, Modifier.fillMaxSize().graphicsLayer {
-                    translationX = dx.value + side * step
-                    if (side == 0) {
-                        rotationZ = rotation(); val sc = scale(); scaleX = sc; scaleY = sc
-                        shape = shapeOf()
-                    } else {
-                        // only the one being pulled in shows (a 2-track queue has the same track on both sides)
-                        alpha = if ((side > 0) == (dx.value < 0)) (abs(dx.value) / step * 1.6f).coerceIn(0f, 1f) else 0f
-                        shape = RoundedCornerShape(28.dp)
+                CoverImage(t, col, Modifier
+                    .layout { m, c ->
+                        // position in the carousel: 0 = centre, ±1 = the side pills, ±2 = coming in from the edge
+                        val pos = side + dx.value / step
+                        val a = abs(pos)
+                        val mw = when {
+                            a <= 1f -> bigPx + (smallPx - bigPx) * a
+                            else -> smallPx * (2f - a).coerceIn(0f, 1f)
+                        }.coerceAtLeast(1f)
+                        val dist = if (a <= 1f) step * a else step + (a - 1f) * (smallPx + gapPx)
+                        val centre = wPx / 2f + (if (pos < 0) -dist else dist)
+                        val pl = m.measure(Constraints.fixed(mw.roundToInt(), hPx.roundToInt().coerceAtLeast(1)))
+                        layout(mw.roundToInt(), hPx.roundToInt()) { pl.place((centre - mw / 2f).roundToInt(), 0) }
                     }
-                    clip = true
-                })
+                    .graphicsLayer {
+                        val a = abs(side + dx.value / step).coerceAtMost(1f)
+                        val r = shapeOf().toPx() + (smallPx / 2f - shapeOf().toPx()) * a
+                        shape = RoundedCornerShape(r.coerceAtLeast(0f)); clip = true
+                        val sc = if (side == 0) scale() else 1f
+                        scaleX = sc; scaleY = sc
+                    },
+                    contentSize = size,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CoverImage(t: Track, col: PColors, modifier: Modifier) {
+private fun CoverImage(t: Track, col: PColors, modifier: Modifier, contentSize: Dp? = null) {
     val art = rememberTrackArt(t)
     Box(modifier.background(col.container), contentAlignment = Alignment.Center) {
-        Crossfade(art, animationSpec = tween(400), label = "art") { b ->
+        // in the carousel the picture keeps the big cover's size and the mask cuts it (it doesn't squash)
+        val inner = if (contentSize != null) Modifier.requiredSize(contentSize) else Modifier.fillMaxSize()
+        Crossfade(art, animationSpec = tween(400), modifier = inner, label = "art") { b ->
             if (b != null) Image(b, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, filterQuality = FilterQuality.High)
             else BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.MusicNote, null, tint = col.onContainer, modifier = Modifier.size(maxWidth * 0.42f))
@@ -533,7 +564,6 @@ private fun MiniPill(track: Track) {
     val density = LocalDensity.current
     val screenH = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val art = rememberTrackArt(track, 300)
-    val spin = loopPhase(Player.playing && !off, 16000, 360f)
     Box(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(64.dp)
             .graphicsLayer {
@@ -553,8 +583,9 @@ private fun MiniPill(track: Track) {
                     while (true) {
                         val ev = awaitPointerEvent()
                         val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!c.pressed) break
+                        // a button inside took it (its tap ends consumed): never opens the player
                         if (mode == 0 && c.isConsumed) { mode = -1; break }
+                        if (!c.pressed) break
                         vt.addPosition(c.uptimeMillis, c.position)
                         val d = c.position - last
                         last = c.position
@@ -589,7 +620,7 @@ private fun MiniPill(track: Track) {
     ) {
         Row(Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(44.dp).graphicsLayer { rotationZ = if (Player.playing && !off) spin.value else 0f }.clip(CircleShape).background(cs.primaryContainer),
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -605,11 +636,26 @@ private fun MiniPill(track: Track) {
                 }
             }
             MorphIconButton(Icons.Filled.SkipPrevious, "Предыдущий", { Player.previous() }, size = 40.dp, tint = cs.primary)
-            // M3 wavy progress ring around the button (spins while the track loads)
-            Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
-                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(50.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
-                else androidx.compose.material3.CircularWavyProgressIndicator(progress = { Player.progress }, modifier = Modifier.size(50.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
-                PlayMorphButton(Player.playing, 34.dp, cs.primaryContainer, cs.onPrimaryContainer) { Player.playPause() }
+            // M3 wavy progress ring around a round play button: the wave flattens when paused, spins while loading
+            Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                val amp by animateFloatAsState(if (Player.playing) 1f else 0f, tween(400), label = "ra")
+                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(52.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
+                else androidx.compose.material3.CircularWavyProgressIndicator(
+                    progress = { Player.progress }, modifier = Modifier.size(52.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f),
+                    amplitude = { amp },
+                )
+                val pi = remember { MutableInteractionSource() }
+                val pp by pi.collectIsPressedAsState()
+                val sc by animateFloatAsState(if (pp) 0.88f else 1f, if (pp) Springs.pressIn() else Springs.morphRelease(), label = "ps")
+                Box(
+                    Modifier.size(34.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).background(cs.primaryContainer)
+                        .clickable(pi, indication = null) { Player.playPause() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AnimatedContent(Player.playing, transitionSpec = { (scaleIn(spring(0.5f, 600f), initialScale = 0.4f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.4f) + fadeOut()) }, label = "mp") { pl ->
+                        Icon(if (pl) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (pl) "Пауза" else "Играть", tint = cs.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
             MorphIconButton(Icons.Filled.SkipNext, "Следующий", { Player.next() }, size = 40.dp, tint = cs.primary)
             // close: only while paused (playing music isn't closed by a stray tap)
@@ -628,7 +674,7 @@ private fun FullHeader(track: Track, col: PColors, top: Dp, onCollapse: () -> Un
     var menu by remember { mutableStateOf(false) }
     var forward by remember { mutableStateOf<TdApi.Message?>(null) }
     Row(Modifier.padding(top = top + 4.dp, start = 10.dp, end = 10.dp).fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
-        MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Свернуть", onCollapse, size = 48.dp, color = col.container.copy(alpha = 0.55f), tint = col.text)
+        MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Свернуть", onCollapse, size = 48.dp, color = col.container, tint = col.onContainer)
         Column(Modifier.weight(1f).padding(horizontal = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(Player.source.ifBlank { "Сейчас играет" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (Player.queue.size > 1) AnimatedContent(Player.index, transitionSpec = { (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut()) }, label = "ti") { i ->
@@ -636,7 +682,7 @@ private fun FullHeader(track: Track, col: PColors, top: Dp, onCollapse: () -> Un
             }
         }
         Box {
-            MorphIconButton(Icons.Outlined.MoreVert, "Ещё", { menu = true }, size = 48.dp, color = col.container.copy(alpha = 0.55f), tint = col.text)
+            MorphIconButton(Icons.Outlined.MoreVert, "Ещё", { menu = true }, size = 48.dp, color = col.container, tint = col.onContainer)
             QMenu(menu, { menu = false }) {
                 val scope = rememberCoroutineScope()
                 if (track.chatId != 0L) {
@@ -784,14 +830,18 @@ private fun Seg(modifier: Modifier, shape: RoundedCornerShape, color: Color, i: 
     ) { content() }
 }
 
-/** a round toggle: filled with the accent when on (M3 toggle button) */
+/** a round toggle (M3 toggle button): the same tonal colour as the other buttons when off, the accent when on — the shape squares up a little when it switches on */
 @Composable
 private fun ToggleTool(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, on: Boolean, col: PColors, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (on) col.accent else Color.Transparent, label = "tb")
-    val fg by animateColorAsState(if (on) col.onAccent else col.text, label = "tf")
-    MorphBox(onClick = onClick, rest = if (on) 16.dp else 24.dp, pressed = 12.dp, modifier = Modifier.size(48.dp), color = bg, contentColor = fg) {
-        Icon(icon, desc, Modifier.size(24.dp))
-    }
+    val i = remember { MutableInteractionSource() }
+    val pressed by i.collectIsPressedAsState()
+    val bg by animateColorAsState(if (on) col.accent else col.container, tween(220), label = "tb")
+    val fg by animateColorAsState(if (on) col.onAccent else col.onContainer, tween(220), label = "tf")
+    val r by animateDpAsState(if (pressed) 12.dp else if (on) 16.dp else 24.dp, spring(0.55f, 600f), label = "tr")
+    Box(
+        Modifier.size(48.dp).clip(RoundedCornerShape(r)).background(bg).clickable(i, indication = androidx.compose.material3.ripple(), onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, desc, Modifier.size(24.dp), tint = fg) }
 }
 
 /** the floating toolbar: speed · sleep timer · lyrics · queue */

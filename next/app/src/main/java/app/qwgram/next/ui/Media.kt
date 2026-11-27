@@ -244,6 +244,14 @@ object Player {
     }
     private fun pos() = order.indexOf(index).coerceAtLeast(0)
     fun nextIndex(): Int = if (queue.size < 2) index else order.getOrElse((pos() + 1) % order.size) { 0 }
+    /** the track [k] steps away in play order (k = -2..2 for the cover carousel), or null */
+    fun peek(k: Int): Int? {
+        if (queue.isEmpty() || order.isEmpty()) return null
+        if (k == 0) return index
+        if (queue.size < 2) return null
+        val p = (pos() + k).let { if (repeat == 0 && !shuffleOn && (it < 0 || it > order.lastIndex)) return null else ((it % order.size) + order.size) % order.size }
+        return order.getOrNull(p)
+    }
     fun prevIndex(): Int = if (queue.size < 2) index else order.getOrElse((pos() - 1 + order.size) % order.size) { 0 }
 
     fun next(user: Boolean = true) {

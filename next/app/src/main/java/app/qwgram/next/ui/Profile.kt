@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -119,22 +120,24 @@ fun ProfileBanner(
             .then(
                 // no profile colour: a soft tonal glow from the theme behind the avatar (never a bare page)
                 if (bannerColors == null) Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 36.dp.rs(), bottomEnd = 36.dp.rs()))
                     .drawBehind {
+                        clipPath(bannerPath(size, 36.dp.toPx())) {
                         drawRect(Brush.verticalGradient(listOf(cs.primaryContainer.copy(alpha = 0.55f), cs.secondaryContainer.copy(alpha = 0.25f), cs.surface)))
                         drawRect(Brush.radialGradient(listOf(cs.tertiaryContainer.copy(alpha = 0.45f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.4f), radius = size.maxDimension * 0.5f))
+                        }
                     }
                 else Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 36.dp.rs(), bottomEnd = 36.dp.rs()))
                     // Telegram draws the profile colour as a soft radial glow: inner colour around the avatar, outer to the edges
                     .drawBehind {
                         val inner = bannerColors.first()
                         val outer = bannerColors.getOrNull(1) ?: bannerColors.first()
-                        drawRect(outer)
-                        drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.6f))
+                        clipPath(bannerPath(size, 36.dp.toPx())) {
+                            drawRect(outer)
+                            drawRect(Brush.radialGradient(listOf(inner, outer), center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.45f), radius = size.maxDimension * 0.6f))
+                        }
                     },
             )
-            .padding(top = (topInset - 14.dp).coerceAtLeast(0.dp), bottom = if (bannerColors != null) 14.dp else 6.dp),
+            .padding(top = (topInset - 30.dp).coerceAtLeast(0.dp), bottom = if (bannerColors != null) 14.dp else 6.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
@@ -155,20 +158,12 @@ fun ProfileBanner(
                     }
                 }
                 Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    // the avatar: a soft ring of the theme colour; pressed, the circle morphs into a scalloped cookie (M3 Expressive)
-                    val avInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                    val avPressed by avInteraction.collectIsPressedAsState()
-                    val avMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie9Sided) }
-                    val avP by androidx.compose.animation.core.animateFloatAsState(if (avPressed) 1f else 0f, androidx.compose.animation.core.spring(0.5f, 500f), label = "avp")
-                    val ringC = if (bannerColors != null) Color.White.copy(alpha = 0.55f) else cs.primary.copy(alpha = 0.45f)
-                    Box(Modifier.size(120.dp).graphicsLayer { rotationZ = avP * 20f }.clip(MorphShape(avMorph, avP)).background(ringC), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(110.dp).clip(MorphShape(avMorph, avP)).clickable(avInteraction, indication = null, onClick = onAvatar)) {
-                            if (chat == null) UserAvatar(user, 110.dp) else ChatAvatar(chat, 110.dp)
-                        }
+                    Box(Modifier.size(112.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                        if (chat == null) UserAvatar(user, 112.dp) else ChatAvatar(chat, 112.dp)
                     }
-                    // online: a green dot on the ring
+                    // online: a green dot at the avatar's edge
                     if (onCamera == null && user?.status is TdApi.UserStatusOnline) Box(
-                        Modifier.padding(end = 8.dp, bottom = 8.dp).size(22.dp).clip(CircleShape).background(if (bannerColors != null) Color.White else cs.surface).padding(4.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
+                        Modifier.padding(end = 4.dp, bottom = 4.dp).size(22.dp).clip(CircleShape).background(if (bannerColors != null) Color.White else cs.surface).padding(4.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
                     )
                     if (onCamera != null) MorphIconButton(Icons.Outlined.PhotoCamera, "Сменить фото", onCamera, size = 42.dp, color = cs.primary, tint = cs.onPrimary, elevation = 3.dp)
                 }
@@ -340,4 +335,11 @@ fun ProfileMusic(userId: Long) {
             }
         }
     }
+}
+
+/** the banner's outline: square top, rounded bottom corners (drawn, not clipped, so nothing on it gets cut) */
+private fun bannerPath(size: androidx.compose.ui.geometry.Size, r: Float) = androidx.compose.ui.graphics.Path().apply {
+    addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, size.height,
+        topLeft = androidx.compose.ui.geometry.CornerRadius.Zero, topRight = androidx.compose.ui.geometry.CornerRadius.Zero,
+        bottomRight = androidx.compose.ui.geometry.CornerRadius(r, r), bottomLeft = androidx.compose.ui.geometry.CornerRadius(r, r)))
 }

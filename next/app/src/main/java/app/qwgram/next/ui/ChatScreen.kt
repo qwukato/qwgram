@@ -3,6 +3,9 @@ package app.qwgram.next.ui
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.translate
@@ -677,7 +680,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
         val (from, _) = sendFlight.shiftFrom
         if (from == 0f) return@LaunchedEffect
         val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
-        androidx.compose.animation.core.animate(from, 0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 300f * k, visibilityThreshold = 0.5f)) { v, _ -> sendFlight.shift = v }
+        androidx.compose.animation.core.animate(from, 0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 340f * k, visibilityThreshold = 0.5f)) { v, _ -> sendFlight.shift = v }
         sendFlight.shift = 0f
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze, LocalSendFlight provides sendFlight) {
@@ -784,8 +787,10 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                                 }
                                 sendFlight.pinKey = null
                             }
-                            layout(pl.width, pl.height) { pl.place(0, sendFlight.shift.toInt()) }
-                        },
+                            layout(pl.width, pl.height) { pl.place(0, 0) }
+                        }
+                        // the history slides on the GPU (no relayout per frame)
+                        .graphicsLayer { translationY = sendFlight.shift },
                     // no side padding: selection highlights span the whole width; rows pad their own content
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(top = (topH - headerOverlap()).coerceAtLeast(8.dp), bottom = (bottomH - if (Prefs.floatingBars.value) 10.dp else 0.dp).coerceAtLeast(8.dp)),
                 ) {
@@ -1694,97 +1699,72 @@ private fun Composer(
                     color = sendBg,
                     contentColor = sendFg,
                     modifier = Modifier.size(52.dp)
-                        .graphicsLayer { val sc = if (videoRec) 1.35f else scale; scaleX = sc; scaleY = sc; translationX = dragX.value; rotationZ = spin }
-                        .pointerInput(ready) {
+                        .graphicsLayer { val sc = if (videoRec || recording) 1.35f else scale; scaleX = sc; scaleY = sc; rotationZ = spin }
+                        .pointerInput(ready, editing) {
                             if (ready) {
                                 detectTapGestures(
                                     onTap = { onSend() },
                                     onLongPress = { if (editing == null) { haptic(HapticFeedbackType.LongPress); sendOptions = true } },
                                 )
-                            } else {
-                                detectTapGestures(
-                                    // tap: voice ⇄ round video (Telegram); hold: record
-                                    onTap = { haptic(HapticFeedbackType.SegmentTick); VideoNote.videoMode = !VideoNote.videoMode },
-                                    onLongPress = {
-                                        if (VideoNote.videoMode) {
-                                            val need = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
-                                            if (need.isNotEmpty()) camPermission.launch(need.toTypedArray())
-                                            else { VideoNote.start(chat.id, replyTo); videoRec = true; haptic(HapticFeedbackType.LongPress) }
-                                        } else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                                            micPermission.launch(Manifest.permission.RECORD_AUDIO)
-                                        } else if (!recorder.supported) {
-                                            Toast.makeText(ctx, "Голосовые доступны на Android 10 и новее", Toast.LENGTH_SHORT).show()
-                                        } else if (recorder.start()) {
-                                            recording = true
-                                            haptic(HapticFeedbackType.LongPress)
-                                            Td.send(TdApi.SendChatAction(chat.id, null, "", TdApi.ChatActionRecordingVoiceNote()))
-                                        }
-                                    },
-                                )
+                                return@pointerInput
                             }
-                        }
-                        .pointerInput(videoRec) {
-                            // round video while held: let go = send, left = cancel, up = lock (hands free)
-                            if (videoRec) {
-                                awaitPointerEventScope {
-                                    var start: Offset? = null
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        val ch = ev.changes.firstOrNull() ?: continue
-                                        if (start == null) start = ch.position
-                                        if (!ch.pressed) {
-                                            videoRec = false
-                                            scope.launch { dragX.animateTo(0f) }
-                                            if (!VideoNote.locked) VideoNote.finish(true)
-                                            break
-                                        }
-                                        val dx = (ch.position.x - size.width / 2f).coerceAtMost(0f)
-                                        val dy = (ch.position.y - size.height / 2f).coerceAtMost(0f)
-                                        VideoNote.dragX = dx; VideoNote.dragY = dy
-                                        scope.launch { dragX.snapTo(dx) }
-                                        if (dx < -180f && -dx > -dy) {
-                                            VideoNote.finish(false); videoRec = false
-                                            haptic(HapticFeedbackType.Reject)
-                                            scope.launch { dragX.animateTo(0f) }
-                                            break
-                                        }
-                                        if (dy < -110f && -dy > -dx) {
-                                            VideoNote.locked = true; videoRec = false
-                                            haptic(HapticFeedbackType.Confirm)
-                                            scope.launch { dragX.animateTo(0f) }
-                                            break
-                                        }
-                                    }
+                            // ONE gesture for voice and round video (Telegram): tap = switch voice ⇄ video;
+                            // hold = record; while holding: left = cancel, up = lock (video), let go = send
+                            val cancelPx = 90.dp.toPx()
+                            val lockPx = 64.dp.toPx()
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                val r = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() ?: "cancel" }
+                                if (r is androidx.compose.ui.input.pointer.PointerInputChange) {
+                                    haptic(HapticFeedbackType.SegmentTick); VideoNote.videoMode = !VideoNote.videoMode
+                                    return@awaitEachGesture
                                 }
-                            }
-                        }
-                        .pointerInput(recording) {
-                            if (recording) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        val ch = ev.changes.firstOrNull() ?: continue
-                                        if (!ch.pressed) {
+                                if (r != null) return@awaitEachGesture
+                                val video = VideoNote.videoMode
+                                if (video) {
+                                    val need = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+                                    if (need.isNotEmpty()) { camPermission.launch(need.toTypedArray()); return@awaitEachGesture }
+                                    VideoNote.start(chat.id, replyTo); videoRec = true
+                                } else {
+                                    if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { micPermission.launch(Manifest.permission.RECORD_AUDIO); return@awaitEachGesture }
+                                    if (!recorder.supported) { Toast.makeText(ctx, "Голосовые доступны на Android 10 и новее", Toast.LENGTH_SHORT).show(); return@awaitEachGesture }
+                                    if (!recorder.start()) return@awaitEachGesture
+                                    recording = true
+                                    Td.send(TdApi.SendChatAction(chat.id, null, "", TdApi.ChatActionRecordingVoiceNote()))
+                                }
+                                haptic(HapticFeedbackType.LongPress)
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed) {
+                                        // let go: send (a locked video keeps recording)
+                                        if (video) { videoRec = false; if (!VideoNote.locked) VideoNote.finish(true) }
+                                        else {
                                             val res = recorder.stop(false)
                                             recording = false
-                                            scope.launch { dragX.animateTo(0f) }
-                                            if (res != null) {
-                                                sendVoice(chat.id, res.first, res.second, replyTo)
-                                                onCancel()
-                                            }
-                                            break
+                                            if (res != null) { sendVoice(chat.id, res.first, res.second, replyTo); onCancel() }
                                         }
-                                        val dx = (ch.position.x - size.width / 2f).coerceAtMost(0f)
-                                        scope.launch { dragX.snapTo(dx) }
-                                        if (dx < -160f) {
-                                            recorder.stop(true)
-                                            recording = false
-                                            haptic(HapticFeedbackType.Reject)
-                                            scope.launch { dragX.animateTo(0f) }
-                                            break
-                                        }
+                                        break
+                                    }
+                                    ch.consume()
+                                    // in screen terms (the button itself is scaled): how far the finger went
+                                    val d = (ch.position - down.position) * 1.35f
+                                    val dx = d.x.coerceAtMost(0f)
+                                    val dy = d.y.coerceAtMost(0f)
+                                    if (video) { VideoNote.dragX = dx; VideoNote.dragY = dy }
+                                    scope.launch { dragX.snapTo(dx) }
+                                    if (dx < -cancelPx && -dx > -dy) {
+                                        if (video) { VideoNote.finish(false); videoRec = false } else { recorder.stop(true); recording = false }
+                                        haptic(HapticFeedbackType.Reject)
+                                        break
+                                    }
+                                    if (video && dy < -lockPx && -dy > -dx) {
+                                        VideoNote.locked = true; videoRec = false
+                                        haptic(HapticFeedbackType.Confirm)
+                                        break
                                     }
                                 }
+                                scope.launch { dragX.animateTo(0f) }
                             }
                         },
                 ) {
@@ -2249,7 +2229,7 @@ private fun Modifier.flyFromField(done: () -> Unit): Modifier {
         flight.p.snapTo(0f)
         val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
         // the same spring as the history sliding up: they arrive together
-        flight.p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 300f * k, visibilityThreshold = 0.001f))
+        flight.p.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 340f * k, visibilityThreshold = 0.001f))
         if (flight.token === token) { flight.token = null; flight.layer = null }
         finished = true
         done()
