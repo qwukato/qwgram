@@ -191,6 +191,7 @@ fun NavHost(content: @Composable (Route) -> Unit) {
         }
         // music: the mini player floats over every screen and grows into the full player
         PlayerHost()
+        VideoNoteHost()
         VideoViewerHost()
         PhotoEditorHost()
         StickerSetHost()

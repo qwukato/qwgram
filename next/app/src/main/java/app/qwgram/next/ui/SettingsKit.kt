@@ -175,6 +175,7 @@ fun FadeHeader(
                 if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+        Column {
         if (center) {
             CenteredBar(
                 Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp),
@@ -188,6 +189,9 @@ fun FadeHeader(
                 titleBlock(Modifier.weight(1f).padding(horizontal = 10.dp))
                 actions()
             }
+        }
+        // every page has its own mini player under the title (pushes the page down; folds away when closed)
+        MiniPlayerBar()
         }
     }
 }

@@ -2,6 +2,7 @@ package app.qwgram.next.ui
 
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.translate
@@ -755,6 +756,8 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
             ctl.pinned?.let { p ->
                 PinnedBar(p, onClick = { jump(p.id) }, onClose = { Td.send(TdApi.UnpinChatMessage(chatId, p.id)) })
             }
+            // this screen's own mini player (a block of the header: messages move down for it)
+            MiniPlayerBar()
             // floating bars leave room for the fade; a square bar ends right under its content (no empty band)
             if (Prefs.floatingBars.value) Spacer(Modifier.height(18.dp))
             }
@@ -1554,6 +1557,9 @@ private fun Composer(
     val dragX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val camPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    // holding the button for a round video (the recording itself lives in VideoNote, shown over the chat)
+    var videoRec by remember { mutableStateOf(false) }
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         uris.forEach { sendUri(ctx, chat.id, it, asDocument = false, replyTo) }
         if (uris.isNotEmpty()) onCancel()
@@ -1670,21 +1676,25 @@ private fun Composer(
                 val corner by animateDpAsState(if (ready) 16.dp else 26.dp, Springs.fastSpatial(), label = "send")
                 val scale by androidx.compose.animation.core.animateFloatAsState(if (recording) 1.35f else 1f, Springs.fastSpatial(), label = "rec")
                 // circle (mic) ⇄ 9-sided cookie (send), turning as it morphs; bouncy both ways
-                val sendMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie9Sided) }
+                val videoMode = VideoNote.videoMode
+                // the idle button: circle (voice) ⇄ rounded square (round video); typing morphs it from either into the cookie
+                val sendMorph = remember(videoMode) { androidx.graphics.shapes.Morph(if (videoMode) androidx.compose.material3.MaterialShapes.Square else androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Cookie9Sided) }
+                val modeMorph = remember { androidx.graphics.shapes.Morph(androidx.compose.material3.MaterialShapes.Circle, androidx.compose.material3.MaterialShapes.Square) }
                 val off = Prefs.motion.value == "off"
                 val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value
                 val morphP by androidx.compose.animation.core.animateFloatAsState(if (ready) 1f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 420f * k), label = "sm")
-                val spin by androidx.compose.animation.core.animateFloatAsState(if (ready) 120f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f * k), label = "spin")
+                val modeP by androidx.compose.animation.core.animateFloatAsState(if (videoMode) 1f else 0f, if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.42f, stiffness = 420f * k), label = "vm")
+                val spin by androidx.compose.animation.core.animateFloatAsState((if (ready) 120f else 0f) + (if (videoMode) 90f else 0f), if (off) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f * k), label = "spin")
                 // colours blend over the same spring as the shape, so mic → send and send → mic are mirror images
                 val sendBg by androidx.compose.animation.animateColorAsState(if (ready || recording) cs.primary else cs.primaryContainer, androidx.compose.animation.core.tween(260), label = "sbg")
                 val sendFg by androidx.compose.animation.animateColorAsState(if (ready || recording) cs.onPrimary else cs.onPrimaryContainer, androidx.compose.animation.core.tween(260), label = "sfg")
                 Surface(
-                    shape = MorphShape(sendMorph, morphP.coerceIn(-0.15f, 1.15f)),
+                    shape = if (ready || morphP > 0.01f) MorphShape(sendMorph, morphP.coerceIn(-0.15f, 1.15f)) else MorphShape(modeMorph, modeP.coerceIn(-0.15f, 1.15f)),
                     shadowElevation = if (floating) 3.dp else 0.dp,
                     color = sendBg,
                     contentColor = sendFg,
                     modifier = Modifier.size(52.dp)
-                        .graphicsLayer { scaleX = scale; scaleY = scale; translationX = dragX.value; rotationZ = spin }
+                        .graphicsLayer { val sc = if (videoRec) 1.35f else scale; scaleX = sc; scaleY = sc; translationX = dragX.value; rotationZ = spin }
                         .pointerInput(ready) {
                             if (ready) {
                                 detectTapGestures(
@@ -1693,9 +1703,14 @@ private fun Composer(
                                 )
                             } else {
                                 detectTapGestures(
-                                    onTap = { Toast.makeText(ctx, "Удерживайте, чтобы записать голосовое", Toast.LENGTH_SHORT).show() },
+                                    // tap: voice ⇄ round video (Telegram); hold: record
+                                    onTap = { haptic(HapticFeedbackType.SegmentTick); VideoNote.videoMode = !VideoNote.videoMode },
                                     onLongPress = {
-                                        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                        if (VideoNote.videoMode) {
+                                            val need = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter { ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED }
+                                            if (need.isNotEmpty()) camPermission.launch(need.toTypedArray())
+                                            else { VideoNote.start(chat.id, replyTo); videoRec = true; haptic(HapticFeedbackType.LongPress) }
+                                        } else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                                             micPermission.launch(Manifest.permission.RECORD_AUDIO)
                                         } else if (!recorder.supported) {
                                             Toast.makeText(ctx, "Голосовые доступны на Android 10 и новее", Toast.LENGTH_SHORT).show()
@@ -1706,6 +1721,41 @@ private fun Composer(
                                         }
                                     },
                                 )
+                            }
+                        }
+                        .pointerInput(videoRec) {
+                            // round video while held: let go = send, left = cancel, up = lock (hands free)
+                            if (videoRec) {
+                                awaitPointerEventScope {
+                                    var start: Offset? = null
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        val ch = ev.changes.firstOrNull() ?: continue
+                                        if (start == null) start = ch.position
+                                        if (!ch.pressed) {
+                                            videoRec = false
+                                            scope.launch { dragX.animateTo(0f) }
+                                            if (!VideoNote.locked) VideoNote.finish(true)
+                                            break
+                                        }
+                                        val dx = (ch.position.x - size.width / 2f).coerceAtMost(0f)
+                                        val dy = (ch.position.y - size.height / 2f).coerceAtMost(0f)
+                                        VideoNote.dragX = dx; VideoNote.dragY = dy
+                                        scope.launch { dragX.snapTo(dx) }
+                                        if (dx < -180f) {
+                                            VideoNote.finish(false); videoRec = false
+                                            haptic(HapticFeedbackType.Reject)
+                                            scope.launch { dragX.animateTo(0f) }
+                                            break
+                                        }
+                                        if (dy < -170f) {
+                                            VideoNote.locked = true; videoRec = false
+                                            haptic(HapticFeedbackType.Confirm)
+                                            scope.launch { dragX.animateTo(0f) }
+                                            break
+                                        }
+                                    }
+                                }
                             }
                         }
                         .pointerInput(recording) {
@@ -1740,7 +1790,7 @@ private fun Composer(
                 ) {
                     Box(Modifier.graphicsLayer { rotationZ = -spin }, contentAlignment = Alignment.Center) {
                         AnimatedContent(
-                            targetState = when { editing != null -> 2; ready -> 1; else -> 0 },
+                            targetState = when { editing != null -> 2; ready -> 1; videoMode -> 3; else -> 0 },
                             // one icon at a time: the old one spins out and vanishes quickly, the new one springs in a beat
                             // later — they never overlap, and it is the same both ways
                             transitionSpec = {
@@ -1753,6 +1803,7 @@ private fun Composer(
                             when (s) {
                                 2 -> Icon(Icons.Rounded.Check, "Сохранить")
                                 1 -> Icon(Icons.AutoMirrored.Filled.Send, "Отправить")
+                                3 -> Icon(Icons.Outlined.Videocam, "Видеосообщение")
                                 else -> Icon(Icons.Filled.Mic, "Голосовое")
                             }
                         }

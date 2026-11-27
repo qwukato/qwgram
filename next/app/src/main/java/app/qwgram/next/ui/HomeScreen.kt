@@ -568,7 +568,7 @@ private fun ChatsTab(pad: PaddingValues, drawer: DrawerControl) {
                 }
             }
             // the mini player lives here, under the folders (Telegram): the chats move down to make room
-            MiniPlayerSlot()
+            MiniPlayerBar()
             if (floating) Spacer(Modifier.height(14.dp))
         }
         }
