@@ -495,7 +495,7 @@ private fun CoverStack(
         add(0 to track)
         if (swipeable && q.size > 1) {
             q.getOrNull(Player.nextIndex())?.takeIf { it !== track }?.let { add(1 to it) }
-            q.getOrNull(Player.prevIndex())?.takeIf { it !== track && none { (_, t) -> t === it } }?.let { add(-1 to it) }
+            q.getOrNull(Player.prevIndex())?.takeIf { it !== track && none { pr -> pr.second === it } }?.let { add(-1 to it) }
         }
     }
     Box(
