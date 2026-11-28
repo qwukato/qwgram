@@ -147,7 +147,8 @@ object Prefs {
     val archiveHidden = B("archive_hidden", false)
     val ghostOffline = B("ghost_offline", false)          // never appear online
     val ghostTyping = B("ghost_typing", false)            // don't send "typing…"
-    val keepDeleted = B("keep_deleted", false)            // keep messages others deleted (this session)
+    val keepDeleted = B("keep_deleted", false)            // keep messages others deleted (saved to a file)
+    val hideJoins = B("hide_joins", false)                // hide "joined / left the group" service messages
     val hideReactions = B("hide_reactions", false)
     val charCounter = B("char_counter", false)
     val markdown = B("markdown", true)                 // **жирный**, __курсив__, `код`, ||спойлер|| when sending

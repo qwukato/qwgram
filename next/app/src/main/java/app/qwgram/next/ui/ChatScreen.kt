@@ -283,7 +283,20 @@ class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L
     private fun addOlder(list: List<TdApi.Message>) {
         val have = messages.mapTo(HashSet()) { it.id }
         messages.addAll(list.filter { it.id !in have })
-        list.forEach { fetchReply(it) }
+        list.forEach { fetchReply(it); DeletedStore.remember(it) }
+        mergeDeleted()
+    }
+
+    /** saved deleted messages go back in their place (by id) among the loaded ones */
+    private fun mergeDeleted() {
+        val saved = DeletedStore.forChat(chatId)
+        if (saved.isEmpty() || messages.isEmpty()) return
+        val have = messages.mapTo(HashSet()) { it.id }
+        val lo = if (reachedEnd) Long.MIN_VALUE else messages.minOf { it.id }
+        val add = saved.filter { it.id !in have && it.id >= lo }
+        if (add.isEmpty()) return
+        val all = (messages + add).sortedByDescending { it.id }
+        messages.clear(); messages.addAll(all)
     }
 
     fun fetchReply(m: TdApi.Message) {
@@ -337,6 +350,8 @@ class ChatController(val chatId: Long, val topic: Int = 0, val thread: Long = 0L
 
     private fun replace(oldId: Long, m: TdApi.Message) {
         if (oldId != m.id) keyAlias[m.id] = keyAlias[oldId] ?: oldId
+        // the replied message moves to the new id (it used to stay behind: "Загрузка…" under our own replies)
+        replies.remove(oldId)?.let { replies[m.id] = it } ?: fetchReply(m)
         val i = messages.indexOfFirst { it.id == oldId }
         if (i >= 0) messages[i] = m else if (messages.none { it.id == m.id }) messages.add(0, m)
     }
@@ -378,6 +393,11 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     }
     val ctx = LocalContext.current
     val ctl = remember(chatId, topic, thread) { ChatController(chatId, topic, thread) }
+    // a /command tapped in a message goes to this chat
+    DisposableEffect(chatId) {
+        BotCommandTap.send = { cmd -> sendContent(chatId, TdApi.InputMessageText(TdApi.FormattedText(cmd, arrayOf()), null, false), null) }
+        onDispose { BotCommandTap.send = null }
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = rememberHaptic()
@@ -462,7 +482,10 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
     val entries by remember(ctl) {
         derivedStateOf {
             // photos / videos sent as one album become one mosaic bubble (Telegram)
-            val raw = ctl.messages
+            val raw = if (Prefs.hideJoins.value) ctl.messages.filter { m ->
+                val c = m.content
+                !(c is TdApi.MessageChatAddMembers || c is TdApi.MessageChatJoinByLink || c is TdApi.MessageChatJoinByRequest || c is TdApi.MessageChatDeleteMember)
+            } else ctl.messages
             val albums = ArrayList<List<TdApi.Message>>(raw.size)
             for (m in raw) {
                 val last = albums.lastOrNull()

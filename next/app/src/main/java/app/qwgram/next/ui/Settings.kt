@@ -133,7 +133,9 @@ private fun ProfileCard(me: TdApi.User?) {
             )
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(84.dp).clip(CircleShape).background(cs.surface.copy(alpha = 0.6f)).padding(4.dp)) { UserAvatar(me, 76.dp) }
+                    // the ring follows the avatar's own shape (Appearance → avatar shape), not a fixed circle
+                    val avShape = avatarShape()
+                    Box(Modifier.size(84.dp).clip(avShape).background(cs.surface.copy(alpha = 0.6f)).padding(4.dp)) { UserAvatar(me, 76.dp) }
                     Spacer(Modifier.weight(1f))
                     MorphIconButton(Icons.Outlined.Edit, "Изменить", { Nav.push(Route.Page("account")) }, color = cs.surface.copy(alpha = 0.55f), tint = cs.onSurface)
                 }

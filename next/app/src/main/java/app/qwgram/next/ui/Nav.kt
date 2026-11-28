@@ -173,7 +173,8 @@ fun NavHost(content: @Composable (Route) -> Unit) {
                                 }
                             }
                         }
-                        .then(if (wpAll || e.route is Route.Search) Modifier else Modifier.background(surface))
+                        // search draws its own backdrop while it morphs; pulled away by a swipe it slides as a proper card
+                        .then(if (wpAll || (e.route is Route.Search && !e.dragged)) Modifier else Modifier.background(surface))
                         .then(if (isTop && entries.size > 1) Modifier.swipeBack(e, scope) else Modifier),
                 ) {
                     // each screen blurs its own content under its own chrome (Appearance → Blur)

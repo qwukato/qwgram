@@ -428,7 +428,7 @@ private fun segShape(i: Int, n: Int) = RoundedCornerShape(
 
 @Composable
 fun SearchScreen() {
-    var q by remember { mutableStateOf("") }
+    var q by remember { mutableStateOf(SearchQuery.pending.also { SearchQuery.pending = null } ?: "") }
     var filter by remember { mutableStateOf(SearchFilter.All) }
     val local = remember { mutableStateListOf<Long>() }
     val global = remember { mutableStateListOf<Long>() }

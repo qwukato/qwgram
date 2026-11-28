@@ -158,7 +158,7 @@ fun ProfileBanner(
                     }
                 }
                 Box(contentAlignment = Alignment.BottomEnd, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp).graphicsLayer { val sc = 0.85f + 0.15f * appear.value; scaleX = sc; scaleY = sc }) {
-                    Box(Modifier.size(112.dp).clip(CircleShape).clickable(onClick = onAvatar)) {
+                    Box(Modifier.size(112.dp).clip(avatarShape()).clickable(onClick = onAvatar)) {
                         if (chat == null) UserAvatar(user, 112.dp) else ChatAvatar(chat, 112.dp)
                     }
                     // online: a green dot at the avatar's edge

@@ -337,13 +337,13 @@ private fun Bubble(
 
     if (bare) {
         Column(gestures.widthIn(max = maxW), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
+            // stickers, round videos, big emoji stand on their own (no bubble); what they answer sits above as a pill
+            if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) Surface(shape = RoundedCornerShape(14.dp), color = cs.surfaceContainerHigh, contentColor = cs.onSurface, modifier = Modifier.padding(bottom = 4.dp).widthIn(max = 240.dp)) {
+                ReplyQuote(reply, m, cs.onSurface, Modifier.padding(horizontal = 6.dp, vertical = 4.dp).clickable {
+                    (m.replyTo as? TdApi.MessageReplyToMessage)?.let { r -> if (r.chatId == m.chatId || r.chatId == 0L) onReplyClick(r.messageId) }
+                })
+            }
             if (c is TdApi.MessageVideoNote) {
-                // a round video stands on its own, no bubble (Telegram); a reply sits above it as a small pill
-                if (reply != null || m.replyTo is TdApi.MessageReplyToMessage) Surface(shape = RoundedCornerShape(14.dp), color = cs.surfaceContainerHigh, contentColor = cs.onSurface, modifier = Modifier.padding(bottom = 4.dp).widthIn(max = 240.dp)) {
-                    ReplyQuote(reply, m, cs.onSurface, Modifier.padding(horizontal = 6.dp, vertical = 4.dp).clickable {
-                        (m.replyTo as? TdApi.MessageReplyToMessage)?.let { r -> if (r.chatId == m.chatId || r.chatId == 0L) onReplyClick(r.messageId) }
-                    })
-                }
                 Box(Modifier.size(220.dp)) {
                     VideoThumb(c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, Texts.duration(c.videoNote.duration), circle = true, loop = c.videoNote.video) {
                         VideoViewer.open(VideoItem(c.videoNote.video, c.videoNote.thumbnail?.file, c.videoNote.minithumbnail, 240, 240, c.videoNote.duration))
@@ -750,7 +750,9 @@ private fun formatted(ft: TdApi.FormattedText, link: Color, ctx: android.content
             is TdApi.TextEntityTypeMentionName -> addLink(LinkAnnotation.Clickable(piece + ty.userId, TextLinkStyles(SpanStyle(color = link))) {
                 Td.send(TdApi.CreatePrivateChat(ty.userId, false)) { r -> if (r is TdApi.Chat) Nav.push(Route.Profile(r.id)) }
             }, s, end)
-            is TdApi.TextEntityTypeHashtag, is TdApi.TextEntityTypeCashtag, is TdApi.TextEntityTypeBotCommand -> addStyle(SpanStyle(color = link), s, end)
+            // #hashtags open search with them; /commands are sent to the bot
+            is TdApi.TextEntityTypeHashtag, is TdApi.TextEntityTypeCashtag -> addLink(LinkAnnotation.Clickable("h" + piece, TextLinkStyles(SpanStyle(color = link))) { SearchQuery.pending = piece; SearchMorph.open(null) }, s, end)
+            is TdApi.TextEntityTypeBotCommand -> addLink(LinkAnnotation.Clickable("c" + piece, TextLinkStyles(SpanStyle(color = link))) { BotCommandTap.send?.invoke(piece) }, s, end)
             // premium emoji: an inline slot over its fallback emoji (see rememberEmojiInline)
             is TdApi.TextEntityTypeCustomEmoji -> addStringAnnotation(INLINE_TAG, "ce:${ty.customEmojiId}", s, end)
             is TdApi.TextEntityTypeBlockQuote, is TdApi.TextEntityTypeExpandableBlockQuote -> addStyle(SpanStyle(fontStyle = FontStyle.Italic, background = link.copy(alpha = 0.08f)), s, end)
@@ -1095,10 +1097,24 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(0.86f, 300f * k)) }
     var closing by remember { mutableStateOf(false) }
     // closing flies the photo back into its bubble (when the bubble is on screen), otherwise it fades away
+    var flingV by remember { mutableStateOf(0f) }
+    var screenH by remember { mutableStateOf(2000f) }
+    var canFlyNow by remember { mutableStateOf(false) }
     fun close() {
         if (closing) return
         closing = true
-        scope.launch { appear.animateTo(0f, androidx.compose.animation.core.spring(1f, 380f * k, visibilityThreshold = 0.001f)); onDismiss() }
+        scope.launch {
+            if (canFlyNow) {
+                // back into its bubble, landing exactly in place
+                appear.animateTo(0f, androidx.compose.animation.core.spring(1f, 380f * k, visibilityThreshold = 0.001f))
+            } else {
+                // no bubble to go back to (scrolled away): it keeps going the way it was thrown and fades (Telegram)
+                val dir = if (drag.value < 0f || flingV < -1f) -1f else 1f
+                launch { drag.animateTo(dir * screenH, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutLinearInEasing), initialVelocity = flingV) }
+                appear.animateTo(0f, androidx.compose.animation.core.tween(240))
+            }
+            onDismiss()
+        }
     }
     var host by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -1113,9 +1129,10 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
         val originScreen = best?.let { ViewerOrigin.rects[it.photo.id] }
         val origin = originScreen?.translate(-host.x, -host.y)
         val canFly = best != null && flyBmp != null && origin != null && !zoomed
+        canFlyNow = canFly
         val flying = canFly && appear.value < 0.999f
         BoxWithConstraints(
-            Modifier.fillMaxSize().onGloballyPositioned { host = it.positionOnScreen() }
+            Modifier.fillMaxSize().onGloballyPositioned { host = it.positionOnScreen(); screenH = it.size.height.toFloat() }
                 .background(Color.Black.copy(alpha = ((1f - pull) * appear.value).coerceIn(0f, 1f))),
         ) {
             androidx.compose.foundation.pager.HorizontalPager(
@@ -1130,7 +1147,7 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
                     } else {
                         // swipe down/up to close: the photo follows the finger and shrinks a little (Telegram)
                         translationY = drag.value
-                        val sc = (1f - pull * 0.25f) * (0.9f + 0.1f * t)
+                        val sc = 1f - pull * 0.25f
                         scaleX = sc; scaleY = sc
                         alpha = t
                     }
@@ -1142,6 +1159,7 @@ fun PhotoGallery(photos: List<TdApi.Photo>, start: Int, onDismiss: () -> Unit) {
                     onZoomed = { if (page == pager.currentPage) zoomed = it },
                     onVerticalDrag = { dy -> scope.launch { drag.snapTo(drag.value + dy) } },
                     onVerticalEnd = { v ->
+                        flingV = v
                         if (kotlin.math.abs(drag.value) > closeAt || kotlin.math.abs(v) > 1800f) close()
                         else scope.launch { drag.animateTo(0f, Springs.morphRelease()) }
                     },
@@ -1376,3 +1394,8 @@ fun androidx.compose.ui.graphics.GraphicsLayerScope.flyFromBubble(o: androidx.co
     clip = true
     return true
 }
+
+/** a hashtag tapped in a message: the search screen starts with it */
+object SearchQuery { var pending: String? = null }
+/** the open chat sends a tapped /command (set by the chat screen) */
+object BotCommandTap { var send: ((String) -> Unit)? = null }

@@ -42,6 +42,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
@@ -663,11 +664,13 @@ fun FeaturesPage2() {
         group("Призрачный режим", footer = "Можно читать и писать, оставаясь незаметным.") {
             switch("Не показываться в сети", Prefs.ghostOffline, "Статус «в сети» не отправляется") { applyOnline(true) }
             switch("Не отправлять «печатает…»", Prefs.ghostTyping)
-            switchState("Не отмечать прочитанным", !Prefs.markReadOnOpen.value, "Сообщения остаются непрочитанными, пока вы не прочитаете их явно") { Prefs.markReadOnOpen.value = !it }
-            switchState("Не отмечать прочитанным", !Prefs.markReadOnOpen.value, "Собеседник не увидит двух галочек") { Prefs.markReadOnOpen.value = !it }
+            switchState("Не отмечать прочитанным", !Prefs.markReadOnOpen.value, "Собеседник не увидит двух галочек, а чат останется непрочитанным") { Prefs.markReadOnOpen.value = !it }
         }
         group("Сообщения") {
-            switch("Сохранять удалённые", Prefs.keepDeleted, "Удалённые собеседником остаются с пометкой (до перезапуска)")
+            switch("Сохранять удалённые", Prefs.keepDeleted, "Сообщения, удалённые собеседником, остаются в чате с пометкой — и после перезапуска")
+            if (Prefs.keepDeleted.value) action("Забыть сохранённые удалённые", "Стереть их с устройства", Icons.Outlined.DeleteOutline) { DeletedStore.clear(); android.widget.Toast.makeText(ctx, "Готово", android.widget.Toast.LENGTH_SHORT).show() }
+            switch("Отправка по Enter", Prefs.sendByEnter, "Кнопка Enter на клавиатуре отправляет сообщение")
+            switch("Скрывать вступления и выходы", Prefs.hideJoins, "Служебные «… вступил(а) в группу» и «… покинул(а) группу»")
             switch("Скрывать реакции", Prefs.hideReactions)
             switch("Счётчик символов", Prefs.charCounter, "Над полем ввода, лимит 4096")
             switch("Разметка текста", Prefs.markdown, "**жирный**, __курсив__, ~~зачёркнутый~~, ||спойлер||, `код`, [текст](ссылка)")

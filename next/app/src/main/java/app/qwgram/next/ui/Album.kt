@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -103,7 +104,9 @@ private fun AlbumCell(m: TdApi.Message, modifier: Modifier, onPhoto: (TdApi.Phot
                 val size = c.photo.sizes.filter { maxOf(it.width, it.height) <= 1280 }.maxByOrNull { it.width * it.height } ?: c.photo.sizes.minByOrNull { it.width * it.height }
                 val bmp = rememberFileBitmap(size?.photo, maxSide = 720)
                 val mini = remember(c.photo) { Images.mini(c.photo.minithumbnail) }
-                Box(Modifier.fillMaxSize().clickable { onPhoto(c.photo) }) {
+                // where this photo sits on screen: the viewer flies it back here when it closes
+                size?.photo?.id?.let { pid -> androidx.compose.runtime.DisposableEffect(pid) { onDispose { ViewerOrigin.rects.remove(pid) } } }
+                Box(Modifier.fillMaxSize().onGloballyPositioned { co -> size?.photo?.id?.let { ViewerOrigin.rects[it] = co.screenRect() } }.clickable { onPhoto(c.photo) }) {
                     if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else if (mini != null) Image(mini, null, Modifier.fillMaxSize().blur(12.dp), contentScale = ContentScale.Crop)
                 }

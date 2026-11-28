@@ -505,7 +505,9 @@ object Opener {
 
     fun username(context: Context, name: String) {
         Td.send(TdApi.SearchPublicChat(name.removePrefix("@"))) { r ->
-            if (r is TdApi.Chat) Nav.push(Route.Chat(r.id)) else Toast.makeText(context, "Не найдено: @$name", Toast.LENGTH_SHORT).show()
+            // into the store first: the chat screen finds it at once (people → their profile, like Telegram)
+            if (r is TdApi.Chat) { TdStore.onUpdate(TdApi.UpdateNewChat(r)); Nav.push(if (r.type is TdApi.ChatTypePrivate) Route.Profile(r.id) else Route.Chat(r.id)) }
+            else Toast.makeText(context, "Не найдено: @$name", Toast.LENGTH_SHORT).show()
         }
     }
 

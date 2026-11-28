@@ -81,6 +81,7 @@ object TdStore {
     var call by androidx.compose.runtime.mutableStateOf<TdApi.Call?>(null)
 
     fun onUpdate(obj: TdApi.Object) {
+        app.qwgram.next.ui.DeletedStore.onUpdate(obj)
         when (obj) {
             is TdApi.UpdateAuthorizationState -> onAuth(obj.authorizationState)
             is TdApi.UpdateConnectionState -> connection = obj.state
