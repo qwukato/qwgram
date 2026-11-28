@@ -155,23 +155,14 @@ jobs:
           cp out/qwgram-next-$N.apk out/qwgram-next.apk
           PREV=$(gh release list -L 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
           {
-            echo "## qwgram Next 0.1.$N"
-            echo
-            echo "**Скачать:** \`qwgram-next.apk\` ниже, в разделе *Assets*. Ставится поверх прошлой версии, данные сохраняются."
-            echo
-            echo "### Изменения"
-            if [ -n "$PREV" ] && git rev-parse -q --verify "refs/tags/$PREV" >/dev/null; then
-              git log --no-merges --format='- %s' "$PREV..HEAD" -- next | grep -v '^- Next: build fix' | head -40
-            else
-              git log --no-merges --format='- %s' -n 15 -- next
+            echo "Установите \`qwgram-next.apk\` поверх прошлой версии — чаты и настройки сохранятся."
+            if [ -n "$PREV" ]; then
+              echo
+              echo "Изменения: https://github.com/$GITHUB_REPOSITORY/compare/$PREV...$TAG"
             fi
-            echo
-            echo "Android 8.0+ · arm64-v8a и armeabi-v7a · неофициальный клиент на TDLib"
           } > notes.md
-          sed -i 's/^- Next: /- /' notes.md
-          sed -i -E '/^- (player )?build fix(es)?$/d' notes.md
           gh release create "$TAG" out/qwgram-next.apk \
-            --target "$GITHUB_SHA" --title "qwgram Next 0.1.$N" --notes-file notes.md --latest
+            --target "$GITHUB_SHA" --title "0.1.$N" --notes-file notes.md --latest
           # keep the page tidy: drop all but the 10 newest Next releases (and their tags)
           gh release list -L 100 --json tagName -q '.[].tagName' | grep '^next-v' | tail -n +11 | while read t; do
             gh release delete "$t" --yes --cleanup-tag || true
