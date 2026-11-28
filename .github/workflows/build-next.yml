@@ -49,11 +49,15 @@ jobs:
     needs: tdlib
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: write   # publishes the GitHub release with the APK
     concurrency:
       group: next-app-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the release notes list the commits since the previous release
 
       - name: Check secrets
         env:
@@ -137,3 +141,37 @@ jobs:
         with:
           name: qwgram-next-apk
           path: out/*.apk
+
+      # Every successful build of main becomes a release: the newest one is "Latest", so
+      # https://github.com/<repo>/releases/latest/download/qwgram-next.apk always gives the newest APK.
+      # Only the last 10 releases are kept.
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
+        run: |
+          TAG="next-v0.1.$N"
+          cp out/qwgram-next-$N.apk out/qwgram-next.apk
+          PREV=$(gh release list -L 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
+          {
+            echo "## qwgram Next 0.1.$N"
+            echo
+            echo "**Скачать:** \`qwgram-next.apk\` ниже, в разделе *Assets*. Ставится поверх прошлой версии, данные сохраняются."
+            echo
+            echo "### Изменения"
+            if [ -n "$PREV" ] && git rev-parse -q --verify "refs/tags/$PREV" >/dev/null; then
+              git log --no-merges --format='- %s' "$PREV..HEAD" -- next | grep -v '^- Next: build fix' | head -40
+            else
+              git log --no-merges --format='- %s' -n 15 -- next
+            fi
+            echo
+            echo "Android 8.0+ · arm64-v8a и armeabi-v7a · неофициальный клиент на TDLib"
+          } > notes.md
+          sed -i 's/^- Next: /- /' notes.md
+          gh release create "$TAG" out/qwgram-next.apk \
+            --target "$GITHUB_SHA" --title "qwgram Next 0.1.$N" --notes-file notes.md --latest
+          # keep the page tidy: drop all but the 10 newest Next releases (and their tags)
+          gh release list -L 100 --json tagName -q '.[].tagName' | grep '^next-v' | tail -n +11 | while read t; do
+            gh release delete "$t" --yes --cleanup-tag || true
+          done

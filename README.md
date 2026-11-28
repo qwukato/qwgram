@@ -1,65 +1,98 @@
-# qwgram (Android)
+<div align="center">
 
-Клиент Telegram для Android: форк официального приложения (DrKLO/Telegram 13.2.2) в виде патчсета
-на основе [Inugram](https://github.com/teidesu/inugram) (MIT) с доработками ZhirGram/qwgram.
-Цель: настоящий Material 3 / Material 3 Expressive. Работает на серверах Telegram как обычный
-Telegram: это тот же клиент, поэтому доступны все его функции (чаты, каналы, звонки, истории,
-секретные чаты, папки, стикеры, боты и т. д.) плюс функции Inugram из [FEATURES.md](FEATURES.md).
+<img src="docs/assets/icon.svg" width="112" alt="qwgram">
 
-Пакет `com.qwenz.zhirgram`, имя в лаунчере **qwgram**. Статус и правила работы: [AGENTS.md](AGENTS.md).
+# qwgram Next
 
-## Что нового в qwgram
+**Неофициальный клиент Telegram для Android в стиле Material 3 Expressive**
 
-- **Тема Material 3 из любого цвета на любом Android 8+.** Раньше M3-тема (Monet) работала только
-  на Android 12+ и брала цвета из обоев. Теперь схема строится генератором HCT из скилла
-  material-design-3 (`src/fork/helpers/theme/SeedScheme.kt`, решатель Google `google_material`):
-  12 акцентов, свой цвет в HEX, цвета обоев (Android 12+), 5 палитр (спокойная, яркая,
-  выразительная, нейтральная, монохром) и 3 уровня контрастности.
-  Настройки → настройки qwgram → Оформление → раздел «Цвет».
-- **Material 3 по умолчанию:** M3-переключатели, слайдеры, секции, аватары, кнопки профиля,
-  нижняя панель и анимация переходов включены сразу; при первом запуске (до входа в аккаунт)
-  включается M3-тема, которая следует светлой/тёмной теме системы. Всё отключается в настройках.
-- **Формы аватарок Material 3 Expressive:** 25 форм (печенье, цветок, клевер, солнце, сердце и др.)
-  с плавным морфингом в окне выбора. Аватарки рисуются формой с сглаживанием во всём приложении;
-  у форумов, кружочков и медиа своя форма. Оформление → «Форма аватарок».
-- **Папки группой кнопок (Expressive):** каждая папка — сегмент соединённой группы, выбранная
-  выделяется тональной «таблеткой», которая переезжает при смене папки. Выключается в
-  Оформление → Material 3.
-- Акцент по умолчанию — базовый фиолетовый Material 3 (#6750A4), как на иконке.
-- Своя иконка (звезда с «qw»: adaptive, круглая, монохромная, значок уведомлений) и заставка
-  при запуске. Пакет `app.qwgram`.
-- Название qwgram во всех строках; автообновление из канала Inugram отключено (оно предлагало
-  бы чужие APK); в «О приложении» указано, что клиент неофициальный и основан на Inugram.
+Kotlin · Jetpack Compose · официальная библиотека TDLib
 
-## Как собрать APK (GitHub Actions)
+[![Последний релиз](https://img.shields.io/github/v/release/qwukato/qwgram?label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=6750A4&style=for-the-badge)](https://github.com/qwukato/qwgram/releases/latest)
+[![Скачивания](https://img.shields.io/github/downloads/qwukato/qwgram/total?label=%D1%81%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F&color=6750A4&style=for-the-badge)](https://github.com/qwukato/qwgram/releases)
+[![Сборка](https://img.shields.io/github/actions/workflow/status/qwukato/qwgram/build-next.yml?branch=main&label=%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0&style=for-the-badge)](https://github.com/qwukato/qwgram/actions/workflows/build-next.yml)
 
-Локальная сборка не нужна, всё делает GitHub.
+<br>
 
-1. Получите **api_id** и **api_hash**: https://my.telegram.org → API development tools → создайте приложение
-   (платформа Android).
-2. Создайте **приватный или публичный** репозиторий на GitHub и загрузите туда содержимое этой папки.
-3. Settings → Secrets and variables → Actions → New repository secret: `TG_APP_ID` и `TG_APP_HASH`.
-4. Actions → **Build qwgram** → Run workflow. Сборка 30–90 минут (Telegram большой: нативные
-   библиотеки, Rust, Gradle).
-5. APK в разделе Artifacts запуска (`zhirgram-apk`), или `gh run download -n zhirgram-apk`.
-6. Установите APK на телефон (разрешите установку из неизвестных источников).
+<a href="https://github.com/qwukato/qwgram/releases/latest/download/qwgram-next.apk">
+  <img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20APK-6750A4?style=for-the-badge&logo=android&logoColor=white&labelColor=4F378B" height="56" alt="Скачать APK">
+</a>
 
-Подпись пока debug-ключом CI: обновлять поверх можно только сборкой, подписанной тем же ключом.
-Для постоянной подписи добавьте свой keystore в секреты (см. AGENTS.md, задача на будущее).
+<sub>Android 8.0 и новее · ссылка всегда ведёт на самую свежую версию · <a href="https://github.com/qwukato/qwgram/releases">все версии</a></sub>
 
-Если сборка упала, пришлите вывод:
-```
-ID=$(gh run list --workflow=build.yml -L1 --json databaseId -q '.[0].databaseId')
-gh run view $ID --log-failed > ~/log.txt
-grep -nE "What went wrong|error:|FAILED|Error" -A 6 ~/log.txt | cut -c1-300 | head -60
-```
+</div>
 
-## Как посмотреть настоящий код Telegram
+---
 
-Actions → **Export stock files**: в поле paths пути внутри worktree, на выходе `files.zip`.
+## Установка
 
-## Лицензии и правила Telegram
+1. Нажмите **«Скачать APK»** выше (или откройте [последний релиз](https://github.com/qwukato/qwgram/releases/latest) и скачайте `qwgram-next.apk` из раздела *Assets*).
+2. Откройте файл на телефоне. Если Android спросит — разрешите установку из этого источника.
+3. Войдите по номеру телефона, как в обычном Telegram.
 
-GPL v2+ (Telegram), MIT (Inugram), см. [ATTRIBUTION.md](ATTRIBUTION.md). Исходники при публикации
-APK должны быть открыты. Используйте только свои api_id/api_hash, не называйте приложение
-«Telegram» и не используйте его логотип: https://core.telegram.org/api/terms
+**Обновление:** скачайте новый APK и установите поверх — чаты и настройки сохранятся. Новая версия появляется после каждого изменения в коде.
+
+> [!NOTE]
+> Google Play Protect может предупредить о «неизвестном приложении» — так бывает со всеми приложениями не из Play Маркета. Нажмите «Всё равно установить».
+
+## Что умеет
+
+**Чаты и сообщения**
+- Папки, архив, поиск, контакты, закреп, черновики, отложенная и тихая отправка
+- Ответы, пересылка, редактирование, реакции (панель как в Telegram), выбор нескольких сообщений
+- Фото и видео альбомами с подписями, голосовые и **видеокружки** (нажатие — смена режима, удержание — запись, вверх — закрепить)
+- Стикеры, GIF, эмодзи, опросы, файлы, геопозиция, форматирование текста
+- Каналы с подписями авторов, комментарии, темы в форумах
+
+**Музыкальный плеер**
+- Мини-плеер на каждом экране и полноэкранный плеер с цветами из обложки
+- Карусель обложек, волнистый прогресс, очередь с перетаскиванием, таймер сна
+- **Синхронный текст песен** с подсветкой слов (LRCLIB)
+- Музыка профиля, сохранение в «Музыку»
+
+**Оформление — Material 3 Expressive**
+- Тема из любого цвета, Material You, AMOLED, своя палитра
+- Формы аватарок с морфингом, соединённые группы кнопок, пружинные анимации
+- Каскадное появление экранов, моушен блюр при прокрутке, настройка скорости анимаций
+- Шрифты Google Sans Flex и Roboto Flex, эмодзи Twemoji и Blobmoji
+
+**Приватность и удобство**
+- Скрытие номера, чтение без отметки «прочитано», очистка ссылок от трекинга
+- Энергосбережение, которое само включается при низком заряде
+
+## Чего пока нет
+
+- **Звонков.** Для голоса нужна отдельная VoIP-библиотека; сейчас доступны история звонков и экран входящего звонка (отклонить можно, ответить — с другого устройства).
+- Секретных чатов и входа по QR-коду.
+
+Нашли ошибку? Если приложение упало, при следующем запуске оно покажет отчёт с кнопкой «Скопировать» — приложите его к [issue](https://github.com/qwukato/qwgram/issues).
+
+## Для разработчиков
+
+<details>
+<summary>Собрать свою версию</summary>
+
+Всё собирается в GitHub Actions, локально ничего ставить не нужно.
+
+1. Сделайте форк репозитория.
+2. Получите `api_id` и `api_hash` на [my.telegram.org](https://my.telegram.org) → API development tools.
+3. Settings → Secrets and variables → Actions → добавьте секреты `TG_APP_ID` и `TG_APP_HASH`.
+4. Actions → **Build qwgram Next** → Run workflow. Первая сборка дольше: собирается TDLib, потом она берётся из кэша.
+5. Готовый APK появится в разделе Releases (и в артефакте `qwgram-next-apk`).
+
+Код приложения — в папке [`next/`](next). Подпись APK выводится из секретов, поэтому новые сборки ставятся поверх старых.
+
+</details>
+
+<details>
+<summary>Классический qwgram (форк официального Telegram)</summary>
+
+В корне репозитория также лежит патчсет qwgram поверх DrKLO/Telegram на основе [Inugram](https://github.com/teidesu/inugram). Описание и инструкция по сборке: [docs/classic-fork.md](docs/classic-fork.md).
+
+</details>
+
+## Лицензия и благодарности
+
+qwgram — неофициальный клиент, не связан с Telegram. Работает через [TDLib](https://github.com/tdlib/td).
+Классическая часть основана на [Inugram](https://github.com/teidesu/inugram) (MIT) и [Telegram для Android](https://github.com/DrKLO/Telegram) (GPL-2.0).
+Подробности — в [LICENSE](LICENSE) и [ATTRIBUTION.md](ATTRIBUTION.md).
