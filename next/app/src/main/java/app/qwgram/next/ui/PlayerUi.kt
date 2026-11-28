@@ -108,6 +108,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
@@ -454,19 +455,32 @@ private fun CoverStack(
     val smallPx = with(density) { small.toPx() }
     val gapPx = with(density) { gap.toPx() }
     val step = bigPx / 2 + gapPx + smallPx / 2
-    // the tracks around the current one (in play order), drawn from ONE loop keyed by the track
+    // the carousel has its OWN position: flicks move it at once (nothing else recomposes), and the player follows
+    // a moment after the last flick — flicking through five covers loads one track, and every glide stays smooth
+    var vis by remember { mutableIntStateOf(Player.index) }
+    var pending by remember { mutableStateOf(false) }
+    LaunchedEffect(Player.index) { if (!pending) vis = Player.index }
+    LaunchedEffect(vis, pending) {
+        if (!pending) return@LaunchedEffect
+        delay(300)
+        pending = false
+        if (vis != Player.index) Player.playAt(vis)
+    }
+    val centre = Player.queue.getOrNull(vis) ?: track
+    // the tracks around it (in play order), drawn from ONE loop keyed by the track
     val items = buildList {
-        add(0 to track)
+        add(0 to centre)
         if (swipeable) for (k in listOf(-2, -1, 1, 2)) {
-            Player.peek(k)?.let { Player.queue.getOrNull(it) }?.takeIf { t -> t !== track && none { it.second === t } }?.let { add(k to it) }
+            Player.peek(k, vis)?.let { Player.queue.getOrNull(it) }?.takeIf { t -> t !== centre && none { it.second === t } }?.let { add(k to it) }
         }
     }
-    // the track switches at once and the carousel glides the rest of the way: the next flick can follow right away
     fun go(dir: Int, velocity: Float = 0f) = scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-        if (Player.peek(dir) == null) { dx.animateTo(0f, spring(0.7f, 420f), initialVelocity = velocity); return@launch }
-        if (dir > 0) Player.next() else Player.previous(force = true)
+        val to = Player.peek(dir, vis)
+        if (to == null) { dx.animateTo(0f, spring(0.7f, 420f), initialVelocity = velocity); return@launch }
+        pending = true
+        vis = to
         dx.snapTo(dx.value + dir * step)
-        dx.animateTo(0f, spring(0.9f, 300f), initialVelocity = velocity)
+        dx.animateTo(0f, spring(1f, 260f), initialVelocity = velocity)
     }
     BoxWithConstraints(
         modifier.pointerInput(swipeable, step) {
@@ -610,7 +624,7 @@ private fun MiniPill(track: Track) {
     }
     val art = rememberTrackArt(track, 300)
     Box(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(64.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).height(54.dp)
             .clip(CircleShape).background(cs.surfaceContainerHigh)
             .pointerInput(Unit) {
                 val slop = viewConfiguration.touchSlop
@@ -657,45 +671,45 @@ private fun MiniPill(track: Track) {
                 }
             },
     ) {
-        Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxSize().padding(start = 7.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             // the cover and the titles move together when the track changes
             Row(
                 Modifier.weight(1f).graphicsLayer { translationX = shift.value; alpha = fade.value },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(48.dp).clip(CircleShape).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
                     if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else Icon(Icons.Outlined.MusicNote, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(track.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurface)
-                    Text(track.performer.ifBlank { "Неизвестный исполнитель" }, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurfaceVariant)
+                    Text(track.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurface)
+                    Text(track.performer.ifBlank { "Неизвестный исполнитель" }, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, color = cs.onSurfaceVariant)
                 }
             }
-            MorphIconButton(Icons.Filled.SkipPrevious, "Предыдущий", { change(-1) }, size = 44.dp, tint = cs.primary)
+            MorphIconButton(Icons.Filled.SkipPrevious, "Предыдущий", { change(-1) }, size = 38.dp, tint = cs.primary)
             // play / pause inside the progress ring; the ring spins while the track loads
-            val amp by animateFloatAsState(if (Player.playing) 1f else 0f, tween(400), label = "ra")
+            val amp by animateFloatAsState(if (Player.playing) 1f else 0f, tween(700, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "ra")
             val pi = remember { MutableInteractionSource() }
             val pp by pi.collectIsPressedAsState()
             val sc by animateFloatAsState(if (pp) 0.88f else 1f, if (pp) Springs.pressIn() else Springs.morphRelease(), label = "ps")
             Box(
-                Modifier.size(50.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).clickable(pi, indication = androidx.compose.material3.ripple()) { Player.playPause() },
+                Modifier.size(44.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).clickable(pi, indication = androidx.compose.material3.ripple()) { Player.playPause() },
                 contentAlignment = Alignment.Center,
             ) {
-                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(44.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
+                if (Player.loading) androidx.compose.material3.CircularWavyProgressIndicator(Modifier.size(38.dp), color = cs.primary, trackColor = cs.primary.copy(alpha = 0.15f))
                 else androidx.compose.material3.CircularWavyProgressIndicator(
-                    progress = { Player.progress }, modifier = Modifier.size(44.dp), color = cs.primary, trackColor = cs.onSurface.copy(alpha = 0.18f),
+                    progress = { Player.progress }, modifier = Modifier.size(38.dp), color = cs.primary, trackColor = cs.onSurface.copy(alpha = 0.18f),
                     amplitude = { amp },
                 )
                 AnimatedContent(Player.playing, transitionSpec = { (scaleIn(spring(0.5f, 600f), initialScale = 0.4f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.4f) + fadeOut()) }, label = "mp") { pl ->
-                    Icon(if (pl) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (pl) "Пауза" else "Играть", tint = cs.primary, modifier = Modifier.size(24.dp))
+                    Icon(if (pl) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (pl) "Пауза" else "Играть", tint = cs.primary, modifier = Modifier.size(20.dp))
                 }
             }
             // next while playing, ✕ while paused (playing music isn't closed by a stray tap)
             AnimatedContent(Player.playing || Player.loading, transitionSpec = { (scaleIn(spring(0.6f, 500f), initialScale = 0.5f) + fadeIn()).togetherWith(scaleOut(targetScale = 0.5f) + fadeOut()) }, label = "nx") { pl ->
-                if (pl) MorphIconButton(Icons.Filled.SkipNext, "Следующий", { change(1) }, size = 44.dp, tint = cs.primary)
-                else MorphIconButton(Icons.Outlined.Close, "Закрыть", { Player.close() }, size = 44.dp, tint = cs.onSurfaceVariant)
+                if (pl) MorphIconButton(Icons.Filled.SkipNext, "Следующий", { change(1) }, size = 38.dp, tint = cs.primary)
+                else MorphIconButton(Icons.Outlined.Close, "Закрыть", { Player.close() }, size = 38.dp, tint = cs.onSurfaceVariant)
             }
         }
     }
@@ -988,9 +1002,12 @@ private fun PlainLyrics(text: String, col: PColors) {
 }
 
 /**
- * Synced lyrics: the line being sung is big, bright and slightly scaled up; sung lines dim, coming ones wait at
- * half light. The list glides to the current line on a soft spring (unless you scrolled in the last 3 s), lines
- * spring in one by one when the lyrics appear, and the edges dissolve. Tap a line to jump there.
+ * Synced lyrics, like the best players do it:
+ *  · the line being sung sits in the middle, big and bright; its words light up one after another as they are
+ *    sung (timed across the line), the next word glowing in;
+ *  · when the next line starts, the lines move up as a CASCADE — the nearest first, the farther ones a beat later;
+ *  · lines leaving the middle soften (a slight blur, dimmer), sung ones dimmer still;
+ *  · the edges dissolve; tap a line to jump there; scrolling by hand pauses the follow for 3 s.
  */
 @Composable
 private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
@@ -998,47 +1015,79 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
     val dragged by state.interactionSource.collectIsDraggedAsState()
     var lastTouch by remember { mutableLongStateOf(0L) }
     LaunchedEffect(dragged) { if (dragged) lastTouch = System.currentTimeMillis() }
-    val pos = Player.positionMs + 250
+    val pos = Player.positionMs + 200
     val cur = lines.indexOfLast { it.first <= pos }.coerceAtLeast(0)
+    // the cascade: after a line change every line is pushed back by the scroll amount and springs home,
+    // the ones near the middle first
+    val wave = remember { Animatable(1f) }
+    var push by remember { mutableFloatStateOf(0f) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // the line being sung sits in the middle of the field: glide its centre to the viewport's centre
         suspend fun centre(animated: Boolean) {
             val li = state.layoutInfo
             val info = li.visibleItemsInfo.firstOrNull { it.index == cur }
             if (info == null) { state.scrollToItem(cur); return }
             val mid = (li.viewportStartOffset + li.viewportEndOffset) / 2f
             val delta = info.offset + info.size / 2f - mid
-            if (animated) state.animateScrollBy(delta, spring(1f, 90f)) else state.scrollBy(delta)
+            if (!animated || abs(delta) < 1f) { state.scrollBy(delta); return }
+            // jump the list there at once, then let every line catch up in a wave
+            state.scrollBy(delta)
+            push = delta
+            wave.snapTo(0f)
+            wave.animateTo(1f, tween(900, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)))
         }
         LaunchedEffect(Unit) { state.scrollToItem(cur); centre(false) }
         LaunchedEffect(cur) {
             if (System.currentTimeMillis() - lastTouch < 3000) return@LaunchedEffect
             centre(true)
-            // a line that was off screen: land it in the middle after the jump
             if (state.layoutInfo.visibleItemsInfo.none { it.index == cur }) centre(false)
         }
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize().fadeEdges(56.dp, 96.dp), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = maxHeight * 0.5f, bottom = maxHeight * 0.5f)) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize().fadeEdges(64.dp, 110.dp), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = maxHeight * 0.5f, bottom = maxHeight * 0.5f)) {
             itemsIndexed(lines) { i, (t, line) ->
                 val active = i == cur
+                val dist = (i - cur).toFloat()
                 val enter = remember { Animatable(0f) }
                 LaunchedEffect(Unit) { delay(((i - cur).coerceIn(0, 12) * 40L)); enter.animateTo(1f, spring(0.7f, 240f)) }
-                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.28f else 0.48f, spring(1f, 120f), label = "la")
-                val s by animateFloatAsState(if (active) 1.06f else 1f, spring(0.55f, 260f), label = "ls")
+                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.3f else 0.5f, spring(1f, 140f), label = "la")
+                val sc by animateFloatAsState(if (active) 1.04f else 0.96f, spring(0.6f, 220f), label = "ls")
+                val blur by animateDpAsState(if (active) 0.dp else (abs(dist).coerceAtMost(3f) * 1.1f).dp, spring(1f, 160f), label = "lb")
+                // this line's place in the cascade: the nearer the middle, the sooner it moves
+                val rank = (abs(dist) / 7f).coerceIn(0f, 1f) * 0.45f
+                val text = if (active && line.isNotBlank()) {
+                    // words light up as they are sung (timed across the line); the word in progress glows in
+                    val end = lines.getOrNull(i + 1)?.first ?: (t + 4000)
+                    val f = ((Player.positionMs - t).toFloat() / (end - t).coerceAtLeast(1)).coerceIn(0f, 1f)
+                    karaoke(line, f, col.text)
+                } else androidx.compose.ui.text.AnnotatedString(line.ifBlank { "♪" })
                 Text(
-                    line.ifBlank { "♪" },
+                    text,
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, lineHeight = MaterialTheme.typography.headlineSmall.lineHeight * 1.05f),
                     color = col.text,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp))
                         .clickable { Player.seekMs(t); lastTouch = 0L }
                         .graphicsLayer {
-                            alpha = a * enter.value
-                            scaleX = s; scaleY = s
-                            translationY = (1f - enter.value) * 28.dp.toPx()
+                            val w = ((wave.value - rank) / (1f - rank)).coerceIn(0f, 1f)
+                            alpha = (if (active) 1f else a) * enter.value
+                            scaleX = sc; scaleY = sc
+                            translationY = push * (1f - w) + (1f - enter.value) * 28.dp.toPx()
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                         }
+                        .then(if (blur > 0.05.dp) Modifier.blur(blur, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)
                         .padding(vertical = 6.dp, horizontal = 6.dp),
                 )
             }
+        }
+    }
+}
+
+/** a line with its words lit up to [f] (0..1 of the line's time): sung words bright, the current one fading in, the rest dim */
+private fun karaoke(line: String, f: Float, c: Color): androidx.compose.ui.text.AnnotatedString {
+    val words = Regex("""\S+\s*""").findAll(line).toList()
+    if (words.isEmpty()) return androidx.compose.ui.text.AnnotatedString(line)
+    val x = f * words.size
+    return androidx.compose.ui.text.buildAnnotatedString {
+        words.forEachIndexed { k, w ->
+            val lit = (x - k).coerceIn(0f, 1f)
+            withStyle(androidx.compose.ui.text.SpanStyle(color = c.copy(alpha = 0.42f + 0.58f * lit))) { append(w.value) }
         }
     }
 }

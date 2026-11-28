@@ -456,6 +456,10 @@ fun MotionPage2() = PageScaffold("Анимации и жесты") {
         sliderFloat("Скорость волны", Prefs.cascadeSpeed, 0.4f..2f, 7) { "×" + "%.1f".format(it) }
         sliderFloat("Разброс по строкам", Prefs.cascadeSpread, 0.3f..2.5f, 10) { "×" + "%.1f".format(it) }
     }
+    group("Моушен блюр", footer = "Списки слегка размываются по направлению прокрутки, пока листаются быстро. Работает на Android 12 и новее.") {
+        switch("Моушен блюр при прокрутке", Prefs.motionBlur)
+        if (Prefs.motionBlur.value) segmented("Сила", Prefs.motionBlurStrength, listOf("low" to "Слабая", "mid" to "Средняя", "high" to "Сильная"))
+    }
     group("Жесты") {
         switch("Предиктивный «назад»", Prefs.predictiveBack, "Экран сдвигается, пока вы тянете")
         switch("Тактильный отклик", Prefs.haptics)

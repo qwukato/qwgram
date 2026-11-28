@@ -231,6 +231,8 @@ object Prefs {
     val hideStories = B("hide_stories", false)
     val noLinkPreview = B("no_link_preview", false)    // send links without a preview
     val photosAsFiles = B("photos_as_files", false)    // photos / videos go as files (no compression)
+    val motionBlur = B("motion_blur", false)          // directional blur on fast scrolling (Android 12+)
+    val motionBlurStrength = S("motion_blur_strength", "mid")
     val cascadeAppear = B("cascade_appear", true)      // screens ripple in (rows rise one after another)
     val psAppear = B("ps_appear", true)                // energy saving: no ripple-in
     val folderCascade = F("folder_cascade", 1f)        // strength of the rows' trailing wave on folder swipes

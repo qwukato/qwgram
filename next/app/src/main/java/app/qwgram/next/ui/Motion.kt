@@ -260,6 +260,9 @@ fun MorphIconButton(
 fun QMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val state = remember { androidx.compose.animation.core.MutableTransitionState(false) }
     state.targetState = expanded
+    // a light tick when a popup opens (Settings → haptics)
+    val haptic = rememberHaptic()
+    LaunchedEffect(expanded) { if (expanded) haptic(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick) }
     if (!state.currentState && !state.targetState && state.isIdle) return
     val cs = MaterialTheme.colorScheme
     val k = Prefs.motionSpeed.value * Prefs.motionSpeed.value

@@ -244,12 +244,13 @@ object Player {
     }
     private fun pos() = order.indexOf(index).coerceAtLeast(0)
     fun nextIndex(): Int = if (queue.size < 2) index else order.getOrElse((pos() + 1) % order.size) { 0 }
-    /** the track [k] steps away in play order (k = -2..2 for the cover carousel), or null */
-    fun peek(k: Int): Int? {
+    /** the track [k] steps away in play order from [base] (the cover carousel), or null */
+    fun peek(k: Int, base: Int = index): Int? {
         if (queue.isEmpty() || order.isEmpty()) return null
-        if (k == 0) return index
+        if (k == 0) return base
         if (queue.size < 2) return null
-        val p = (pos() + k).let { if (repeat == 0 && !shuffleOn && (it < 0 || it > order.lastIndex)) return null else ((it % order.size) + order.size) % order.size }
+        val bp = order.indexOf(base).coerceAtLeast(0)
+        val p = (bp + k).let { if (repeat == 0 && !shuffleOn && (it < 0 || it > order.lastIndex)) return null else ((it % order.size) + order.size) % order.size }
         return order.getOrNull(p)
     }
     fun prevIndex(): Int = if (queue.size < 2) index else order.getOrElse((pos() - 1 + order.size) % order.size) { 0 }
@@ -366,7 +367,9 @@ object Player {
     }
 
     fun stop() {
-        try { mp?.release() } catch (_: Exception) {}
+        // released off the main thread: releasing a player can take a while and would cost a frame
+        val old = mp
+        if (old != null) io.launch { try { old.release() } catch (_: Exception) {} }
         mp = null
         playing = false
         progress = 0f

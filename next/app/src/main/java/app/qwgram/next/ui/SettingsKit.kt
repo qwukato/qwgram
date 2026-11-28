@@ -241,7 +241,7 @@ fun PageScaffold(title: String, actions: @Composable () -> Unit = {}, content: L
     val lift by androidx.compose.animation.core.animateFloatAsState(if (scrolled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "lift")
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         LazyColumn(
-            Modifier.fillMaxSize().blurSource(), state = listState,
+            Modifier.fillMaxSize().motionBlur().blurSource(), state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) { content() }

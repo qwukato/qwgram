@@ -1,5 +1,7 @@
 package app.qwgram.next.ui
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
@@ -89,4 +91,41 @@ fun Modifier.rise(extra: Long = 0L, fromBottom: Boolean = false, lift: androidx.
             val sc = 0.95f + 0.05f * v
             scaleX = sc; scaleY = sc
         }
+}
+
+/**
+ * Motion blur on scrolling (Settings → Animations): the list blurs along the scroll direction in proportion to
+ * its speed and clears by itself a moment after it stops (a GPU RenderEffect, Android 12+; nothing below that).
+ * Works through nested scroll, so it sees finger drags and flings alike.
+ */
+@Composable
+fun Modifier.motionBlur(): Modifier {
+    if (android.os.Build.VERSION.SDK_INT < 31 || !app.qwgram.next.Prefs.motionBlur.value) return this
+    val (mult, cap) = when (app.qwgram.next.Prefs.motionBlurStrength.value) { "low" -> 0.25f to 12f; "high" -> 0.75f to 45f; else -> 0.45f to 24f }
+    val speed = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val last = androidx.compose.runtime.remember { longArrayOf(0L) }
+    // decay: no scroll for a few frames → the blur fades out
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            androidx.compose.runtime.withFrameMillis { now ->
+                if (now - last[0] > 40 && speed.floatValue > 0.01f) speed.floatValue = (speed.floatValue * 0.72f).let { if (it < 0.3f) 0f else it }
+            }
+        }
+    }
+    val conn = androidx.compose.runtime.remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                if (consumed.y != 0f) {
+                    // smoothed like the original: half the old speed, half the new step
+                    speed.floatValue = speed.floatValue * 0.5f + kotlin.math.abs(consumed.y) * 0.5f
+                    last[0] = android.os.SystemClock.uptimeMillis()
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+    return this.nestedScroll(conn).graphicsLayer {
+        val r = (speed.floatValue * mult).coerceAtMost(cap)
+        renderEffect = if (r < 0.5f) null else androidx.compose.ui.graphics.BlurEffect(0.01f, r, androidx.compose.ui.graphics.TileMode.Clamp)
+    }
 }

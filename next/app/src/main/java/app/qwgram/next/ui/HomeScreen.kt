@@ -642,8 +642,9 @@ fun ConnectionTitle(folderTitle: String?) {
                         "small" -> MaterialTheme.typography.titleLarge
                         "large" -> MaterialTheme.typography.headlineMedium
                         else -> MaterialTheme.typography.headlineSmall
-                    }.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
-                    color = if (t == "qwgram") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    }.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                    // near-white with a touch of the accent (the theme's primary mixed into the text colour)
+                    color = if (t == "qwgram") androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.primary, 0.28f) else MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -782,7 +783,7 @@ fun ChatList(list: TdApi.ChatList, pad: PaddingValues, showArchive: Boolean, cas
     LazyColumn(
         state = state,
         contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + 96.dp, top = pad.calculateTopPadding() + 4.dp),
-        modifier = Modifier.fillMaxSize().then(if (page >= 0) Modifier.cancelPage(page, at) else Modifier).nestedScroll(pullConn),
+        modifier = Modifier.fillMaxSize().motionBlur().then(if (page >= 0) Modifier.cancelPage(page, at) else Modifier).nestedScroll(pullConn),
         verticalArrangement = Arrangement.spacedBy(if (Prefs.listStyle.value == "cards") 2.dp else 0.dp),
     ) {
         // stories of contacts and channels, above everything (Telegram)

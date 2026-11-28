@@ -3,6 +3,8 @@ package app.qwgram.next.ui
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -775,7 +777,7 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
-                    modifier = Modifier.fillMaxSize().blurSource(1f)
+                    modifier = Modifier.fillMaxSize().motionBlur().blurSource(1f)
                         .layout { m, c ->
                             val pl = m.measure(c)
                             // the insert just happened: find how far the old newest bubble moved and start from there
@@ -1966,9 +1968,10 @@ private fun MessageMenu(
     var props by remember { mutableStateOf<TdApi.MessageProperties?>(null) }
     var available by remember { mutableStateOf<TdApi.AvailableReactions?>(null) }
     var fullPicker by remember { mutableStateOf(false) }
+    var stripOpen by remember { mutableStateOf(false) }
     LaunchedEffect(m.id) {
         props = Td.callOrNull(TdApi.GetMessageProperties(m.chatId, m.id))
-        available = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 8))
+        available = Td.callOrNull(TdApi.GetMessageAvailableReactions(m.chatId, m.id, 12))
     }
     // the strip: the chat's top reactions first (emoji and premium emoji), the rest in the full picker
     val premium = TdStore.me?.isPremium == true
@@ -1976,10 +1979,13 @@ private fun MessageMenu(
         available?.let { (it.topReactions + it.recentReactions + it.popularReactions).toList() }.orEmpty()
             .distinctBy { reactionKeyOf(it.type) }
     }
-    val strip = allReactions.filter { premium || !it.needsPremium }.take(8).map { it.type }
+    val strip = allReactions.filter { premium || !it.needsPremium }.take(12).map { it.type }
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
     // short and springy: quick stiff spring with a small overshoot
-    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 1100f * Prefs.motionSpeed.value * Prefs.motionSpeed.value)) }
+    val haptic = rememberHaptic()
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, androidx.compose.animation.core.tween((220 / Prefs.motionSpeed.value).toInt(), easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)))
+    }
     var closing by remember { mutableStateOf(false) }
     fun close(then: () -> Unit = {}) {
         if (closing) return
@@ -2033,7 +2039,7 @@ private fun MessageMenu(
             Column(
                 Modifier.width(IntrinsicSize.Max).widthIn(min = 220.dp, max = 300.dp).graphicsLayer {
                     val v = appear.value
-                    val sc = 0.88f + 0.12f * v
+                    val sc = 0.92f + 0.08f * v
                     scaleX = sc; scaleY = sc
                     alpha = v.coerceIn(0f, 1f)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (out) 1f else 0f, if (below) 0f else 1f)
@@ -2041,19 +2047,14 @@ private fun MessageMenu(
                 horizontalAlignment = if (out) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                if (strip.isNotEmpty()) Surface(shape = RoundedCornerShape(28.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
-                    Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            strip.forEach { t ->
-                                MorphBox(onClick = { reactType(m, t); close() }, modifier = Modifier.size(44.dp), rest = 22.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
-                                    ReactionGlyph(t, 28.dp)
-                                }
-                            }
-                        }
-                        // every reaction, including premium emoji
-                        MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Все реакции", { fullPicker = true }, size = 40.dp, color = cs.surfaceContainerHighest)
-                    }
-                }
+                if (strip.isNotEmpty()) ReactionStrip(
+                    strip, allReactions.filter { premium || !it.needsPremium }.map { it.type },
+                    onPick = { t -> haptic(HapticFeedbackType.Confirm); reactType(m, t); close() },
+                    onMore = { fullPicker = true },
+                    expandedChanged = { stripOpen = it },
+                )
+                androidx.compose.animation.AnimatedVisibility(!stripOpen, enter = androidx.compose.animation.expandVertically(Springs.spatial()) + androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.shrinkVertically(Springs.spatial()) + androidx.compose.animation.fadeOut()) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
                 var index = 0
                 val groups = listOf(main, extra, danger).filter { it.isNotEmpty() }
                 groups.forEachIndexed { gi, group ->
@@ -2065,11 +2066,11 @@ private fun MessageMenu(
                             group.forEach { item ->
                                 val i = index++
                                 val enter = remember { androidx.compose.animation.core.Animatable(0f) }
-                                LaunchedEffect(Unit) { kotlinx.coroutines.delay(10L * i); enter.animateTo(1f, Springs.fastSpatial()) }
+                                LaunchedEffect(Unit) { kotlinx.coroutines.delay(12L * i); enter.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f))) }
                                 Row(
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         .graphicsLayer { alpha = enter.value.coerceIn(0f, 1f); translationY = (1f - enter.value) * 10.dp.toPx() }
-                                        .clickable { close(item.action) }.padding(horizontal = 16.dp),
+                                        .clickable { haptic(HapticFeedbackType.ContextClick); close(item.action) }.padding(horizontal = 16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     val tint = if (item.danger) cs.error else cs.onSurfaceVariant
@@ -2087,6 +2088,8 @@ private fun MessageMenu(
                         style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
+                }
+                }
                 }
             }
         },
@@ -2342,6 +2345,96 @@ fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom: Boolea
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Telegram's reaction bar: your most used reactions first (Telegram keeps them in that order), popping in one by
+ * one. Press and slide along it — the reaction under the finger swells (its neighbours a little), with a tick on
+ * each new one; let go to react. The arrow opens the whole set right in the bar, which grows into a grid.
+ */
+@Composable
+private fun ReactionStrip(
+    strip: List<TdApi.ReactionType>, all: List<TdApi.ReactionType>,
+    onPick: (TdApi.ReactionType) -> Unit, onMore: () -> Unit, expandedChanged: (Boolean) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val haptic = rememberHaptic()
+    var open by remember { mutableStateOf(false) }
+    var hover by remember { mutableStateOf(-1) }
+    val cell = 42.dp
+    val density = LocalDensity.current
+    val cellPx = with(density) { cell.toPx() }
+    val scroll = rememberScrollState()
+    Surface(
+        shape = RoundedCornerShape(if (open) 28.dp else 26.dp), color = cs.surfaceContainerHigh, shadowElevation = 6.dp,
+        modifier = Modifier.padding(bottom = 5.dp).width(300.dp).animateContentSize(androidx.compose.animation.core.spring(0.85f, 420f)),
+    ) {
+        if (!open) Row(Modifier.padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).horizontalScroll(scroll)
+                    .pointerInput(strip) {
+                        // press-and-slide: swell what's under the finger, react on release
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            fun at(x: Float) = ((x + scroll.value) / cellPx).toInt().coerceIn(0, strip.lastIndex)
+                            hover = at(down.position.x)
+                            var moved = false
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!c.pressed) break
+                                if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                                if (moved) {
+                                    c.consume()
+                                    val h = if (c.position.y < -cellPx || c.position.y > size.height + cellPx) -1 else at(c.position.x)
+                                    if (h != hover) { hover = h; if (h >= 0) haptic(HapticFeedbackType.SegmentFrequentTick) }
+                                }
+                            }
+                            val pick = hover
+                            hover = -1
+                            if (pick >= 0) onPick(strip[pick])
+                        }
+                    },
+            ) {
+                strip.forEachIndexed { i, t ->
+                    // pop in one after another
+                    val pop = remember { androidx.compose.animation.core.Animatable(0f) }
+                    LaunchedEffect(Unit) { kotlinx.coroutines.delay(18L * i); pop.animateTo(1f, androidx.compose.animation.core.spring(0.5f, 600f)) }
+                    val d = if (hover < 0) 9 else kotlin.math.abs(i - hover)
+                    val swell by androidx.compose.animation.core.animateFloatAsState(when (d) { 0 -> 1.55f; 1 -> 1.12f; else -> 1f }, androidx.compose.animation.core.spring(0.55f, 700f), label = "sw")
+                    Box(
+                        Modifier.size(cell).zIndex(if (d == 0) 1f else 0f).graphicsLayer {
+                            val sc = pop.value * swell
+                            scaleX = sc; scaleY = sc
+                            translationY = if (d == 0) -10.dp.toPx() * (swell - 1f) / 0.55f else 0f
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) { ReactionGlyph(t, 28.dp) }
+                }
+            }
+            // the whole set, in the bar
+            MorphIconButton(Icons.Outlined.KeyboardArrowDown, "Все реакции", { haptic(HapticFeedbackType.ContextClick); open = true; expandedChanged(true) }, size = 38.dp, color = cs.surfaceContainerHighest)
+        } else Column(Modifier.padding(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Реакции", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
+                MorphIconButton(Icons.Outlined.KeyboardArrowUp, "Свернуть", { open = false; expandedChanged(false) }, size = 36.dp, color = cs.surfaceContainerHighest)
+            }
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                androidx.compose.foundation.lazy.grid.GridCells.Fixed(7), Modifier.fillMaxWidth().heightIn(max = 300.dp),
+            ) {
+                items(all.size) { i ->
+                    val t = all[i]
+                    val pop = remember { androidx.compose.animation.core.Animatable(0f) }
+                    LaunchedEffect(Unit) { kotlinx.coroutines.delay((i.coerceAtMost(28) * 8L)); pop.animateTo(1f, androidx.compose.animation.core.spring(0.55f, 600f)) }
+                    MorphBox(onClick = { onPick(t) }, modifier = Modifier.size(40.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }, rest = 20.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
+                        ReactionGlyph(t, 28.dp)
+                    }
+                }
+            }
+            // premium / custom emoji: the full picker
+            androidx.compose.material3.TextButton(onClick = onMore, modifier = Modifier.align(Alignment.End)) { Text("Ещё эмодзи") }
         }
     }
 }
