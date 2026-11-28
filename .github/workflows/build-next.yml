@@ -169,6 +169,7 @@ jobs:
             echo "Android 8.0+ · arm64-v8a и armeabi-v7a · неофициальный клиент на TDLib"
           } > notes.md
           sed -i 's/^- Next: /- /' notes.md
+          sed -i -E '/^- (player )?build fix(es)?$/d' notes.md
           gh release create "$TAG" out/qwgram-next.apk \
             --target "$GITHUB_SHA" --title "qwgram Next 0.1.$N" --notes-file notes.md --latest
           # keep the page tidy: drop all but the 10 newest Next releases (and their tags)
