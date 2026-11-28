@@ -242,7 +242,7 @@ private fun EmojiGrid(onEmoji: (String) -> Unit, onCustom: (TdApi.Sticker) -> Un
                 if (still != null) Image(still, sections[i].first, Modifier.size(24.dp)) else Icon(Icons.Outlined.EmojiEmotions, sections[i].first, Modifier.size(22.dp))
             } else Icon(EMOJI_ICONS.getOrElse(i) { Icons.Outlined.EmojiEmotions }, sections[i].first, Modifier.size(22.dp))
         }
-        LazyVerticalGrid(GridCells.Adaptive(46.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
+        LazyVerticalGrid(GridCells.Adaptive(46.dp), Modifier.motionBlur().fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
             sections.forEach { (title, list, _) ->
                 item(span = { GridItemSpan(maxLineSpan) }) { PanelHeader(title) }
                 items(list) { cell ->
@@ -315,7 +315,7 @@ private fun StickerGrid(onSticker: (TdApi.Sticker) -> Unit) {
         }
         if (sections.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Нет стикеров — добавьте набор кнопкой +", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        } else LazyVerticalGrid(GridCells.Adaptive(78.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
+        } else LazyVerticalGrid(GridCells.Adaptive(78.dp), Modifier.motionBlur().fillMaxSize(), state = state, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)) {
             sections.forEach { sec ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "h" + sec.key) { PanelHeader(sec.title) }
                 items(sec.stickers, key = { sec.key + "_" + it.id }) { StickerCell(it, onSticker) { preview = it } }
@@ -352,7 +352,7 @@ private fun GifGrid(onGif: (TdApi.Animation) -> Unit) {
     val list = gifs
     if (list == null) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }; return }
     if (list.isEmpty()) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Нет сохранённых GIF", color = MaterialTheme.colorScheme.onSurfaceVariant) }; return }
-    LazyVerticalGrid(GridCells.Adaptive(110.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(6.dp)) {
+    LazyVerticalGrid(GridCells.Adaptive(110.dp), Modifier.motionBlur().fillMaxSize(), contentPadding = PaddingValues(6.dp)) {
         items(list, key = { it.animation.id }) { a ->
             val bmp = rememberFileBitmap(a.thumbnail?.file, 256)
             MorphBox(onClick = { onGif(a) }, modifier = Modifier.aspectRatio(1f).padding(3.dp), rest = 14.dp, pressed = 24.dp, color = MaterialTheme.colorScheme.surfaceContainerHigh, squish = 0.92f) {

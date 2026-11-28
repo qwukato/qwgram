@@ -1004,10 +1004,10 @@ private fun PlainLyrics(text: String, col: PColors) {
 
 /**
  * Synced lyrics, like the best players do it:
- *  · the line being sung sits in the middle, big and bright; its words light up one after another as they are
- *    sung (timed across the line), the next word glowing in;
- *  · when the next line starts, the lines move up as a CASCADE — the nearest first, the farther ones a beat later;
- *  · lines leaving the middle soften (a slight blur, dimmer), sung ones dimmer still;
+ *  · the line being sung sits in the middle, bright, its words lighting up as they are sung;
+ *  · when the next line starts the whole text glides up as ONE piece, with a gentle ripple — each line a few
+ *    frames behind the one before it (nearest first), so it reads as one sheet of text moving, not separate rows;
+ *  · lines away from the middle soften (dimmer, a slight blur); nothing is scaled, so nothing is ever cut;
  *  · the edges dissolve; tap a line to jump there; scrolling by hand pauses the follow for 3 s.
  */
 @Composable
@@ -1018,10 +1018,13 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
     LaunchedEffect(dragged) { if (dragged) lastTouch = System.currentTimeMillis() }
     val pos = Player.positionMs + 200
     val cur = lines.indexOfLast { it.first <= pos }.coerceAtLeast(0)
-    // the cascade: after a line change every line is pushed back by the scroll amount and springs home,
-    // the ones near the middle first
-    val wave = remember { Animatable(1f) }
+    // one glide for everything: the list moves at once, every line starts "where it was" (pushed back by the
+    // move) and settles; a line's settling starts slightly later the farther it is from the middle
+    val glide = remember { Animatable(1f) }
     var push by remember { mutableFloatStateOf(0f) }
+    var pivot by remember { mutableIntStateOf(cur) }
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, tween(500)) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         suspend fun centre(animated: Boolean) {
             val li = state.layoutInfo
@@ -1030,11 +1033,13 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
             val mid = (li.viewportStartOffset + li.viewportEndOffset) / 2f
             val delta = info.offset + info.size / 2f - mid
             if (!animated || abs(delta) < 1f) { state.scrollBy(delta); return }
-            // jump the list there at once, then let every line catch up in a wave
+            pivot = cur
+            // the remaining push of an unfinished glide carries over, so quick lines never jump
+            val left = push * (1f - glide.value)
             state.scrollBy(delta)
-            push = delta
-            wave.snapTo(0f)
-            wave.animateTo(1f, tween(900, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)))
+            push = delta + left
+            glide.snapTo(0f)
+            glide.animateTo(1f, tween(760, easing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.1f, 1f)))
         }
         LaunchedEffect(Unit) { state.scrollToItem(cur); centre(false) }
         LaunchedEffect(cur) {
@@ -1042,19 +1047,17 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
             centre(true)
             if (state.layoutInfo.visibleItemsInfo.none { it.index == cur }) centre(false)
         }
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize().fadeEdges(64.dp, 110.dp), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = maxHeight * 0.5f, bottom = maxHeight * 0.5f)) {
+        LazyColumn(
+            state = state,
+            modifier = Modifier.fillMaxSize().fadeEdges(72.dp, 120.dp).graphicsLayer { alpha = shown.value },
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = maxHeight * 0.5f, bottom = maxHeight * 0.5f),
+        ) {
             itemsIndexed(lines) { i, (t, line) ->
                 val active = i == cur
-                val dist = (i - cur).toFloat()
-                val enter = remember { Animatable(0f) }
-                LaunchedEffect(Unit) { delay(((i - cur).coerceIn(0, 12) * 40L)); enter.animateTo(1f, spring(0.7f, 240f)) }
-                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.3f else 0.5f, spring(1f, 140f), label = "la")
-                val sc by animateFloatAsState(if (active) 1.04f else 0.96f, spring(0.6f, 220f), label = "ls")
-                val blur by animateDpAsState(if (active) 0.dp else (abs(dist).coerceAtMost(3f) * 1.1f).dp, spring(1f, 160f), label = "lb")
-                // this line's place in the cascade: the nearer the middle, the sooner it moves
-                val rank = (abs(dist) / 7f).coerceIn(0f, 1f) * 0.45f
+                val dist = abs(i - cur)
+                val a by animateFloatAsState(if (active) 1f else if (i < cur) 0.32f else 0.5f, tween(450), label = "la")
+                val blur by animateDpAsState(if (active) 0.dp else (dist.coerceAtMost(3) * 0.7f).dp, tween(450), label = "lb")
                 val text = if (active && line.isNotBlank()) {
-                    // words light up as they are sung (timed across the line); the word in progress glows in
                     val end = lines.getOrNull(i + 1)?.first ?: (t + 4000)
                     val f = ((Player.positionMs - t).toFloat() / (end - t).coerceAtLeast(1)).coerceIn(0f, 1f)
                     karaoke(line, f, col.text)
@@ -1063,17 +1066,18 @@ private fun SyncedLyrics(lines: List<Pair<Int, String>>, col: PColors) {
                     text,
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, lineHeight = MaterialTheme.typography.headlineSmall.lineHeight * 1.05f),
                     color = col.text,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp))
-                        .clickable { Player.seekMs(t); lastTouch = 0L }
+                    modifier = Modifier.fillMaxWidth()
                         .graphicsLayer {
-                            val w = ((wave.value - rank) / (1f - rank)).coerceIn(0f, 1f)
-                            alpha = (if (active) 1f else a) * enter.value
-                            scaleX = sc; scaleY = sc
-                            translationY = push * (1f - w) + (1f - enter.value) * 28.dp.toPx()
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            // the ripple: each line ~35 ms behind the one before it (relative to the old middle)
+                            val lag = ((i - pivot + 1).coerceIn(0, 8)) * 0.045f
+                            val w = ((glide.value - lag) / (1f - lag)).coerceIn(0f, 1f)
+                            val e = 1f - (1f - w) * (1f - w) * (1f - w)
+                            translationY = push * (1f - e)
+                            alpha = if (active) 1f else a
                         }
                         .then(if (blur > 0.05.dp) Modifier.blur(blur, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)
-                        .padding(vertical = 6.dp, horizontal = 6.dp),
+                        .clickable(remember { MutableInteractionSource() }, indication = null) { Player.seekMs(t); lastTouch = 0L }
+                        .padding(vertical = 10.dp),
                 )
             }
         }

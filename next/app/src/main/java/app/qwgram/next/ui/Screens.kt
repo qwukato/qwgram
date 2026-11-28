@@ -196,7 +196,7 @@ fun ProfileScreen(chatId: Long) {
             }, actions = { ProfileMenu(chat, user, me) })
         },
     ) { pad ->
-        LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize().blurSource(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(3), state = gridState, contentPadding = PaddingValues(top = pad.calculateTopPadding() - 12.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize().motionBlur().blurSource(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     ProfileBanner(
@@ -567,7 +567,7 @@ fun SearchScreen() {
     } }
     Column(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawRect(cs.surface.copy(alpha = grow.value.coerceIn(0f, 1f))) }) {
         if (!fromBottom) pillBlock(Modifier.statusBarsPadding().padding(top = 6.dp)) else Spacer(Modifier.statusBarsPadding())
-        LazyColumn(Modifier.fillMaxWidth().weight(1f).graphicsLayer { alpha = ((grow.value - 0.55f) / 0.45f).coerceIn(0f, 1f) }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f).motionBlur().graphicsLayer { alpha = ((grow.value - 0.55f) / 0.45f).coerceIn(0f, 1f) }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (q.isBlank()) {
                 val recentChats = recent.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }
                 val topChats = top.mapNotNull { TdStore.chats[it] }.filter { matches(it, filter) }

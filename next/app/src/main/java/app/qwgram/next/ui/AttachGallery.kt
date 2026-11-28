@@ -249,7 +249,7 @@ fun AttachGallerySheet(
                 LazyVerticalGrid(
                     GridCells.Fixed(3),
                     // the grid fills the sheet: it opens half-way, scrolling up expands it, then the photos scroll (Telegram)
-                    Modifier.fillMaxWidth().fillMaxHeight(),
+                    Modifier.fillMaxWidth().fillMaxHeight().motionBlur(),
                     contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 96.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),

@@ -160,7 +160,7 @@ fun StickerSetHost() {
                 Text(s.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp))
                 Text("${s.stickers.size} стикеров", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                LazyVerticalGrid(GridCells.Adaptive(84.dp), Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp)) {
+                LazyVerticalGrid(GridCells.Adaptive(84.dp), Modifier.motionBlur().fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp)) {
                     items(s.stickers.toList(), key = { it.id }) { st ->
                         Box(Modifier.aspectRatio(1f).padding(4.dp).clip(RoundedCornerShape(16.dp)).clickable { preview = st }.padding(4.dp), contentAlignment = Alignment.Center) {
                             StickerContent(st, Modifier.fillMaxSize()) { Text(st.emoji, fontSize = 30.sp) }

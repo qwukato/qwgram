@@ -880,6 +880,7 @@ private fun AppDrawer(progress: () -> Float, close: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.motionBlur(),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {

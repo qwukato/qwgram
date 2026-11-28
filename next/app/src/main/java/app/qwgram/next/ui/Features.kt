@@ -198,7 +198,7 @@ fun ChatPickerSheet(initial: Set<Long>, onDismiss: () -> Unit, onDone: (Set<Long
             Text("Выберите чаты", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             QTextButton(onClick = { onDone(sel.toSet()); onDismiss() }) { Text("Готово") }
         }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+        LazyColumn(Modifier.motionBlur().fillMaxWidth().heightIn(max = 560.dp)) {
             itemsIndexed(chats, key = { _, c -> c.id }) { i, c ->
                 val on = c.id in sel
                 ListItem(

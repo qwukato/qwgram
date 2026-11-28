@@ -210,7 +210,7 @@ fun ProfileGifts(owner: TdApi.MessageSender, modifier: Modifier = Modifier) {
     }
     if (all) QSheet(onDismiss = { all = false }) {
         Text("Подарки · $total", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
-        LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 32.dp),
+        LazyVerticalGrid(GridCells.Fixed(3), Modifier.motionBlur().fillMaxWidth().weight(1f), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(list, key = { it.receivedGiftId.ifEmpty { it.date.toString() + it.hashCode() } }) { g ->
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f)) {

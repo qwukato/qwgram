@@ -106,7 +106,7 @@ fun NewMessagePage(start: String = "") {
             }
         },
     ) { pad ->
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pad.calculateTopPadding(), bottom = 120.dp)) {
+        LazyColumn(Modifier.fillMaxSize().motionBlur(), contentPadding = PaddingValues(top = pad.calculateTopPadding(), bottom = 120.dp)) {
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).height(52.dp).clip(CircleShape)

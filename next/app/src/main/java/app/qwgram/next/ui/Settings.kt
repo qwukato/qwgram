@@ -166,7 +166,7 @@ fun SettingsHome(pad: PaddingValues) {
             SearchButton()
         }
         LazyColumn(
-            Modifier.fillMaxSize().blurSource(),
+            Modifier.fillMaxSize().motionBlur().blurSource(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = headerH - headerOverlap(), bottom = pad.calculateBottomPadding() + 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {

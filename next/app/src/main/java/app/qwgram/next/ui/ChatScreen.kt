@@ -3,6 +3,7 @@ package app.qwgram.next.ui
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -685,7 +686,14 @@ fun ChatScreen(chatId: Long, topic: Int = 0, thread: Long = 0L) {
         androidx.compose.animation.core.animate(from, 0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 340f * k, visibilityThreshold = 0.5f)) { v, _ -> sendFlight.shift = v }
         sendFlight.shift = 0f
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze, LocalSendFlight provides sendFlight) {
+    val baseVc = androidx.compose.ui.platform.LocalViewConfiguration.current
+    val quickVc = remember(baseVc) {
+        object : androidx.compose.ui.platform.ViewConfiguration by baseVc {
+            override val doubleTapTimeoutMillis: Long get() = 160L
+            override val longPressTimeoutMillis: Long get() = 300L
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalWallHaze provides wallHaze, LocalSendFlight provides sendFlight, androidx.compose.ui.platform.LocalViewConfiguration provides quickVc) {
     Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f - 0.025f * recede; scaleX = sc; scaleY = sc }) {
         // the wallpaper: blurred by the chrome (with the history) and, alone, by dates / service plates / bubbles
         Box(Modifier.fillMaxSize().blurSource(0f).blurSource(0f, wallHaze)) { ChatBackdrop(chat) { ChatWallpaper() } }
@@ -2171,7 +2179,7 @@ internal fun ForwardSheet(list: List<TdApi.Message>, onDismiss: () -> Unit) {
         }
         // chats as a segmented container list (like Settings)
         LazyColumn(
-            Modifier.fillMaxWidth().heightIn(max = 560.dp),
+            Modifier.motionBlur().fillMaxWidth().heightIn(max = 560.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -2316,7 +2324,7 @@ fun ReactionPickerSheet(list: List<TdApi.AvailableReaction>, allowCustom: Boolea
     QSheet(onDismiss = onDismiss) {
         Text("Реакции", style = MaterialTheme.typography.titleLarge, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp))
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(52.dp), Modifier.fillMaxWidth().weight(1f),
+            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(52.dp), Modifier.motionBlur().fillMaxWidth().weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
         ) {
             items(list.size, key = { "r" + reactionKeyOf(list[it].type) }) { i ->
@@ -2421,15 +2429,19 @@ private fun ReactionStrip(
                 Text("Реакции", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = 8.dp))
                 MorphIconButton(Icons.Outlined.KeyboardArrowUp, "Свернуть", { open = false; expandedChanged(false) }, size = 36.dp, color = cs.surfaceContainerHighest)
             }
-            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                androidx.compose.foundation.lazy.grid.GridCells.Fixed(7), Modifier.fillMaxWidth().heightIn(max = 300.dp),
-            ) {
-                items(all.size) { i ->
-                    val t = all[i]
-                    val pop = remember { androidx.compose.animation.core.Animatable(0f) }
-                    LaunchedEffect(Unit) { kotlinx.coroutines.delay((i.coerceAtMost(28) * 8L)); pop.animateTo(1f, androidx.compose.animation.core.spring(0.55f, 600f)) }
-                    MorphBox(onClick = { onPick(t) }, modifier = Modifier.size(40.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }, rest = 20.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
-                        ReactionGlyph(t, 28.dp)
+            // rows of 7 in a plain scroll (a lazy grid can't sit inside the menu: it measures itself by intrinsics,
+            // which lazy layouts refuse — that crashed)
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                all.chunked(7).forEachIndexed { row, chunk ->
+                    Row {
+                        chunk.forEachIndexed { col, t ->
+                            val i = row * 7 + col
+                            val pop = remember { androidx.compose.animation.core.Animatable(0f) }
+                            LaunchedEffect(Unit) { kotlinx.coroutines.delay((i.coerceAtMost(28) * 8L)); pop.animateTo(1f, androidx.compose.animation.core.spring(0.55f, 600f)) }
+                            MorphBox(onClick = { onPick(t) }, modifier = Modifier.size(40.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }, rest = 20.dp, pressed = 12.dp, color = Color.Transparent, squish = 0.8f) {
+                                ReactionGlyph(t, 28.dp)
+                            }
+                        }
                     }
                 }
             }

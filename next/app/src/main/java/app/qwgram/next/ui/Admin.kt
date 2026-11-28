@@ -368,7 +368,7 @@ fun FolderInviteDialog(link: String, info: TdApi.ChatFolderInviteLinkInfo, onDon
                 },
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp),
             )
-            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.motionBlur().heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(missing) { i, id ->
                     var chat by remember { mutableStateOf(TdStore.chats[id]) }
                     LaunchedEffect(id) { if (chat == null) chat = Td.callOrNull(TdApi.GetChat(id)) }
@@ -533,7 +533,7 @@ private fun AddMembersSheet(chatId: Long, onDone: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             val list = users?.filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
             if (list == null) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
-            else androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            else androidx.compose.foundation.lazy.LazyColumn(Modifier.motionBlur().fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, u -> u.id }) { i, u ->
                     Row(
                         Modifier.segment(i, list.size).clickable { if (u.id in chosen) chosen.remove(u.id) else chosen.add(u.id) }.padding(horizontal = 16.dp, vertical = 8.dp),

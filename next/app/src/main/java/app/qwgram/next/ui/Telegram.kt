@@ -434,7 +434,7 @@ private fun ViewersSheet(m: TdApi.Message, onDone: () -> Unit) {
                 // everyone who reacted or read, once; the reaction next to the name
                 val ids = (reactions.map { TdStore.senderId(it.senderId) } + v.map { it.userId }).distinct()
                 if (ids.isEmpty()) Text("Пока никто не прочитал", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
-                LazyColumn(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                LazyColumn(Modifier.motionBlur().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     itemsIndexed(ids) { i, id ->
                         val r = reactions.firstOrNull { TdStore.senderId(it.senderId) == id }
                         val seen = v.firstOrNull { it.userId == id }
@@ -598,7 +598,7 @@ fun ComposerSuggestions(chat: TdApi.Chat, text: String, onText: (String) -> Unit
     }
     AnimatedVisibility(list.isNotEmpty(), enter = expandVertically(Springs.smooth()) + fadeIn(Springs.effects()), exit = shrinkVertically(Springs.exit()) + fadeOut(Springs.exit())) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 232.dp)) {
+            LazyColumn(Modifier.motionBlur().fillMaxWidth().heightIn(max = 232.dp)) {
                 items(list) { s ->
                     Row(
                         Modifier.fillMaxWidth().clickable { if (s.send) onSendCommand(s.insert) else onText(s.insert) }.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -979,7 +979,7 @@ fun ContactPicker(chatId: Long, replyTo: TdApi.Message?, onDone: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             val list = users?.filter { q.isBlank() || TdStore.fullName(it).contains(q, ignoreCase = true) }
             if (list == null) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { LoadingIndicator() }
-            else LazyColumn(Modifier.fillMaxWidth().weightFill(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            else LazyColumn(Modifier.motionBlur().fillMaxWidth().weightFill(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, u -> u.id }) { i, u ->
                     Row(
                         Modifier.segment(i, list.size).clickable {
@@ -1102,7 +1102,7 @@ fun InlineBotResults(chat: TdApi.Chat, text: String, replyTo: TdApi.Message?, on
                     }
                 }
             } else {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
+                LazyColumn(Modifier.motionBlur().fillMaxWidth().heightIn(max = 260.dp)) {
                     items(res.results.toList()) { item ->
                         val (title, sub) = inlineTitle(item)
                         Row(Modifier.fillMaxWidth().clickable { send(inlineId(item)) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
